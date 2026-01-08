@@ -146,7 +146,7 @@ export default function C2Profiles() {
                             <Radio size={24} className="text-signal" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold tracking-widest">C2_CHANNELS</h1>
+                            <h1 className="text-2xl font-bold tracking-widest">C2 PROFILES</h1>
                             <p className="text-xs text-gray-400 font-mono">/root/network/profiles • {data?.c2profile?.length || 0} CHANNELS_DETECTED</p>
                         </div>
                     </div>

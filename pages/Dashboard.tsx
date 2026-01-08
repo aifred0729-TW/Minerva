@@ -105,7 +105,7 @@ export default function Dashboard() {
                             M
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold tracking-[0.2em]">MINERVA</h1>
+                            <h1 className="text-2xl font-bold tracking-widest">MINERVA</h1>
                             <p className="text-xs text-gray-400 font-mono tracking-widest">C2_OPERATIONS_CENTER</p>
                         </div>
                     </div>

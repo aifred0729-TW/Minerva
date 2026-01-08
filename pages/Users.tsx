@@ -218,33 +218,37 @@ export default function UsersPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex">
+    <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
       <Sidebar isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} />
       
-      <div className={cn("flex-1 transition-all duration-300 flex flex-col", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+      <div className={cn("transition-all duration-300 p-6 lg:p-12 min-h-screen", isSidebarCollapsed ? "ml-16" : "ml-64")}>
         {/* Header */}
-        <header className="h-20 border-b border-ghost/30 flex items-center justify-between px-8 bg-black/40 backdrop-blur-sm sticky top-0 z-40">
+        <header className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-4">
-                <Users className="text-signal" />
-                <h1 className="text-xl font-bold tracking-wider">USER_MANAGEMENT</h1>
+                <div className="p-3 border border-signal bg-signal/10 rounded">
+                    <Users size={24} className="text-signal" />
+                </div>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-widest">USER MANAGEMENT</h1>
+                    <p className="text-xs text-gray-400 font-mono">/root/users/list</p>
+                </div>
             </div>
             <button 
                 onClick={handleCreate}
-                className="flex items-center gap-2 px-4 py-2 bg-signal/10 border border-signal/50 text-signal hover:bg-signal hover:text-void transition-all font-mono text-sm group"
+                className="flex items-center gap-2 px-6 py-3 bg-signal text-void font-bold font-mono text-sm hover:bg-white hover:shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-all rounded"
             >
-                <UserPlus size={16} />
-                NEW_OPERATOR
+                <UserPlus size={18} /> NEW OPERATOR
             </button>
         </header>
 
         {/* Content */}
-        <main className="p-8 flex-1 overflow-y-auto">
-            <CyberTable 
-                data={data?.operator || []} 
-                columns={columns as any} 
-                isLoading={loading}
-                onRowClick={(row) => handleEdit(row)}
-            />
+        <main className="">
+          <CyberTable 
+              data={[...(data?.operator || [])].sort((a: Operator, b: Operator) => a.id - b.id)} 
+              columns={columns as any} 
+              isLoading={loading}
+              onRowClick={(row) => handleEdit(row)}
+          />
         </main>
       </div>
 

@@ -76,10 +76,10 @@ export function PayloadStatsCard({ count = 0 }: { count?: number }) {
         <div className="mt-2 text-xs text-gray-400 font-mono flex justify-between">
           <span>REPOSITORY</span>
           <span>{count > 0 ? "POPULATED" : "EMPTY"}</span>
-        </div>
-      </DashboardCard>
-    );
-  }
+      </div>
+    </DashboardCard>
+  );
+}
 
 export function RecentPayloadsCard({ payloads = [] }: { payloads?: any[] }) {
   return (

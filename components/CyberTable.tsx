@@ -56,28 +56,34 @@ export function CyberTable<T extends { id: number | string }>({ data, columns, o
           </tr>
         </thead>
         <tbody className="relative">
-          <AnimatePresence mode='popLayout' initial={false}>
+          <AnimatePresence initial={false}>
             {data.map((row) => (
                 <motion.tr 
-                    key={row.id} 
-                    onClick={() => onRowClick && onRowClick(row)}
-                    className="border-b border-ghost/10 hover:bg-white/5 transition-colors group cursor-pointer"
+                key={row.id} 
+                onClick={() => onRowClick && onRowClick(row)}
+                className="border-b border-ghost/10 hover:bg-white/5 transition-colors group cursor-pointer"
                     layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, backgroundColor: "rgba(220, 38, 38, 0.2)" }}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ 
+                        opacity: 0, 
+                        x: 50, 
+                        backgroundColor: "rgba(220, 38, 38, 0.1)",
+                        filter: "blur(5px)",
+                        transition: { duration: 0.4, ease: "anticipate" }
+                    }}
                     transition={{ duration: 0.3 }}
-                >
-                {columns.map((col, colIdx) => (
-                    <td key={colIdx} className="py-3 px-4 text-signal/80 group-hover:text-signal transition-colors">
-                    {col.cell ? col.cell(row) : (row[col.accessorKey as keyof T] as React.ReactNode)}
-                    </td>
-                ))}
-                <td className="pr-4 text-right">
-                    <ChevronRight size={16} className="text-gray-400 group-hover:text-signal opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+            >
+              {columns.map((col, colIdx) => (
+                <td key={colIdx} className="py-3 px-4 text-signal/80 group-hover:text-signal transition-colors">
+                  {col.cell ? col.cell(row) : (row[col.accessorKey as keyof T] as React.ReactNode)}
                 </td>
+              ))}
+              <td className="pr-4 text-right">
+                    <ChevronRight size={16} className="text-gray-400 group-hover:text-signal opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+              </td>
                 </motion.tr>
-            ))}
+          ))}
           </AnimatePresence>
           
           {data.length === 0 && !isLoading && (

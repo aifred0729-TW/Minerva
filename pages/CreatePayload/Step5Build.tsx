@@ -187,9 +187,12 @@ const processParamValue = async (param: any, contextStr: string) => {
     // Strict Type Casting based on Parameter Type
     switch(param.parameter_type) {
         case "Number":
+            if (val === "" && param.default_value !== undefined) return Number(param.default_value);
             return Number(val);
         case "Boolean":
-            return val === true || val === "true";
+            if (String(val).toLowerCase() === "false") return false;
+            if (String(val).toLowerCase() === "true") return true;
+            return Boolean(val);
         case "String":
         case "ChooseOne":
         case "ChooseOneCustom":
@@ -221,16 +224,19 @@ export function Step5Build({ config }: Step5Props) {
         if (outputTypeParam) {
             let extension = ".bin";
             const val = outputTypeParam.value || outputTypeParam.default_value;
+            const valStr = String(val).toLowerCase();
             
-            if (val === "WinExe") extension = ".exe";
-            else if (val === "ServiceExe") extension = ".exe"; // Common for service wrappers
-            else if (val === "Shellcode") extension = ".bin";
-            else if (val === "ReflectiveDLL") extension = ".dll"; // Common naming
-            else if (val === "DLL") extension = ".dll"; 
-            else if (val && String(val).toLowerCase().includes("exe")) extension = ".exe";
-            else if (val && String(val).toLowerCase().includes("dll")) extension = ".dll";
+            if (valStr === "winexe" || valStr.includes("exe")) extension = ".exe";
+            else if (valStr === "serviceexe") extension = ".exe"; // Common for service wrappers
+            else if (valStr === "shellcode") extension = ".bin";
+            else if (valStr === "reflectivedll" || valStr === "dll" || valStr.includes("dll")) extension = ".dll";
+            else if (valStr === "mach-o" || valStr.includes("mach")) extension = "";
+            else if (valStr === "elf" || valStr.includes("elf")) extension = ""; // Linux usually no ext
             
-            setFilename(`${config.payloadType}${extension}`);
+            // Only update if it's the default or looks like an auto-generated name
+            if (filename === `${config.payloadType}.bin` || filename.startsWith(config.payloadType)) {
+                 setFilename(`${config.payloadType}${extension}`);
+            }
         }
     }, [config.buildParameters, config.payloadType]);
 

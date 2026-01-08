@@ -22,7 +22,7 @@ const MinervaApp = () => {
   useEffect(() => {
     if (isLoggingOut) {
       navigate('/login');
-    }
+  }
   }, [isLoggingOut, navigate]);
 
   return (
@@ -57,7 +57,7 @@ const MinervaApp = () => {
           path="c2-profiles" 
           element={<C2Profiles />} 
         />
-
+        
         <Route 
           path="create-payload/*" 
           element={<CreatePayloadRouter />} 
@@ -67,7 +67,7 @@ const MinervaApp = () => {
           path="payloads/*" 
           element={<CreatePayloadRouter />} 
         />
-        
+
         <Route 
           path="console/:id" 
           element={<Console />} 

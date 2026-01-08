@@ -128,7 +128,15 @@ const PayloadCreationWizard = () => {
             {/* Header & Stepper */}
             <div className="mb-8 shrink-0">
                 <div className="flex items-center justify-between mb-6">
-                    <h1 className="text-3xl font-bold tracking-[0.2em] glitch-text">PAYLOAD_GENERATOR</h1>
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 border border-signal bg-signal/10 rounded">
+                            <Terminal size={24} className="text-signal" />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-widest">PAYLOAD GENERATOR</h1>
+                            <p className="text-xs text-gray-400 font-mono">/root/payloads/generate</p>
+                        </div>
+                    </div>
                     <div className="text-xs font-mono text-gray-400">
                         SYSTEM_STATUS: <span className="text-green-500">ONLINE</span>
                     </div>

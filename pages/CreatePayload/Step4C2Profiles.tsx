@@ -5,12 +5,73 @@ import { CreatePayloadParameter } from './BuildParameters';
 import { Disc, Plus, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { CyberDropdown } from '../../components/CyberDropdown';
+import * as RandExp from 'randexp';
 
 interface Step4Props {
     payloadType: string;
     os: string;
     currentC2Profiles: any[];
     onUpdate: (profiles: any[]) => void;
+}
+
+const getDefaultValueForType = (parameter: any) => {
+    // all default values will be strings, so convert them
+    if(parameter.randomize && parameter.format_string !== ""){
+        try {
+            return new RandExp(parameter.format_string).gen();
+        } catch (e) {
+            console.error("RandExp error", e);
+            return parameter.default_value;
+        }
+    }
+    switch (parameter.parameter_type) {
+        case "String":
+            return parameter.default_value;
+        case "Number":
+            // automatic casting to number for multiplication
+            if (parameter.default_value === "") return 0;
+            return Number(parameter.default_value);
+        case "ChooseOne":
+            return parameter.default_value;
+        case "ChooseOneCustom":
+            return parameter.default_value;
+        case "ChooseMultiple":
+            // default_value will be a json string of an array
+            try { return JSON.parse(parameter.default_value); } catch(e) { return []; }
+        case "Array":
+            try { return JSON.parse(parameter.default_value); } catch(e) { return []; }
+        case "TypedArray":
+            try { return JSON.parse(parameter.default_value); } catch(e) { return []; }
+        case "Boolean":
+            return parameter.default_value === "true";
+        case "Dictionary":
+            // this will be an array of configuration
+            if(typeof parameter.choices === "string"){
+                try {
+                    let dictChoices = JSON.parse(parameter.choices);
+                    return dictChoices.map( (c: any) => {
+                        return {...c, value: c.default_value}
+                    })
+                } catch(e) { return []; }
+            }else{
+                return parameter.choices.map( (c: any) => {
+                    return {...c, value: c.default_value}
+                });
+            }
+        case "FileMultiple":
+            return [];
+        case "File":
+            return {name: parameter.default_value};
+        case "Date":
+            // date default_value is a string of a number representing the day offset
+            try {
+                var tmpDate = new Date();
+                tmpDate.setDate(tmpDate.getDate() + parseInt(parameter.default_value * 1));
+                return tmpDate.toISOString().slice(0,10); 
+            } catch(e) { return new Date().toISOString().slice(0,10); }
+        default:
+            return parameter.default_value;
+    }
 }
 
 export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate }: Step4Props) {
@@ -34,7 +95,7 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate }
             // Initialize parameters with defaults
             const initializedParams = profile.c2profileparameters.map((p: any) => ({
                 ...p,
-                value: p.default_value,
+                value: getDefaultValueForType(p),
                 error: false
             }));
             

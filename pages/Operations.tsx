@@ -224,17 +224,21 @@ export default function Operations() {
       
       <div className={cn("flex-1 transition-all duration-300 flex flex-col", isSidebarCollapsed ? "ml-16" : "ml-64")}>
         {/* Header */}
-        <header className="h-20 border-b border-ghost/30 flex items-center justify-between px-8 bg-black/40 backdrop-blur-sm sticky top-0 z-40">
+        <header className="h-24 border-b border-ghost/30 flex items-center justify-between px-8 bg-black/40 backdrop-blur-sm sticky top-0 z-40">
             <div className="flex items-center gap-4">
-                <Layers className="text-signal" />
-                <h1 className="text-xl font-bold tracking-wider">OPERATIONS_MANAGER</h1>
+                <div className="p-3 border border-signal bg-signal/10 rounded">
+                    <Layers size={24} className="text-signal" />
+                </div>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-widest">OPERATIONS MANAGER</h1>
+                    <p className="text-xs text-gray-400 font-mono">/root/operations/list</p>
+                </div>
             </div>
             <button 
                 onClick={handleCreate}
-                className="flex items-center gap-2 px-4 py-2 bg-signal/10 border border-signal/50 text-signal hover:bg-signal hover:text-void transition-all font-mono text-sm group"
+                className="flex items-center gap-2 px-6 py-3 bg-signal text-void font-bold font-mono text-sm hover:bg-white hover:shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-all rounded group"
             >
-                <Plus size={16} className="group-hover:rotate-90 transition-transform" />
-                NEW_OPERATION
+                <Plus size={18} className="group-hover:rotate-90 transition-transform" /> NEW OPERATION
             </button>
         </header>
 

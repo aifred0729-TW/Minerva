@@ -61,7 +61,7 @@ query GetMinervaDashboard($operator_id: Int!) {
   }
   
   # 5. Current Operator Info
-  operator(where: {id: {_eq: $operator_id}}){ 
+  operator(where: {id: {_eq: $operator_id}}){
     username
     admin
   }
@@ -96,6 +96,8 @@ query GetCallbacks($limit: Int = 50, $offset: Int = 0) {
     last_checkin
     init_callback
     description
+    sleep_info
+    locked
     payload {
       payloadtype {
         name
@@ -105,6 +107,36 @@ query GetCallbacks($limit: Int = 50, $offset: Int = 0) {
 }
 `;
 
+// --- Callback Management ---
+
+export const HIDE_CALLBACK_MUTATION = gql`
+mutation hideCallback ($callback_display_id: Int!, $active: Boolean){
+  updateCallback(input: {callback_display_id: $callback_display_id, active: $active}) {
+    status
+    error
+  }
+}
+`;
+
+export const LOCK_CALLBACK_MUTATION = gql`
+mutation lockCallack($callback_display_id: Int!, $locked: Boolean!){
+  updateCallback(input: {callback_display_id: $callback_display_id, locked: $locked}) {
+    status
+    error
+  }
+}
+`;
+
+export const UPDATE_CALLBACK_DESCRIPTION_MUTATION = gql`
+mutation updateDescriptionCallback($callback_display_id: Int!, $description: String!){
+  updateCallback(input: {callback_display_id: $callback_display_id, description: $description}) {
+    status
+    error
+  }
+}
+`;
+
+// --- C2 Profiles ---
 export const GET_C2_PROFILES = gql`
 query GetC2Profiles {
   c2profile(where: {deleted: {_eq: false}}, order_by: {name: asc}) {
