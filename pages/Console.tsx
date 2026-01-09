@@ -9,8 +9,6 @@ import { cn } from '../lib/utils';
 
 // --- Sub-components ---
 
-// --- Sub-components ---
-
 const TaskBlock = ({ task }: { task: any }) => {
     let time = "---";
     try {
@@ -227,7 +225,7 @@ const ConsoleTerminal = ({ callbackId, callbackUUID }: { callbackId: number, cal
     const tasks = data?.task || [];
 
     return (
-        <div className="flex flex-col h-full bg-black/80 border border-signal/30 font-mono text-sm shadow-[0_0_20px_rgba(34,197,94,0.1)] relative overflow-hidden">
+        <div className="flex flex-col h-full bg-black/80 border border-signal/30 font-mono text-sm shadow-[0_0_20px_rgba(34,197,94,0.1)] relative overflow-hidden transition-colors duration-500">
             {/* Scanlines */}
             <div className="absolute inset-0 pointer-events-none opacity-5 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.5)_50%)] bg-[length:100%_4px]"></div>
             
@@ -675,25 +673,25 @@ export default function Console() {
             initial={{ opacity: 0, scale: 0.95, filter: "blur(10px)" }}
             animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
             transition={{ duration: 0.5, ease: "circOut" }}
-            className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex overflow-hidden"
+            className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex overflow-hidden transition-colors duration-1000"
         >
             <Sidebar isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} />
             
             <div className={cn("flex-1 transition-all duration-300 flex flex-col h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}>
                 {/* Header Bar */}
-                <header className="h-16 bg-black/50 border-b border-signal/20 flex items-center px-6 justify-between backdrop-blur-sm shrink-0">
+                <header className="h-16 bg-black/50 border-b border-signal/20 flex items-center px-6 justify-between backdrop-blur-sm shrink-0 transition-colors duration-1000">
                     <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 border border-signal bg-signal/10 flex items-center justify-center">
+                        <div className="w-10 h-10 border border-signal bg-signal/10 flex items-center justify-center transition-colors duration-1000">
                             <Terminal size={20} className="text-signal" />
                         </div>
                         <div>
                             <h1 className="text-lg font-bold tracking-widest flex items-center gap-2">
-                                <span className="text-yellow-500">CALLBACK_{callback.display_id}</span>
+                                <span className="text-signal">CALLBACK_{callback.display_id}</span>
                                 <span className="text-gray-500 text-xs">/</span>
                                 <span className="text-white text-sm">{callback.user}@{callback.host}</span>
                             </h1>
                             <div className="flex items-center gap-2 text-xs text-gray-500 font-mono">
-                                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                                <span className="w-2 h-2 bg-signal rounded-full animate-pulse"></span>
                                 ONLINE - AES256 ENCRYPTED
                             </div>
                         </div>
@@ -702,7 +700,7 @@ export default function Console() {
                     <div className="flex items-center gap-4">
                         <div className="text-right hidden md:block">
                             <div className="text-[10px] text-gray-500 uppercase">Last Seen</div>
-                            <div className="text-signal font-mono">{new Date(callback.last_checkin).toLocaleTimeString()}</div>
+                            <div className="text-signal font-mono transition-colors duration-1000">{new Date(callback.last_checkin).toLocaleTimeString()}</div>
                         </div>
                     </div>
                 </header>
@@ -716,9 +714,9 @@ export default function Console() {
                     </div>
 
                     {/* Right Column: Tools & Info (Takes up 1/3 space) */}
-                    <div className="flex flex-col bg-black/40 border border-white/10 min-h-0">
+                    <div className="flex flex-col bg-black/40 border border-white/10 min-h-0 transition-colors duration-1000">
                         {/* Tabs */}
-                        <div className="flex border-b border-white/10">
+                        <div className="flex border-b border-white/10 transition-colors duration-1000">
                             {[
                                 { id: 'info', label: 'INFO', icon: Shield },
                                 { id: 'files', label: 'FILES', icon: Folder },
@@ -728,7 +726,7 @@ export default function Console() {
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id as any)}
                                     className={cn(
-                                        "flex-1 py-3 text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition-colors",
+                                        "flex-1 py-3 text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition-colors duration-300",
                                         activeTab === tab.id 
                                             ? "bg-signal text-black" 
                                             : "text-gray-500 hover:text-white hover:bg-white/5"

@@ -13,8 +13,11 @@ import Opsec from './pages/Opsec';
 import Login from './pages/Login';
 import CreatePayloadRouter from './pages/CreatePayload';
 import { GlobalAudioPlayer } from './components/GlobalAudioPlayer';
+import { BattleMode } from './components/BattleMode';
 import { useAppStore } from './store';
 import './index.css';
+
+import { BattleModeProvider } from './context/BattleModeContext';
 
 const MinervaApp = () => {
   const { isLoggingOut } = useAppStore();
@@ -23,15 +26,17 @@ const MinervaApp = () => {
   useEffect(() => {
     if (isLoggingOut) {
       navigate('/login');
-  }
+    }
   }, [isLoggingOut, navigate]);
 
   return (
-    <div className="minerva-root font-sans text-white h-full w-full">
-      <GlobalAudioPlayer />
-      <ToastContainer theme="dark" />
-      
-      <Routes>
+    <BattleModeProvider>
+      <div className="minerva-root font-sans text-white h-full w-full">
+        <GlobalAudioPlayer />
+        <BattleMode />
+        <ToastContainer theme="dark" />
+        
+        <Routes>
         <Route path="login" element={<Login />} />
         
         <Route 
@@ -82,7 +87,8 @@ const MinervaApp = () => {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
-    </div>
+      </div>
+    </BattleModeProvider>
   );
 }
 

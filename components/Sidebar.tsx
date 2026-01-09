@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
     LayoutDashboard, 
     Terminal, 
-    Zap, 
     Box, 
     Settings, 
     LogOut, 
@@ -14,11 +13,14 @@ import {
     Network,
     Layers,
     Users,
-    Shield
+    Shield,
+    Flame,
+    Eye
 } from 'lucide-react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { cn } from '../lib/utils';
+import { useOperationMode } from '../context/BattleModeContext';
 
 interface SidebarProps {
     isCollapsed: boolean;
@@ -28,6 +30,7 @@ interface SidebarProps {
 export function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
     const location = useLocation();
     const { startLogout } = useAppStore();
+    const { mode, toggleCombat, toggleRecon } = useOperationMode();
 
     const menuItems = [
         { icon: <LayoutDashboard size={20} />, label: "DASHBOARD", path: "/dashboard" },
@@ -41,6 +44,9 @@ export function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
         { icon: <Users size={20} />, label: "USERS", path: "/users" },
         { icon: <Search size={20} />, label: "SEARCH", path: "/search" },
     ];
+
+    const isCombat = mode === 'combat';
+    const isRecon = mode === 'recon';
 
     return (
         <motion.div 
@@ -116,6 +122,61 @@ export function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
                     );
                 })}
             </nav>
+
+            {/* Mode Toggles */}
+            <div className={cn("px-4 pb-2 pt-2 border-t border-ghost/10 space-y-2", isCollapsed ? "flex flex-col items-center" : "")}>
+                {/* Recon Mode Toggle */}
+                <button
+                    onClick={toggleRecon}
+                    className={cn(
+                        "w-full flex items-center justify-center gap-2 px-3 py-2 rounded border transition-all shadow-lg group relative overflow-hidden",
+                        isRecon
+                          ? "bg-yellow-500/20 border-yellow-400/60 text-yellow-100 hover:bg-yellow-500/30"
+                          : "bg-black/40 border-gray-700/50 text-gray-400 hover:bg-white/5 hover:border-gray-500 hover:text-white"
+                    )}
+                    title={isRecon ? "Exit Recon Mode" : "Enter Recon Mode"}
+                >
+                    <Eye size={16} className={cn("transition-colors", isRecon ? "text-yellow-400 animate-pulse" : "text-gray-500 group-hover:text-yellow-500")} />
+                    <AnimatePresence>
+                        {!isCollapsed && (
+                            <motion.span
+                                initial={{ opacity: 0, width: 0 }}
+                                animate={{ opacity: 1, width: "auto" }}
+                                exit={{ opacity: 0, width: 0 }}
+                                className="font-mono text-xs tracking-wider whitespace-nowrap overflow-hidden"
+                            >
+                                {isRecon ? "RECON" : "RECON"}
+                            </motion.span>
+                        )}
+                    </AnimatePresence>
+                </button>
+
+                {/* Combat Mode Toggle */}
+                <button
+                    onClick={toggleCombat}
+                    className={cn(
+                        "w-full flex items-center justify-center gap-2 px-3 py-2 rounded border transition-all shadow-lg group relative overflow-hidden",
+                        isCombat
+                          ? "bg-red-500/20 border-red-400/60 text-red-100 hover:bg-red-500/30"
+                          : "bg-black/40 border-gray-700/50 text-gray-400 hover:bg-white/5 hover:border-gray-500 hover:text-white"
+                    )}
+                    title={isCombat ? "Disengage Combat Protocol" : "Engage Combat Protocol"}
+                >
+                    <Flame size={16} className={cn("transition-colors", isCombat ? "text-red-400 animate-pulse" : "text-gray-500 group-hover:text-red-500")} />
+                    <AnimatePresence>
+                        {!isCollapsed && (
+                            <motion.span
+                                initial={{ opacity: 0, width: 0 }}
+                                animate={{ opacity: 1, width: "auto" }}
+                                exit={{ opacity: 0, width: 0 }}
+                                className="font-mono text-xs tracking-wider whitespace-nowrap overflow-hidden"
+                            >
+                                {isCombat ? "COMBAT" : "COMBAT"}
+                            </motion.span>
+                        )}
+                    </AnimatePresence>
+                </button>
+            </div>
 
             {/* User / Footer */}
             <div className="p-4 border-t border-ghost/30 bg-black/20 overflow-hidden">

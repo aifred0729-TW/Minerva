@@ -8,6 +8,7 @@ export function GlobalAudioPlayer() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [externallyPaused, setExternallyPaused] = useState(false);
   const hasInteractedRef = useRef(false);
   const playAttemptedRef = useRef(false);
 
@@ -101,18 +102,39 @@ export function GlobalAudioPlayer() {
     };
   }, [playAudio]);
 
+  // 監聯外部控制（mode changes: normal, recon, combat）
+  useEffect(() => {
+    const handler = (e: any) => {
+      const mode = e.detail?.mode;
+      // Pause background music when any special mode is active
+      if (mode === 'recon' || mode === 'combat') {
+        audioRef.current?.pause();
+        setExternallyPaused(true);
+        setIsPlaying(false);
+      } else {
+        // Normal mode - resume background music
+        setExternallyPaused(false);
+        if (!isMuted) {
+          playAudio();
+        }
+      }
+    };
+    window.addEventListener('mode-change', handler as any);
+    return () => window.removeEventListener('mode-change', handler as any);
+  }, [isMuted, playAudio]);
+
   // 定期檢查並恢復播放（防止音樂意外停止）
   useEffect(() => {
     const checkInterval = setInterval(() => {
       const audio = audioRef.current;
-      if (audio && hasInteractedRef.current && audio.paused && !isMuted) {
+      if (audio && hasInteractedRef.current && audio.paused && !isMuted && !externallyPaused) {
         // 如果應該在播放但實際暫停了，嘗試恢復
         playAudio();
       }
     }, 2000); // 每2秒檢查一次
 
     return () => clearInterval(checkInterval);
-  }, [isMuted, playAudio]);
+  }, [isMuted, playAudio, externallyPaused]);
 
   const toggleMute = () => {
     if (audioRef.current) {

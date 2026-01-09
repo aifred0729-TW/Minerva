@@ -223,14 +223,15 @@ export default function Operations() {
       <Sidebar isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} />
       
       <div className={cn("flex-1 transition-all duration-300 flex flex-col", isSidebarCollapsed ? "ml-16" : "ml-64")}>
-        {/* Header */}
-        <header className="h-24 border-b border-ghost/30 flex items-center justify-between px-8 bg-black/40 backdrop-blur-sm sticky top-0 z-40">
+        <div className="p-6 lg:p-12 flex-1 flex flex-col">
+        {/* Header (align with PAYLOADS OVERVIEW) */}
+        <header className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-4">
                 <div className="p-3 border border-signal bg-signal/10 rounded">
                     <Layers size={24} className="text-signal" />
                 </div>
                 <div>
-                    <h1 className="text-2xl font-bold tracking-widest">OPERATIONS MANAGER</h1>
+                    <h1 className="text-2xl font-bold tracking-widest text-white uppercase">OPERATIONS MANAGER</h1>
                     <p className="text-xs text-gray-400 font-mono">/root/operations/list</p>
                 </div>
             </div>
@@ -243,7 +244,7 @@ export default function Operations() {
         </header>
 
         {/* Content */}
-        <main className="p-8 flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto">
             <CyberTable 
                 data={data?.operation || []} 
                 columns={columns as any} 
@@ -251,6 +252,7 @@ export default function Operations() {
                 onRowClick={(row) => handleEdit(row)} 
             />
         </main>
+        </div>
       </div>
 
       {/* Modals */}

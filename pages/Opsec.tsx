@@ -28,44 +28,43 @@ const Opsec = () => {
             initial={{ opacity: 0, scale: 0.98, filter: "blur(8px)" }}
             animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
             transition={{ duration: 0.4, ease: "easeOut" }}
-            className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex overflow-hidden"
+            className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex overflow-hidden transition-colors duration-1000"
         >
             <Sidebar isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} />
 
             <div className={cn("flex-1 transition-all duration-300 flex flex-col h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}>
-                <header className="h-16 bg-black/50 border-b border-signal/20 flex items-center px-6 justify-between backdrop-blur-sm shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 border border-signal bg-signal/10 flex items-center justify-center">
-                            <Shield size={20} className="text-signal" />
+                <div className="p-6 lg:p-12 flex-1 flex flex-col">
+                <header className="flex justify-between items-center mb-8 transition-colors duration-1000">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 border border-signal bg-signal/10 rounded transition-colors duration-1000">
+                            <Shield size={24} className="text-signal" />
                         </div>
-                        <div className="flex flex-col">
-                            <h1 className="text-lg font-bold tracking-widest flex items-center gap-2">
-                                <span className="text-white">OPSEC REVIEW QUEUE</span>
-                            </h1>
-                            <div className="text-xs text-gray-500 font-mono flex items-center gap-2 uppercase tracking-[0.2em]">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-widest text-white uppercase">OPSEC REVIEW QUEUE</h1>
+                            <p className="text-xs text-gray-400 font-mono flex items-center gap-2 uppercase tracking-[0.2em]">
                                 <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
                                 PENDING / BYPASS REQUESTS
-                            </div>
+                            </p>
                         </div>
                     </div>
                     <button
                         onClick={() => refetch()}
-                        className="flex items-center gap-2 text-xs px-3 py-2 border border-signal/40 hover:bg-signal/10 rounded transition-colors"
+                        className="flex items-center gap-2 text-xs px-6 py-3 border border-signal/40 hover:bg-signal/10 rounded transition-colors duration-1000"
                     >
                         <RefreshCw size={12} /> REFRESH
                     </button>
                 </header>
 
-                <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 overflow-auto">
-                    <div className="bg-black/40 border border-white/10 rounded overflow-auto custom-scrollbar">
+                <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-auto">
+                    <div className="bg-black/40 border border-white/10 rounded overflow-auto custom-scrollbar transition-colors duration-1000">
                         <table className="w-full text-xs font-mono text-left border-collapse">
-                            <thead className="bg-white/5 text-gray-500 sticky top-0 z-10 backdrop-blur-sm">
+                            <thead className="bg-white/5 text-gray-500 sticky top-0 z-10 backdrop-blur-sm transition-colors duration-1000">
                                 <tr>
-                                    <th className="p-2 font-normal border-b border-white/10 w-14">ID</th>
-                                    <th className="p-2 font-normal border-b border-white/10">CMD</th>
-                                    <th className="p-2 font-normal border-b border-white/10">CALLBACK</th>
-                                    <th className="p-2 font-normal border-b border-white/10">OPERATOR</th>
-                                    <th className="p-2 font-normal border-b border-white/10 w-24">STATUS</th>
+                                    <th className="p-2 font-normal border-b border-white/10 w-14 transition-colors duration-1000">ID</th>
+                                    <th className="p-2 font-normal border-b border-white/10 transition-colors duration-1000">CMD</th>
+                                    <th className="p-2 font-normal border-b border-white/10 transition-colors duration-1000">CALLBACK</th>
+                                    <th className="p-2 font-normal border-b border-white/10 transition-colors duration-1000">OPERATOR</th>
+                                    <th className="p-2 font-normal border-b border-white/10 w-24 transition-colors duration-1000">STATUS</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/5">
@@ -87,7 +86,7 @@ const Opsec = () => {
                                             className={cn("hover:bg-white/5 cursor-pointer", selected?.id === t.id ? "bg-white/10" : "")}
                                             onClick={() => setSelected(t)}
                                         >
-                                            <td className="p-2 text-signal font-bold">{t.display_id}</td>
+                                            <td className="p-2 text-signal font-bold transition-colors duration-1000">{t.display_id}</td>
                                             <td className="p-2 text-white truncate" title={t.display_params}>
                                                 {t.command_name} {t.display_params}
                                             </td>
@@ -107,8 +106,8 @@ const Opsec = () => {
                         </table>
                     </div>
 
-                    <div className="bg-black/40 border border-white/10 rounded p-4 text-xs text-gray-200 space-y-3 overflow-auto">
-                        <div className="text-signal font-bold text-sm flex items-center gap-2">
+                    <div className="bg-black/40 border border-white/10 rounded p-4 text-xs text-gray-200 space-y-3 overflow-auto transition-colors duration-1000">
+                        <div className="text-signal font-bold text-sm flex items-center gap-2 transition-colors duration-1000">
                             <AlertTriangle size={14} /> DETAIL
                         </div>
                         {!selected && (
@@ -137,7 +136,7 @@ const Opsec = () => {
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => approve({ variables: { task_id: selected.id } })}
-                                        className="px-3 py-2 bg-signal/20 border border-signal/40 rounded text-signal hover:bg-signal/30 transition-colors"
+                                        className="px-3 py-2 bg-signal/20 border border-signal/40 rounded text-signal hover:bg-signal/30 transition-colors duration-1000"
                                     >
                                         Request Bypass / Approve
                                     </button>
@@ -151,6 +150,7 @@ const Opsec = () => {
                             </>
                         )}
                     </div>
+                </div>
                 </div>
             </div>
         </motion.div>
