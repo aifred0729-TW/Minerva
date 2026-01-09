@@ -29,7 +29,7 @@ export function GlobalAudioPlayer() {
       setIsPlaying(true);
       playAttemptedRef.current = true;
     } catch (err) {
-      console.log("Autoplay blocked, waiting for interaction");
+      // console.log("Autoplay blocked, waiting for interaction");
       setIsPlaying(false);
       // 即使失敗也標記為已嘗試，這樣互動後會重試
       playAttemptedRef.current = true;

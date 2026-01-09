@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
 import { GET_CALLBACKS, HIDE_CALLBACK_MUTATION, LOCK_CALLBACK_MUTATION, UPDATE_CALLBACK_DESCRIPTION_MUTATION } from '../lib/api';
 import { CyberTable } from '../components/CyberTable';
-import { Terminal, Shield, Cpu, Activity, User, MoreVertical, Lock, Unlock, EyeOff, Edit, Trash2 } from 'lucide-react';
+import { Terminal, Shield, Cpu, Activity, User, MoreVertical, Lock, Unlock, EyeOff, Edit, Trash2, Network, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +11,46 @@ import { cn } from '../lib/utils';
 import { createPortal } from 'react-dom';
 import { snackActions } from '../../components/utilities/Snackbar';
 import { CyberModal } from '../components/CyberModal';
+import { CallbackGraph } from '../components/CallbackGraph';
+
+const LastCheckinCell = ({ lastCheckin }: { lastCheckin: string }) => {
+    const calculateTimeAgo = React.useCallback(() => {
+        if (!lastCheckin) return { text: "NEVER", color: "text-gray-500" };
+        
+        try {
+            const timeStr = lastCheckin.endsWith('Z') ? lastCheckin : `${lastCheckin}Z`;
+            const last = new Date(timeStr).getTime();
+            const now = new Date().getTime();
+            const diff = Math.floor((now - last) / 1000); // seconds
+            
+            let color = "text-green-500";
+            if (diff > 60) color = "text-yellow-500";
+            if (diff > 300) color = "text-red-500";
+            
+            let timeText = `${diff}s ago`;
+            if (diff < 0) timeText = "0s ago";
+            else if (diff >= 86400) timeText = `${Math.floor(diff / 86400)}d ago`;
+            else if (diff >= 3600) timeText = `${Math.floor(diff / 3600)}h ago`;
+            else if (diff >= 60) timeText = `${Math.floor(diff / 60)}m ago`;
+
+            return { text: timeText, color };
+        } catch (e) {
+            return { text: "ERROR", color: "text-red-500" };
+        }
+    }, [lastCheckin]);
+
+    const [status, setStatus] = useState(calculateTimeAgo());
+
+    React.useEffect(() => {
+        setStatus(calculateTimeAgo());
+        const interval = setInterval(() => {
+            setStatus(calculateTimeAgo());
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [calculateTimeAgo]);
+
+    return <span className={status.color}>{status.text}</span>;
+};
 
 export default function Callbacks() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
@@ -140,18 +180,7 @@ export default function Callbacks() {
     },
     {
         header: "LAST CHECKIN",
-        cell: (row: any) => {
-            // Calculate time difference
-            const last = new Date(row.last_checkin).getTime();
-            const now = new Date().getTime();
-            const diff = Math.floor((now - last) / 1000); // seconds
-            
-            let color = "text-green-500";
-            if (diff > 60) color = "text-yellow-500";
-            if (diff > 300) color = "text-red-500";
-
-            return <span className={color}>{diff}s ago</span>
-        }
+        cell: (row: any) => <LastCheckinCell lastCheckin={row.last_checkin} />
     },
     {
         header: "DESCRIPTION",
@@ -207,44 +236,61 @@ export default function Callbacks() {
     <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
         <Sidebar isCollapsed={isSidebarCollapsed} setIsCollapsed={setIsSidebarCollapsed} />
         
-        <div className={cn("transition-all duration-300 p-6 lg:p-12 min-h-screen", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+        <div className={cn("transition-all duration-300 p-6 lg:p-12 h-screen flex flex-col overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}>
                 <header className="flex justify-between items-center mb-8 shrink-0">
-                    <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4">
                         <div className="p-3 border border-signal bg-signal/10 rounded">
                             <Activity size={24} className="text-signal" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-bold tracking-widest">ACTIVE CALLBACKS</h1>
+                </div>
+                <div>
+                    <h1 className="text-2xl font-bold tracking-widest">ACTIVE CALLBACKS</h1>
                             <p className="text-xs text-gray-400 font-mono">/root/agents/list</p>
-                        </div>
-                    </div>
-                    
-                    {/* Stats Summary */}
-                    <div className="flex gap-6 text-xs font-mono">
-                        <div className="text-right">
+                </div>
+            </div>
+            
+            {/* Stats Summary */}
+                    <div className="flex gap-6 text-xs font-mono items-center">
+                        <div className="text-right border-l border-ghost/20 pl-6">
                             <div className="text-gray-400">TOTAL_AGENTS</div>
-                            <div className="text-xl text-signal">{data?.callback?.length || 0}</div>
-                        </div>
-                        <div className="text-right">
+                    <div className="text-xl text-signal">{data?.callback?.length || 0}</div>
+                </div>
+                <div className="text-right">
                             <div className="text-gray-400">HIGH_INTEGRITY</div>
-                            <div className="text-xl text-yellow-500">
-                                {data?.callback?.filter((c: any) => c.integrity_level > 2).length || 0}
-                            </div>
-                        </div>
+                    <div className="text-xl text-yellow-500">
+                        {data?.callback?.filter((c: any) => c.integrity_level > 2).length || 0}
                     </div>
-                </header>
+                </div>
+            </div>
+        </header>
 
         <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
+            className="flex-1 h-full min-h-0 flex flex-col gap-6"
         >
+            {/* Graph View Section - Top 60% */}
+            <div className="h-[60%] min-h-[400px] border-b border-ghost/20 pb-6">
+                <div className="flex items-center gap-2 mb-2 text-xs font-mono text-gray-400">
+                    <Network size={14} className="text-signal" />
+                    <span>NETWORK_TOPOLOGY</span>
+                </div>
+                <CallbackGraph />
+            </div>
+
+            {/* List View Section - Remaining space */}
+            <div className="flex-1 min-h-0 overflow-auto">
+                 <div className="flex items-center gap-2 mb-2 text-xs font-mono text-gray-400">
+                    <List size={14} className="text-signal" />
+                    <span>AGENT_LIST</span>
+                </div>
             <CyberTable 
                 data={data?.callback || []} 
-                columns={columns as any} 
+                    columns={columns as any} 
                 isLoading={loading}
                 onRowClick={handleRowClick}
             />
+            </div>
         </motion.div>
         </div>
 

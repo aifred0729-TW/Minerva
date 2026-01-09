@@ -107,7 +107,76 @@ query GetCallbacks($limit: Int = 50, $offset: Int = 0) {
 }
 `;
 
+export const GET_CALLBACK_DETAILS = gql`
+query GetCallbackDetails($display_id: Int!) {
+  callback(where: {display_id: {_eq: $display_id}}) {
+    id
+    display_id
+    agent_callback_id
+    user
+    host
+    pid
+    ip
+    domain
+    os
+    architecture
+    integrity_level
+    last_checkin
+    description
+    sleep_info
+    process_name
+    payload {
+      id
+      uuid
+      payloadtype {
+        name
+      }
+    }
+  }
+}
+`;
+
 // --- Callback Management ---
+
+export const GET_CALLBACK_GRAPH_EDGES = gql`
+query GetCallbackGraphEdges {
+  callbackgraphedge(order_by: {id: desc, end_timestamp: desc_nulls_first}) {
+    id
+    end_timestamp
+    destination {
+      id
+      display_id
+      user
+      host
+      ip
+      description
+      payload {
+        payloadtype {
+          name
+        }
+      }
+    }
+    source {
+      id
+      display_id
+      user
+      host
+      ip
+      description
+      payload {
+        payloadtype {
+          name
+        }
+      }
+    }
+    c2profile {
+      id
+      name
+      is_p2p
+    }
+  }
+}
+`;
 
 export const HIDE_CALLBACK_MUTATION = gql`
 mutation hideCallback ($callback_display_id: Int!, $active: Boolean){
@@ -134,6 +203,87 @@ mutation updateDescriptionCallback($callback_display_id: Int!, $description: Str
     error
   }
 }
+`;
+
+// --- Tasking ---
+
+export const TASK_FRAGMENT = gql`
+  fragment taskData on task {
+    id
+    display_id
+    command_name
+    display_params
+    status
+    timestamp
+    completed
+    operator {
+      username
+    }
+    responses(order_by: {id: asc}) {
+      id
+      response: response_text
+      timestamp
+    }
+  }
+`;
+
+export const GET_CALLBACK_TASKS = gql`
+  ${TASK_FRAGMENT}
+  query GetCallbackTasks($callback_display_id: Int!) {
+    task(where: {callback: {display_id: {_eq: $callback_display_id}}, parent_task_id: {_is_null: true}}, order_by: {id: asc}) {
+      ...taskData
+    }
+  }
+`;
+
+export const CREATE_TASK_MUTATION = gql`
+  mutation CreateTask($callback_id: Int!, $command: String!, $params: String!) {
+    createTask(callback_id: $callback_id, command: $command, params: $params) {
+      status
+      error
+      id
+    }
+  }
+`;
+
+// --- OpSec Queue ---
+export const GET_OPSEC_QUEUE = gql`
+  query GetOpsecQueue {
+    task(
+      where: {
+        _or: [
+          { opsec_pre_blocked: { _eq: true }, opsec_pre_bypassed: { _neq: true } }
+          { opsec_post_blocked: { _eq: true }, opsec_post_bypassed: { _neq: true } }
+        ]
+      }
+      order_by: { id: desc }
+      limit: 100
+    ) {
+      id
+      display_id
+      command_name
+      display_params
+      status
+      timestamp
+      opsec_pre_blocked
+      opsec_pre_bypassed
+      opsec_pre_message
+      opsec_post_blocked
+      opsec_post_bypassed
+      opsec_post_message
+      operator { username }
+      callback { display_id host user }
+    }
+  }
+`;
+
+export const REQUEST_OPSEC_BYPASS = gql`
+  mutation RequestOpsecBypass($task_id: Int!) {
+    requestOpsecBypass(task_id: $task_id) {
+      status
+      error
+    }
+  }
 `;
 
 // --- C2 Profiles ---
@@ -329,6 +479,106 @@ mutation UpdateOperatorUsername($id: Int!, $username: String!) {
     username
   }
 }
+`;
+
+// --- File Browser & Process List ---
+
+export const FILE_DATA_FRAGMENT = gql`
+    fragment fileObjData on mythictree {
+        comment
+        deleted
+        task_id
+        filemeta {
+            id
+            agent_file_id
+            filename_text
+        }
+        tags {
+            tagtype {
+                name
+                color
+                id
+            }
+        }
+        host
+        id
+        can_have_children
+        has_children
+        success
+        full_path_text
+        name_text
+        timestamp
+        parent_path_text
+        tree_type
+        metadata
+        callback {
+            id
+            display_id
+            mythictree_groups
+        }
+    }
+`;
+
+export const GET_FILE_TREE_ROOT = gql`
+    ${FILE_DATA_FRAGMENT}
+    query myRootFolderQuery($host: String!) {
+        mythictree(where: { parent_path_text: { _eq: "" }, tree_type: {_eq: "file"}, host: {_ilike: $host} }, order_by: {name_text: asc}) {
+            ...fileObjData
+        }
+    }
+`;
+
+export const GET_FILE_TREE_FOLDER = gql`
+    ${FILE_DATA_FRAGMENT}
+    query myFolderQuery($parent_path_text: String!, $host: String!) {
+        children: mythictree(
+            where: { parent_path_text: { _eq: $parent_path_text }, tree_type: {_eq: "file"}, host: {_ilike: $host} }
+            order_by: { can_have_children: asc, name_text: asc }
+        ) {
+            ...fileObjData
+        }
+    }
+`;
+
+export const PROCESS_DATA_FRAGMENT = gql`
+fragment treeObjData on mythictree {
+    comment
+    deleted
+    task_id
+    tags {
+        tagtype {
+            name
+            color
+            id
+        }
+        id
+    }
+    host
+    id
+    os
+    can_have_children
+    success
+    full_path_text
+    name_text
+    timestamp
+    parent_path_text
+    tree_type
+    metadata
+    callback {
+        id
+        display_id
+        mythictree_groups
+    }
+}
+`;
+
+export const GET_PROCESS_TREE = gql`
+    ${PROCESS_DATA_FRAGMENT}
+    query processesPerHostQuery($host: String!){
+        mythictree(where: {host: {_ilike: $host}, tree_type: {_eq: "process"} }, order_by: {id: asc}) {
+            ...treeObjData
+        }
+    }
 `;
 
 export async function loginUser(username, password) {

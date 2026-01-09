@@ -41,57 +41,38 @@ export function CyberTable<T extends { id: number | string }>({ data, columns, o
       <table className="w-full text-left font-mono text-sm border-collapse">
         <thead>
           <tr className="border-b border-ghost/30 bg-ghost/10">
-            {columns.map((col, idx) => (
-              <th 
-                key={idx} 
-                className={cn(
-                    "py-3 px-4 text-gray-400 uppercase tracking-wider text-xs font-normal",
-                    col.className
-                )}
-              >
-                {col.header}
-              </th>
-            ))}
-            <th className="w-10"></th> {/* Action Icon Column */}
+            {columns.map((col, idx) => <th key={idx} className={cn("py-3 px-4 text-gray-400 uppercase tracking-wider text-xs font-normal", col.className)}>{col.header}</th>)}
+            <th className="w-10"></th>
           </tr>
         </thead>
         <tbody className="relative">
           <AnimatePresence initial={false}>
             {data.map((row) => (
-                <motion.tr 
-                key={row.id} 
+              <motion.tr
+                key={row.id}
                 onClick={() => onRowClick && onRowClick(row)}
                 className="border-b border-ghost/10 hover:bg-white/5 transition-colors group cursor-pointer"
-                    layout
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ 
-                        opacity: 0, 
-                        x: 50, 
-                        backgroundColor: "rgba(220, 38, 38, 0.1)",
-                        filter: "blur(5px)",
-                        transition: { duration: 0.4, ease: "anticipate" }
-                    }}
-                    transition={{ duration: 0.3 }}
-            >
-              {columns.map((col, colIdx) => (
-                <td key={colIdx} className="py-3 px-4 text-signal/80 group-hover:text-signal transition-colors">
-                  {col.cell ? col.cell(row) : (row[col.accessorKey as keyof T] as React.ReactNode)}
-                </td>
-              ))}
-              <td className="pr-4 text-right">
-                    <ChevronRight size={16} className="text-gray-400 group-hover:text-signal opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
-              </td>
-                </motion.tr>
-          ))}
+                layout
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{
+                  opacity: 0,
+                  x: 50,
+                  backgroundColor: "rgba(220, 38, 38, 0.1)",
+                  filter: "blur(5px)",
+                  transition: { duration: 0.4, ease: "anticipate" }
+                }}
+                transition={{ duration: 0.3 }}
+              >
+                {columns.map((col, colIdx) => <td key={colIdx} className="py-3 px-4 text-signal/80 group-hover:text-signal transition-colors">{col.cell ? col.cell(row) : (row[col.accessorKey as keyof T] as React.ReactNode)}</td>)}
+                <td className="pr-4 text-right"><ChevronRight size={16} className="text-gray-400 group-hover:text-signal opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" /></td>
+              </motion.tr>
+            ))}
           </AnimatePresence>
-          
           {data.length === 0 && !isLoading && (
-              <tr>
-                  <td colSpan={columns.length + 1} className="py-12 text-center text-gray-400 italic">
-                      NO_DATA_FOUND
-                  </td>
-              </tr>
+            <tr>
+              <td colSpan={columns.length + 1} className="py-12 text-center text-gray-400 italic">NO_DATA_FOUND</td>
+            </tr>
           )}
         </tbody>
       </table>

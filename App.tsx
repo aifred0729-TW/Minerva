@@ -9,6 +9,7 @@ import C2Profiles from './pages/C2Profiles';
 import Operations from './pages/Operations';
 import UsersPage from './pages/Users';
 import Console from './pages/Console';
+import Opsec from './pages/Opsec';
 import Login from './pages/Login';
 import CreatePayloadRouter from './pages/CreatePayload';
 import { GlobalAudioPlayer } from './components/GlobalAudioPlayer';
@@ -71,6 +72,11 @@ const MinervaApp = () => {
         <Route 
           path="console/:id" 
           element={<Console />} 
+        />
+
+        <Route 
+          path="opsec" 
+          element={<Opsec />} 
         />
 
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

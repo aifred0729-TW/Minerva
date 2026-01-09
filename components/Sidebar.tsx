@@ -13,7 +13,8 @@ import {
     Database,
     Network,
     Layers,
-    Users
+    Users,
+    Shield
 } from 'lucide-react';
 import { useLocation, Link } from 'react-router-dom';
 import { useAppStore } from '../store';
@@ -35,6 +36,7 @@ export function Sidebar({ isCollapsed, setIsCollapsed }: SidebarProps) {
         { icon: <ActivityIcon />, label: "CALLBACKS", path: "/callbacks" },
         { icon: <Network size={20} />, label: "C2 PROFILES", path: "/c2-profiles" },
         { icon: <Terminal size={20} />, label: "CONSOLE", path: "/console" },
+        { icon: <Shield size={20} />, label: "OPSEC", path: "/opsec" },
         { icon: <Database size={20} />, label: "ARTIFACTS", path: "/artifacts" },
         { icon: <Users size={20} />, label: "USERS", path: "/users" },
         { icon: <Search size={20} />, label: "SEARCH", path: "/search" },
