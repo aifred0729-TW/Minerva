@@ -1522,8 +1522,11 @@ export function CallbackGraph() {
 
     // Check if a callback has a parent connection (is source of an edge)
     const getParentEdge = useCallback((callbackId: number | string) => {
-        // Check custom edges first
-        const customEdge = customEdges.find(e => e.source === callbackId);
+        const callbackIdStr = String(callbackId);
+        
+        // Check custom edges first (callback → custom node)
+        // e.source is stored as string when edge is created
+        const customEdge = customEdges.find(e => String(e.source) === callbackIdStr);
         if (customEdge) return customEdge;
         
         // Then check database edges
@@ -1531,18 +1534,25 @@ export function CallbackGraph() {
         return edgesData.callbackgraphedge.find(
             (e: any) => e.source?.id === callbackId && !e.end_timestamp
         );
-    }, [edgesData]);
+    }, [edgesData, customEdges]);
 
     // Disconnect from parent - removes the edge where this callback is the source
     const handleDisconnectParent = async (callback: any) => {
+        log('[handleDisconnectParent] callback:', callback);
+        log('[handleDisconnectParent] callback.id:', callback.id, 'type:', typeof callback.id);
+        log('[handleDisconnectParent] callback.isCustom:', callback.isCustom);
+        log('[handleDisconnectParent] customEdges:', customEdges.map(e => ({ id: e.id, source: e.source, target: e.target })));
+        
         const parentEdge = getParentEdge(callback.id);
+        log('[handleDisconnectParent] Found parentEdge:', parentEdge);
+        
         if (!parentEdge) {
             snackActions.info("No parent connection found");
             setContextMenu(null);
             return;
         }
 
-        // Check if it's a custom node
+        // Check if it's a custom node disconnecting from its parent
         if (callback.isCustom) {
             try {
                 log('[handleDisconnectParent] Removing parent from custom node:', callback.db_id);
