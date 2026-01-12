@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
 import { GET_CALLBACKS, HIDE_CALLBACK_MUTATION, LOCK_CALLBACK_MUTATION, UPDATE_CALLBACK_DESCRIPTION_MUTATION } from '../lib/api';
 import { CyberTable } from '../components/CyberTable';
-import { Terminal, Shield, Cpu, Activity, User, MoreVertical, Lock, Unlock, EyeOff, Edit, Trash2, Network, List } from 'lucide-react';
+import { Terminal, Shield, Cpu, Activity, User, MoreVertical, Lock, Unlock, EyeOff, Eye, Edit, Trash2, Network, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
@@ -77,6 +77,7 @@ export default function Callbacks() {
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [editDescriptionCallback, setEditDescriptionCallback] = useState<any>(null);
   const [newDescription, setNewDescription] = useState("");
+  const [showHiddenCallbacks, setShowHiddenCallbacks] = useState(false);
 
   const handleRowClick = (callback: any) => {
       // Navigate to Callback Console
@@ -104,6 +105,17 @@ export default function Callbacks() {
           refetch();
       } catch (e: any) {
           snackActions.error("Failed to hide callback: " + e.message);
+      }
+      setActionsMenuOpenId(null);
+  };
+
+  const handleShow = async (callback: any) => {
+      try {
+          await hideCallback({ variables: { callback_display_id: callback.display_id, active: true } });
+          snackActions.success(`Callback ${callback.display_id} restored`);
+          refetch();
+      } catch (e: any) {
+          snackActions.error("Failed to show callback: " + e.message);
       }
       setActionsMenuOpenId(null);
   };
@@ -142,8 +154,9 @@ export default function Callbacks() {
         header: "ID",
         cell: (row: any) => (
             <div className="flex items-center gap-2">
-                <span className="text-gray-400">#{row.display_id}</span>
+                <span className={row.active === false ? "text-gray-600" : "text-gray-400"}>#{row.display_id}</span>
                 {row.locked && <Lock size={12} className="text-red-500" />}
+                {row.active === false && <EyeOff size={12} className="text-yellow-500" title="Hidden" />}
             </div>
         )
     },
@@ -230,9 +243,15 @@ export default function Callbacks() {
                                 {row.locked ? "Unlock Callback" : "Lock Callback"}
                             </button>
                             <div className="h-px bg-white/10 my-1" />
-                            <button onClick={() => handleHide(row)} className="flex items-center gap-2 px-3 py-2 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors">
-                                <EyeOff size={14} /> Hide Callback
-                            </button>
+                            {row.active === false ? (
+                                <button onClick={() => handleShow(row)} className="flex items-center gap-2 px-3 py-2 hover:bg-green-900/30 text-xs text-left text-green-400 hover:text-green-300 transition-colors">
+                                    <Eye size={14} /> Show Callback
+                                </button>
+                            ) : (
+                                <button onClick={() => handleHide(row)} className="flex items-center gap-2 px-3 py-2 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors">
+                                    <EyeOff size={14} /> Hide Callback
+                                </button>
+                            )}
                         </div>
                     </div>,
                     document.body
@@ -290,12 +309,32 @@ export default function Callbacks() {
 
             {/* List View Section - Remaining space */}
             <div className="flex-1 min-h-0 overflow-auto">
-                 <div className="flex items-center gap-2 mb-2 text-xs font-mono text-gray-400">
-                    <List size={14} className="text-signal" />
-                    <span>AGENT_LIST</span>
+                 <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-xs font-mono text-gray-400">
+                        <List size={14} className="text-signal" />
+                        <span>AGENT_LIST</span>
+                        {showHiddenCallbacks && (
+                            <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-500 text-[10px] rounded">
+                                SHOWING HIDDEN
+                            </span>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => setShowHiddenCallbacks(!showHiddenCallbacks)}
+                        className={cn(
+                            "flex items-center gap-1.5 px-2 py-1 text-xs font-mono transition-colors rounded",
+                            showHiddenCallbacks 
+                                ? "bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30" 
+                                : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                        )}
+                        title={showHiddenCallbacks ? "Hide inactive callbacks" : "Show hidden callbacks"}
+                    >
+                        {showHiddenCallbacks ? <Eye size={12} /> : <EyeOff size={12} />}
+                        <span>{showHiddenCallbacks ? "HIDE_INACTIVE" : "SHOW_HIDDEN"}</span>
+                    </button>
                 </div>
             <CyberTable 
-                data={data?.callback || []} 
+                data={(data?.callback || []).filter((c: any) => showHiddenCallbacks || c.active !== false)} 
                     columns={columns as any} 
                 isLoading={loading}
                 onRowClick={handleRowClick}

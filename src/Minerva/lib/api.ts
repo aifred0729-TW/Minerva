@@ -146,7 +146,7 @@ query GetMinervaDashboard($operator_id: Int!) {
 
 export const GET_CALLBACKS = gql`
 query GetCallbacks($limit: Int = 50, $offset: Int = 0) {
-  callback(order_by: {id: desc}, limit: $limit, offset: $offset, where: {active: {_eq: true}}) {
+  callback(order_by: {id: desc}, limit: $limit, offset: $offset) {
     id
     display_id
     user
@@ -162,6 +162,7 @@ query GetCallbacks($limit: Int = 50, $offset: Int = 0) {
     description
     sleep_info
     locked
+    active
     payload {
       payloadtype {
         name

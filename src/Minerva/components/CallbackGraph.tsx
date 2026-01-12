@@ -16,6 +16,16 @@ import {
     getStraightPath
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+
+// Suppress ResizeObserver loop error (non-critical, common with ReactFlow)
+const resizeObserverError = window.onerror;
+window.onerror = (message, ...args) => {
+    if (typeof message === 'string' && message.includes('ResizeObserver loop')) {
+        return true; // Suppress this specific error
+    }
+    return resizeObserverError ? resizeObserverError(message, ...args) : false;
+};
+
 import { useQuery, useMutation } from '@apollo/client';
 import { 
     GET_CALLBACK_GRAPH_EDGES, 
@@ -778,44 +788,122 @@ const edgeTypes = {
     pulse: PulseEdge
 };
 
-// Simple manual tree layout function
+// Layout constants for beautiful node arrangement (horizontal left-to-right)
+const LAYOUT = {
+    ROOT_X: 100,                   // Root node X position (left side)
+    LEVEL_SPACING: 300,            // Horizontal spacing between levels
+    NODE_HEIGHT: 150,              // Vertical spacing between nodes in same level
+    CENTER_Y: 400,                 // Center Y position
+    MAX_PER_COLUMN: 10,            // Maximum nodes per column before wrapping
+};
+
+// Improved tree layout function - horizontal left-to-right
+// Edge direction: source (child) → target (parent)
+// Parent is at lower level (left), child is at higher level (right)
 const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
-    // 1. Identify Root
+    // 1. Find root node
     const root = nodes.find(n => n.id === 'root');
     if (!root) return { nodes, edges };
 
+    // Build parent map from ALL edges (including custom edges)
+    // Edge direction: source (child) → target (parent)
+    const parentMap = new Map<string, string>();
+    
+    edges.forEach(edge => {
+        // Skip auto-generated root edges (root-X format)
+        if (edge.id.startsWith('root-')) {
+            return;
+        }
+        
+        // source is child, target is parent
+        // Record this relationship - child's parent is target
+        if (!parentMap.has(edge.source)) {
+            parentMap.set(edge.source, edge.target);
+        }
+    });
+
+    // Calculate levels using recursive function
+    // Level 0 = root (Minerva Core)
+    // Level N = nodes that are N edges away from root
+    const levels = new Map<string, number>();
+    levels.set('root', 0);
+    
+    // Memoized level calculation with cycle detection
+    const calculateLevel = (nodeId: string, visited: Set<string> = new Set()): number => {
+        if (levels.has(nodeId)) return levels.get(nodeId)!;
+        
+        // Prevent infinite loop on cycles
+        if (visited.has(nodeId)) {
+            levels.set(nodeId, 1);
+            return 1;
+        }
+        visited.add(nodeId);
+        
+        const parent = parentMap.get(nodeId);
+        if (parent && parent !== 'root' && parent !== nodeId) {
+            // This node has an explicit parent (not root)
+            // Its level = parent's level + 1
+            const parentLevel = calculateLevel(parent, new Set(visited));
+            const level = parentLevel + 1;
+            levels.set(nodeId, level);
+            return level;
+        }
+        
+        // No explicit parent means direct connection to root (level 1)
+        levels.set(nodeId, 1);
+        return 1;
+    };
+    
+    // Calculate levels for all nodes
+    nodes.forEach(node => {
+        if (node.id !== 'root') {
+            calculateLevel(node.id);
+        }
+    });
+
+    // Group nodes by level
+    const nodesByLevel = new Map<number, Node[]>();
+    nodes.forEach(node => {
+        const level = levels.get(node.id) ?? 1;
+        if (!nodesByLevel.has(level)) nodesByLevel.set(level, []);
+        nodesByLevel.get(level)!.push(node);
+    });
+
+    // Calculate positions for each level (horizontal layout: left to right)
     const layoutedNodes = nodes.map(node => {
         if (node.id === 'root') {
-            return { ...node, position: { x: 400, y: 50 } };
+            return { ...node, position: { x: LAYOUT.ROOT_X, y: LAYOUT.CENTER_Y } };
         }
-        return node;
-    });
-
-    // 2. Arrange Callbacks (Level 1)
-    // Find all nodes connected to root
-    const rootEdges = edges.filter(e => e.source === 'root' || e.target === 'root');
-    const level1NodeIds = new Set(rootEdges.map(e => e.source === 'root' ? e.target : e.source));
-    
-    // Simple grid layout for level 1
-    const yLevel1 = 300; // Increased spacing
-    
-    // Sort nodes so display is consistent (e.g. by ID)
-    const level1Nodes = layoutedNodes.filter(n => level1NodeIds.has(n.id)).sort((a,b) => a.id.localeCompare(b.id));
-    
-    // Calculate total width to center them
-    const nodeWidth = 250;
-    const totalWidth = level1Nodes.length * nodeWidth;
-    let startX = 400 - (totalWidth / 2) + (nodeWidth / 2); // Center relative to root at 400
-
-    level1Nodes.forEach((node, index) => {
-        node.position = { x: startX + (index * nodeWidth), y: yLevel1 };
-    });
-
-    // 3. Handle deeper levels (simplified for now: just pile them below if P2P)
-    // For now, if there are nodes NOT in level1 and NOT root, we place them further down
-    const otherNodes = layoutedNodes.filter(n => n.id !== 'root' && !level1NodeIds.has(n.id));
-    otherNodes.forEach((node, index) => {
-         node.position = { x: 100 + (index * 250), y: 500 };
+        
+        const level = levels.get(node.id) ?? 1;
+        const levelNodes = nodesByLevel.get(level) || [];
+        
+        // Sort nodes consistently by ID for stable layout
+        levelNodes.sort((a, b) => a.id.localeCompare(b.id));
+        const nodeIndex = levelNodes.findIndex(n => n.id === node.id);
+        
+        // Calculate X position based on level (left to right)
+        // Level 1 = first column after root, Level 2 = second column, etc.
+        const xPos = LAYOUT.ROOT_X + level * LAYOUT.LEVEL_SPACING;
+        
+        // Calculate Y position - center nodes vertically in their column
+        const nodesInLevel = levelNodes.length;
+        const columnCount = Math.ceil(nodesInLevel / LAYOUT.MAX_PER_COLUMN);
+        const currentColumn = Math.floor(nodeIndex / LAYOUT.MAX_PER_COLUMN);
+        const nodesInCurrentColumn = currentColumn === columnCount - 1 
+            ? nodesInLevel % LAYOUT.MAX_PER_COLUMN || LAYOUT.MAX_PER_COLUMN
+            : LAYOUT.MAX_PER_COLUMN;
+        const indexInColumn = nodeIndex % LAYOUT.MAX_PER_COLUMN;
+        
+        // Center the column vertically
+        const totalColumnHeight = (nodesInCurrentColumn - 1) * LAYOUT.NODE_HEIGHT;
+        const startY = LAYOUT.CENTER_Y - totalColumnHeight / 2;
+        const yPos = startY + indexInColumn * LAYOUT.NODE_HEIGHT;
+        
+        // Offset X for additional columns (if more than MAX_PER_COLUMN nodes in a level)
+        const xOffset = currentColumn * LAYOUT.LEVEL_SPACING;
+        
+        return { ...node, position: { x: xPos + xOffset, y: yPos } };
     });
 
     return { nodes: layoutedNodes, edges };
@@ -839,6 +927,7 @@ export function CallbackGraph() {
     const viewportRef = useRef({ x: 0, y: 0, zoom: 1 });
     const [isInitialRender, setIsInitialRender] = useState(true);
     const seenNodeIds = useRef(new Set<string>());
+    const prevGraphDataRef = useRef<{ nodes: Node[], edges: Edge[] }>({ nodes: [], edges: [] });
     const navigate = useNavigate();
 
     // Context Menu State
@@ -871,15 +960,18 @@ export function CallbackGraph() {
     const [importData, setImportData] = useState('');
 
     // GraphQL for custom nodes - use polling for real-time updates
+    // Use cache-and-network to prevent flickering during refetch
     const { data: customNodesData, refetch: refetchCustomNodes } = useQuery(GET_CUSTOM_GRAPH_NODES, {
         pollInterval: 5000,
-        fetchPolicy: 'network-only'
+        fetchPolicy: 'cache-and-network',
+        nextFetchPolicy: 'cache-first'
     });
 
     // GraphQL for custom edges - use polling for real-time updates
     const { data: customEdgesData, refetch: refetchCustomEdges } = useQuery(GET_CUSTOM_GRAPH_EDGES, {
         pollInterval: 5000,
-        fetchPolicy: 'network-only'
+        fetchPolicy: 'cache-and-network',
+        nextFetchPolicy: 'cache-first'
     });
 
     const [createCustomNodeMutation] = useMutation(CREATE_CUSTOM_GRAPH_NODE);
@@ -1551,12 +1643,23 @@ export function CallbackGraph() {
 
     // Transform data to React Flow format
     const graphData = useMemo(() => {
-        if (!callbacksData?.callback && customNodes.length === 0) return { nodes: [], edges: [] };
+        // Get callbacks array safely (empty array if loading/undefined)
+        const callbacks = callbacksData?.callback || [];
+        
+        // Only return empty if BOTH are truly empty (not during loading)
+        // If we have previous data and current is empty, return previous to prevent flickering
+        if (callbacks.length === 0 && customNodes.length === 0) {
+            // If we have cached data, return it during loading/refetch
+            if (prevGraphDataRef.current.nodes.length > 0) {
+                return prevGraphDataRef.current;
+            }
+            return { nodes: [], edges: [] };
+        }
 
         // Filter callbacks based on showHiddenNodes toggle
         const visibleCallbacks = showHiddenNodes 
-            ? (callbacksData?.callback || [])
-            : (callbacksData?.callback || []).filter((c: any) => c.active !== false);
+            ? callbacks
+            : callbacks.filter((c: any) => c.active !== false);
         
         const allCallbacks = [...visibleCallbacks, ...customNodes];
         
@@ -1708,17 +1811,39 @@ export function CallbackGraph() {
                 });
             });
 
-        return { nodes: flowNodes, edges: flowEdges };
+        const result = { nodes: flowNodes, edges: flowEdges };
+        // Cache the result for use during loading/refetch states
+        prevGraphDataRef.current = result;
+        return result;
     }, [callbacksData, edgesData, handleContextMenu, isInitialRender, customNodes, showHiddenNodes, customEdges]);
 
+    // Track previous edges to detect layout changes
+    const prevEdgesRef = useRef<string>('');
+    
     // Apply layout when data changes
     React.useEffect(() => {
         if (graphData.nodes.length > 0) {
             const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(graphData.nodes, graphData.edges);
 
-            // 保留既有節點的位置，僅為新節點設定 layout 位置，避免視角跳動
+            // Create a hash of current edges to detect changes
+            const edgeHash = graphData.edges
+                .filter(e => !e.id.startsWith('root-'))
+                .map(e => `${e.source}->${e.target}`)
+                .sort()
+                .join('|');
+            
+            const edgesChanged = edgeHash !== prevEdgesRef.current;
+            prevEdgesRef.current = edgeHash;
+            
+            // If edges changed, apply new layout; otherwise preserve positions
             // @ts-ignore
             setNodes((prev: Node[]) => {
+                if (edgesChanged || prev.length === 0) {
+                    // Edges changed - apply new layout positions
+                    return layoutedNodes;
+                }
+                
+                // No edge changes - preserve existing positions for stability
                 const prevMap = new Map(prev.map(n => [n.id, n]));
                 return layoutedNodes.map((n) => {
                     const existing = prevMap.get(n.id);

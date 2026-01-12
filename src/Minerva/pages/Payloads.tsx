@@ -795,15 +795,29 @@ const PayloadRow = ({
                                 onClick={(e) => {
                                     const rect = e.currentTarget.getBoundingClientRect();
                                     // Calculate position to prevent overflow
-                                    const menuHeight = 450; // Approximate max height
+                                    const menuHeight = Math.min(500, window.innerHeight - 40); // Max menu height
+                                    const menuWidth = 256; // w-64 = 256px
+                                    
+                                    // Calculate optimal top position
                                     let top = rect.bottom + 5;
-                                    if (top + menuHeight > window.innerHeight) {
+                                    const spaceBelow = window.innerHeight - rect.bottom - 20;
+                                    const spaceAbove = rect.top - 20;
+                                    
+                                    // If not enough space below, try above or adjust
+                                    if (spaceBelow < 300 && spaceAbove > spaceBelow) {
+                                        // Show above the button
+                                        top = Math.max(10, rect.top - Math.min(menuHeight, spaceAbove));
+                                    } else if (top + menuHeight > window.innerHeight - 10) {
                                         top = Math.max(10, window.innerHeight - menuHeight - 10);
                                     }
-                                    setMenuPosition({ 
-                                        top, 
-                                        left: rect.left 
-                                    });
+                                    
+                                    // Ensure left doesn't overflow
+                                    let left = rect.left;
+                                    if (left + menuWidth > window.innerWidth - 10) {
+                                        left = window.innerWidth - menuWidth - 10;
+                                    }
+                                    
+                                    setMenuPosition({ top, left });
                                     setShowMenu(!showMenu);
                                 }}
                                 className="p-1.5 rounded hover:bg-signal/10 text-gray-500 hover:text-signal transition-colors"
@@ -822,9 +836,10 @@ const PayloadRow = ({
                                         top: menuPosition.top, 
                                         left: menuPosition.left,
                                         zIndex: 99999,
-                                        maxHeight: 'calc(100vh - 100px)'
+                                        maxHeight: `calc(100vh - ${menuPosition.top + 20}px)`,
+                                        minHeight: '200px'
                                     }}
-                                    className="w-64 bg-void/95 backdrop-blur-md border border-signal/30 shadow-2xl shadow-signal/10 py-1 overflow-y-auto cyber-scrollbar"
+                                    className="w-64 bg-void/95 backdrop-blur-md border border-signal/30 shadow-2xl shadow-signal/10 py-1 overflow-y-auto"
                                 >
                                     {/* File Operations */}
                                     <div className="px-3 py-1 text-xs font-mono text-signal/50 uppercase tracking-wider border-b border-signal/10 bg-signal/5">File</div>
