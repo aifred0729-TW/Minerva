@@ -5,7 +5,6 @@ Advanced Mythic C2 Interface with collaborative graph visualization.
 ## Setup
 
 ```bash
-cd /home/red/Mythic
 ./minerva_setup.sh        # Full setup
 ./minerva_setup.sh verify # Verify installation
 ./minerva_setup.sh fix    # Fix issues
