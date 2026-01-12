@@ -49,11 +49,11 @@ import {
 import { Terminal, Cpu, User, Share2, Hexagon, Shield, Network, Monitor, Skull, Lock, Unlock, EyeOff, Edit, Info, GitBranch, X, ChevronRight, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { snackActions } from '../../Archive/components/utilities/Snackbar';
-import { CyberModal } from './CyberModal';
 
 // Debug mode - set to false in production for performance
 const DEBUG_GRAPH = false;
 const log = (...args: any[]) => DEBUG_GRAPH && console.log('[CallbackGraph]', ...args);
+import { CyberModal } from './CyberModal';
 
 // Windows Icon SVG Component
 const WindowsIcon = ({ size = 16, className = "" }: { size?: number; className?: string }) => (
@@ -890,13 +890,13 @@ export function CallbackGraph() {
 
     // Sync custom nodes from GraphQL (agentstorage)
     useEffect(() => {
-        log(' customNodesData changed:', customNodesData);
+        console.log('[CallbackGraph] customNodesData changed:', customNodesData);
         
         if (customNodesData?.agentstorage) {
-            log(' Found agentstorage data:', customNodesData.agentstorage);
+            console.log('[CallbackGraph] Found agentstorage data:', customNodesData.agentstorage);
             try {
                 const parsedNodes = parseAgentStorageResults(customNodesData.agentstorage);
-                log(' Parsed nodes:', parsedNodes);
+                console.log('[CallbackGraph] Parsed nodes:', parsedNodes);
                 
                 const nodes = parsedNodes.map((node: any) => ({
                     id: `custom-${node.id}`,
@@ -917,9 +917,9 @@ export function CallbackGraph() {
                     c2profile: node.c2profile
                 }));
                 
-                log(' Mapped internal nodes:', nodes);
+                console.log('[CallbackGraph] Mapped internal nodes:', nodes);
                 setCustomNodes(nodes);
-                log(' setCustomNodes called with', nodes.length, 'nodes');
+                console.log('[CallbackGraph] setCustomNodes called with', nodes.length, 'nodes');
                 
                 // Generate edges from parent relationships
                 const parentEdgesFromNodes = nodes
@@ -933,14 +933,14 @@ export function CallbackGraph() {
                         c2profile: node.c2profile || ''
                     }));
                 
-                log(' Generated edges from parent relationships:', parentEdgesFromNodes);
+                console.log('[CallbackGraph] Generated edges from parent relationships:', parentEdgesFromNodes);
                 
                 // Update edges while preserving callback->custom edges
                 setCustomEdges(prevEdges => {
                     // Keep callback->custom edges (from database)
                     const callbackEdges = prevEdges.filter(e => e.id.includes('callback-'));
                     // Replace parent edges with new ones
-                    log(' Merging parent edges:', parentEdgesFromNodes.length, 'with callback edges:', callbackEdges.length);
+                    console.log('[CallbackGraph] Merging parent edges:', parentEdgesFromNodes.length, 'with callback edges:', callbackEdges.length);
                     return [...parentEdgesFromNodes, ...callbackEdges];
                 });
             } catch (error) {
@@ -948,33 +948,33 @@ export function CallbackGraph() {
                 snackActions.error('Failed to load custom nodes: ' + (error as Error).message);
             }
         } else {
-            log(' No agentstorage data in customNodesData');
+            console.log('[CallbackGraph] No agentstorage data in customNodesData');
         }
     }, [customNodesData]);
 
     // Sync custom edges from GraphQL (stored edges in agentstorage)
     useEffect(() => {
-        log(' customEdgesData changed:', customEdgesData);
+        console.log('[CallbackGraph] customEdgesData changed:', customEdgesData);
         
         if (customEdgesData?.agentstorage) {
-            log(' Found custom edges data:', customEdgesData.agentstorage);
+            console.log('[CallbackGraph] Found custom edges data:', customEdgesData.agentstorage);
             try {
                 const storedCallbackEdges = parseEdgeStorageResults(customEdgesData.agentstorage);
-                log(' Parsed callback->custom edges:', storedCallbackEdges);
+                console.log('[CallbackGraph] Parsed callback->custom edges:', storedCallbackEdges);
                 
                 // Update edges while preserving parent edges
                 setCustomEdges(prevEdges => {
                     // Keep parent edges (custom node -> callback/custom)
                     const parentEdges = prevEdges.filter(e => e.id.startsWith('custom-edge-') && !e.id.includes('callback-'));
                     // Replace callback edges with stored ones
-                    log(' Merging stored callback edges:', storedCallbackEdges.length, 'with parent edges:', parentEdges.length);
+                    console.log('[CallbackGraph] Merging stored callback edges:', storedCallbackEdges.length, 'with parent edges:', parentEdges.length);
                     return [...parentEdges, ...storedCallbackEdges];
                 });
             } catch (error) {
                 console.error('[CallbackGraph] Failed to parse custom edges:', error);
             }
         } else {
-            log(' No custom edges data, keeping only parent edges');
+            console.log('[CallbackGraph] No custom edges data, keeping only parent edges');
             // No stored edges, remove callback edges but keep parent edges
             setCustomEdges(prevEdges => prevEdges.filter(e => e.id.startsWith('custom-edge-') && !e.id.includes('callback-')));
         }
@@ -1048,8 +1048,8 @@ export function CallbackGraph() {
     };
 
     const handleCreateCustomNode = async () => {
-        log('[handleCreateCustomNode] === START ===');
-        log('[handleCreateCustomNode] Form:', customNodeForm);
+        console.log('[handleCreateCustomNode] === START ===');
+        console.log('[handleCreateCustomNode] Form:', customNodeForm);
         
         if (!customNodeForm.host || !customNodeForm.ip) {
             console.error('[handleCreateCustomNode] Validation failed - missing host or IP');
@@ -1058,19 +1058,19 @@ export function CallbackGraph() {
         }
         
         try {
-            log('[handleCreateCustomNode] Parsing existing nodes...');
+            console.log('[handleCreateCustomNode] Parsing existing nodes...');
             // Generate next ID based on existing nodes
             const parsedNodes = customNodesData?.agentstorage 
                 ? parseAgentStorageResults(customNodesData.agentstorage) 
                 : [];
-            log('[handleCreateCustomNode] Found', parsedNodes.length, 'existing nodes');
-            log('[handleCreateCustomNode] Existing node IDs:', parsedNodes.map(n => n.id));
+            console.log('[handleCreateCustomNode] Found', parsedNodes.length, 'existing nodes');
+            console.log('[handleCreateCustomNode] Existing node IDs:', parsedNodes.map(n => n.id));
             
             const nextId = generateNextId(parsedNodes);
-            log('[handleCreateCustomNode] Generated next ID:', nextId);
+            console.log('[handleCreateCustomNode] Generated next ID:', nextId);
             
             // Prepare data for agentstorage
-            log('[handleCreateCustomNode] Preparing node data...');
+            console.log('[handleCreateCustomNode] Preparing node data...');
             const { unique_id, data } = prepareCreateNodeData({
                 hostname: customNodeForm.host,
                 ip_address: customNodeForm.ip,
@@ -1080,11 +1080,11 @@ export function CallbackGraph() {
                 description: customNodeForm.description
             }, nextId);
             
-            log('[handleCreateCustomNode] unique_id:', unique_id);
-            log('[handleCreateCustomNode] data (first 100 chars):', data.substring(0, 100));
-            log('[handleCreateCustomNode] data length:', data.length);
+            console.log('[handleCreateCustomNode] unique_id:', unique_id);
+            console.log('[handleCreateCustomNode] data (first 100 chars):', data.substring(0, 100));
+            console.log('[handleCreateCustomNode] data length:', data.length);
             
-            log('[handleCreateCustomNode] Calling createCustomNodeMutation...');
+            console.log('[handleCreateCustomNode] Calling createCustomNodeMutation...');
             const result = await createCustomNodeMutation({
                 variables: {
                     unique_id,
@@ -1092,17 +1092,17 @@ export function CallbackGraph() {
                 }
             });
 
-            log('[handleCreateCustomNode] Mutation completed. Result:', result);
+            console.log('[handleCreateCustomNode] Mutation completed. Result:', result);
             
             if (result.data?.insert_agentstorage_one) {
-                log('[handleCreateCustomNode] Created successfully:', result.data.insert_agentstorage_one);
+                console.log('[handleCreateCustomNode] Created successfully:', result.data.insert_agentstorage_one);
                 snackActions.success(`Custom node "${customNodeForm.host}" created`);
                 setShowCustomNodeModal(false);
                 
                 // Force refetch to get updated data
-                log('[handleCreateCustomNode] Refetching custom nodes...');
+                console.log('[handleCreateCustomNode] Refetching custom nodes...');
                 await refetchCustomNodes();
-                log('[handleCreateCustomNode] Refetch complete');
+                console.log('[handleCreateCustomNode] Refetch complete');
                 
                 // Reset form
                 setCustomNodeForm({
@@ -1261,16 +1261,16 @@ export function CallbackGraph() {
         const isSourceCustom = setParentModal.isCustom;
         const isDestCustom = selectedDestination.isCustom;
         
-        log('[handleSetParent] isSourceCustom:', isSourceCustom, 'isDestCustom:', isDestCustom);
-        log('[handleSetParent] setParentModal:', setParentModal);
-        log('[handleSetParent] selectedDestination:', selectedDestination);
+        console.log('[handleSetParent] isSourceCustom:', isSourceCustom, 'isDestCustom:', isDestCustom);
+        console.log('[handleSetParent] setParentModal:', setParentModal);
+        console.log('[handleSetParent] selectedDestination:', selectedDestination);
         
         if (isSourceCustom) {
             // Source is a custom node - need to update in database
             try {
-                log('[handleSetParent] Updating custom node parent connection...');
-                log('[handleSetParent] Source:', setParentModal.id, 'db_id:', setParentModal.db_id);
-                log('[handleSetParent] Destination:', selectedDestination.id, 'display_id:', selectedDestination.display_id);
+                console.log('[handleSetParent] Updating custom node parent connection...');
+                console.log('[handleSetParent] Source:', setParentModal.id, 'db_id:', setParentModal.db_id);
+                console.log('[handleSetParent] Destination:', selectedDestination.id, 'display_id:', selectedDestination.display_id);
                 
                 // Find the full custom node data
                 const sourceNode = customNodes.find(n => n.id === setParentModal.id);
@@ -1281,7 +1281,7 @@ export function CallbackGraph() {
                     return;
                 }
                 
-                log('[handleSetParent] Found source node:', sourceNode);
+                console.log('[handleSetParent] Found source node:', sourceNode);
                 
                 // Prepare updated node data with parent connection
                 const { unique_id, data } = prepareUpdateNodeData({
@@ -1298,7 +1298,7 @@ export function CallbackGraph() {
                     c2profile: selectedProfile.name
                 });
                 
-                log('[handleSetParent] Updating with parent_id:', isDestCustom ? selectedDestination.db_id : selectedDestination.display_id);
+                console.log('[handleSetParent] Updating with parent_id:', isDestCustom ? selectedDestination.db_id : selectedDestination.display_id);
                 
                 const result = await updateCustomNodeMutation({
                     variables: { unique_id, data }
@@ -1322,9 +1322,9 @@ export function CallbackGraph() {
             // Regular callback linking to custom node as parent
             // Store this as a custom edge in database (agentstorage)
             try {
-                log('[handleSetParent] Creating custom edge: callback → custom node');
-                log('[handleSetParent] Source (callback):', setParentModal.id, setParentModal.display_id);
-                log('[handleSetParent] Destination (custom):', selectedDestination.id, selectedDestination.db_id);
+                console.log('[handleSetParent] Creating custom edge: callback → custom node');
+                console.log('[handleSetParent] Source (callback):', setParentModal.id, setParentModal.display_id);
+                console.log('[handleSetParent] Destination (custom):', selectedDestination.id, selectedDestination.db_id);
                 
                 // Create edge object
                 const edgeId = `callback-${setParentModal.display_id}-to-custom-${selectedDestination.db_id}`;
@@ -1337,15 +1337,15 @@ export function CallbackGraph() {
                     c2profile: selectedProfile.name
                 };
                 
-                log('[handleSetParent] Saving edge to database:', newEdge);
+                console.log('[handleSetParent] Saving edge to database:', newEdge);
                 
                 // Delete ALL existing edges from this callback (query from current edges data)
                 const existingEdgesFromCallback = customEdges.filter(e => e.source === String(setParentModal.id));
-                log('[handleSetParent] Found', existingEdgesFromCallback.length, 'existing edges to remove');
+                console.log('[handleSetParent] Found', existingEdgesFromCallback.length, 'existing edges to remove');
                 
                 for (const edge of existingEdgesFromCallback) {
                     try {
-                        log('[handleSetParent] Deleting edge:', edge.id, 'unique_id:', generateEdgeUniqueId(edge.id));
+                        console.log('[handleSetParent] Deleting edge:', edge.id, 'unique_id:', generateEdgeUniqueId(edge.id));
                         await deleteCustomEdgeMutation({
                             variables: { unique_id: generateEdgeUniqueId(edge.id) }
                         });
@@ -1453,7 +1453,7 @@ export function CallbackGraph() {
         // Check if it's a custom node
         if (callback.isCustom) {
             try {
-                log('[handleDisconnectParent] Removing parent from custom node:', callback.db_id);
+                console.log('[handleDisconnectParent] Removing parent from custom node:', callback.db_id);
                 
                 // Update the custom node to remove parent connection
                 const { unique_id, data } = prepareUpdateNodeData({
@@ -1492,7 +1492,7 @@ export function CallbackGraph() {
         if (parentEdge.source && typeof parentEdge.source === 'string' && !parentEdge.id.startsWith('e')) {
             // This is a custom edge, remove it from database
             try {
-                log('[handleDisconnectParent] Removing custom edge from database:', parentEdge.id);
+                console.log('[handleDisconnectParent] Removing custom edge from database:', parentEdge.id);
                 
                 const result = await deleteCustomEdgeMutation({
                     variables: { unique_id: generateEdgeUniqueId(parentEdge.id) }

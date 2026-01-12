@@ -2,6 +2,9 @@
  * Custom Graph Node Service
  * Handles serialization/deserialization and data management for custom nodes
  * stored in the agentstorage table
+ * 
+ * @module customGraphNodeService
+ * @version 2.0.0 - Optimized
  */
 
 import type {
@@ -10,18 +13,46 @@ import type {
   UpdateCustomGraphNodeInput,
 } from '../types/customGraphNode';
 
+// Debug mode - set to false in production
+const DEBUG = false;
+const log = (...args: any[]) => DEBUG && console.log('[CustomNodeService]', ...args);
+
+// Constants
+const NODE_PREFIX = 'minerva_customnode_';
+const EDGE_PREFIX = 'minerva_graphedge_';
+const NODE_ID_REGEX = /^minerva_customnode_(\d+)$/;
+
+/**
+ * Custom Graph Edge Interface
+ */
+export interface CustomGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceId: number | string;
+  targetId: number | string;
+  c2profile: string;
+}
+
+// ============================================================================
+// ID Generation
+// ============================================================================
+
 /**
  * Generate unique_id for agentstorage
  */
-export function generateUniqueId(id: number): string {
-  return `minerva_customnode_${id}`;
-}
+export const generateUniqueId = (id: number): string => `${NODE_PREFIX}${id}`;
+
+/**
+ * Generate unique_id for graph edge in agentstorage
+ */
+export const generateEdgeUniqueId = (edgeId: string): string => `${EDGE_PREFIX}${edgeId}`;
 
 /**
  * Extract ID from unique_id
  */
 export function extractIdFromUniqueId(uniqueId: string): number {
-  const match = uniqueId.match(/^minerva_customnode_(\d+)$/);
+  const match = uniqueId.match(NODE_ID_REGEX);
   if (!match) {
     throw new Error(`Invalid unique_id format: ${uniqueId}`);
   }
@@ -29,97 +60,112 @@ export function extractIdFromUniqueId(uniqueId: string): number {
 }
 
 /**
- * Generate next available ID
- * This should be called before creating a new node
+ * Generate next available ID based on existing nodes
  */
 export function generateNextId(existingNodes: CustomGraphNode[]): number {
-  if (existingNodes.length === 0) {
-    return 1;
+  if (!existingNodes.length) return 1;
+  return Math.max(...existingNodes.map(n => n.id)) + 1;
+}
+
+// ============================================================================
+// Serialization / Deserialization
+// ============================================================================
+
+/**
+ * Safe base64 encode with Unicode support
+ */
+const safeBase64Encode = (str: string): string => {
+  return btoa(unescape(encodeURIComponent(str)));
+};
+
+/**
+ * Safe base64 decode with Unicode support
+ */
+const safeBase64Decode = (str: string): string => {
+  try {
+    return decodeURIComponent(escape(atob(str)));
+  } catch {
+    return atob(str);
   }
-  const maxId = Math.max(...existingNodes.map(n => n.id));
-  return maxId + 1;
-}
+};
 
 /**
- * Serialize CustomGraphNode to bytea format (base64 encoded JSON string)
- * PostgreSQL bytea columns expect base64 encoded data
+ * Decode hex string to regular string
  */
-export function serializeNodeData(node: CustomGraphNode): string {
-  const jsonString = JSON.stringify(node);
-  // Convert to base64 for bytea storage (browser-compatible)
-  return btoa(unescape(encodeURIComponent(jsonString)));
-}
+const hexToString = (hex: string): string => {
+  const bytes = hex.match(/.{1,2}/g);
+  if (!bytes) throw new Error('Invalid hex string');
+  return bytes.map(byte => String.fromCharCode(parseInt(byte, 16))).join('');
+};
 
 /**
- * Deserialize data from agentstorage bytea column
- * Handles both string and already-parsed object formats
- * Hasura may return bytea as: hex string (\\x...), base64, or decoded JSON
+ * Serialize data to bytea format (base64 encoded JSON)
  */
-export function deserializeNodeData(data: any): CustomGraphNode {
-  console.log('[deserializeNodeData] Input type:', typeof data, 'Value:', data);
-  
-  // If data is already an object, return it
+export const serializeNodeData = (node: CustomGraphNode): string => {
+  return safeBase64Encode(JSON.stringify(node));
+};
+
+/**
+ * Serialize edge data to bytea format
+ */
+export const serializeEdgeData = (edge: CustomGraphEdge): string => {
+  return safeBase64Encode(JSON.stringify(edge));
+};
+
+/**
+ * Parse data that could be in multiple formats
+ * Handles: direct object, JSON string, base64, hex-encoded base64
+ */
+function parseStorageData<T>(data: any): T {
+  // Already an object
   if (typeof data === 'object' && data !== null) {
-    console.log('[deserializeNodeData] Data is already an object');
-    return data as CustomGraphNode;
+    return data as T;
   }
 
-  // If data is a string, try multiple parsing strategies
-  if (typeof data === 'string') {
-    // Strategy 1: Try parsing as JSON directly (Hasura may auto-decode)
-    try {
-      const parsed = JSON.parse(data);
-      console.log('[deserializeNodeData] Parsed as direct JSON');
-      return parsed as CustomGraphNode;
-    } catch (e1) {
-      console.log('[deserializeNodeData] Not direct JSON, trying other formats...');
-    }
-
-    // Strategy 2: Handle Hasura hex format (\\x...)
-    // PostgreSQL bytea hex format: \\x + hex digits
-    // The hex digits encode a base64 string, which encodes the JSON
-    if (data.startsWith('\\x')) {
-      try {
-        const hex = data.substring(2); // Remove \\x prefix
-        // Convert hex to string (each pair of hex digits = 1 character)
-        const base64String = hex.match(/.{1,2}/g)?.map(byte => String.fromCharCode(parseInt(byte, 16))).join('');
-        if (base64String) {
-          // Now decode the base64 string to get JSON
-          const jsonString = decodeURIComponent(escape(atob(base64String)));
-          const parsed = JSON.parse(jsonString);
-          console.log('[deserializeNodeData] Parsed from hex->base64->JSON format');
-          return parsed as CustomGraphNode;
-        }
-      } catch (e2) {
-        console.log('[deserializeNodeData] Hex parsing failed:', e2);
-      }
-    }
-
-    // Strategy 3: Try base64 decoding
-    try {
-      const decoded = decodeURIComponent(escape(atob(data)));
-      const parsed = JSON.parse(decoded);
-      console.log('[deserializeNodeData] Parsed from base64');
-      return parsed as CustomGraphNode;
-    } catch (e3) {
-      console.log('[deserializeNodeData] Base64 parsing failed:', e3);
-    }
-
-    // Strategy 4: Simple base64 without URI encoding
-    try {
-      const decoded = atob(data);
-      const parsed = JSON.parse(decoded);
-      console.log('[deserializeNodeData] Parsed from simple base64');
-      return parsed as CustomGraphNode;
-    } catch (e4) {
-      console.error('[deserializeNodeData] All parsing strategies failed:', e4);
-      console.error('[deserializeNodeData] Original data:', data);
-      throw new Error('Invalid node data format - could not parse');
-    }
+  if (typeof data !== 'string') {
+    throw new Error(`Unexpected data type: ${typeof data}`);
   }
 
-  throw new Error('Unexpected data type in agentstorage');
+  // Try direct JSON parse
+  try {
+    return JSON.parse(data) as T;
+  } catch { /* continue */ }
+
+  // Try hex format (\x...)
+  if (data.startsWith('\\x')) {
+    try {
+      const base64 = hexToString(data.substring(2));
+      return JSON.parse(safeBase64Decode(base64)) as T;
+    } catch { /* continue */ }
+  }
+
+  // Try base64 decode
+  try {
+    return JSON.parse(safeBase64Decode(data)) as T;
+  } catch {
+    throw new Error('Failed to parse storage data');
+  }
 }
+
+/**
+ * Deserialize node data from agentstorage
+ */
+export const deserializeNodeData = (data: any): CustomGraphNode => {
+  log('deserializeNodeData input:', typeof data);
+  return parseStorageData<CustomGraphNode>(data);
+};
+
+/**
+ * Deserialize edge data from agentstorage
+ */
+export const deserializeEdgeData = (data: any): CustomGraphEdge => {
+  log('deserializeEdgeData input:', typeof data);
+  return parseStorageData<CustomGraphEdge>(data);
+};
+
+// ============================================================================
+// Data Preparation
+// ============================================================================
 
 /**
  * Prepare data for CREATE mutation
@@ -128,8 +174,6 @@ export function prepareCreateNodeData(
   input: CreateCustomGraphNodeInput,
   id: number
 ): { unique_id: string; data: string } {
-  const timestamp = new Date().toISOString();
-  
   const node: CustomGraphNode = {
     id,
     hostname: input.hostname,
@@ -139,7 +183,7 @@ export function prepareCreateNodeData(
     username: input.username,
     description: input.description,
     hidden: false,
-    timestamp,
+    timestamp: new Date().toISOString(),
     position: input.position,
   };
 
@@ -155,8 +199,6 @@ export function prepareCreateNodeData(
 export function prepareUpdateNodeData(
   input: UpdateCustomGraphNodeInput
 ): { unique_id: string; data: string } {
-  const timestamp = new Date().toISOString();
-  
   const node: CustomGraphNode = {
     id: input.id,
     hostname: input.hostname,
@@ -165,8 +207,8 @@ export function prepareUpdateNodeData(
     architecture: input.architecture,
     username: input.username,
     description: input.description,
-    hidden: input.hidden || false,
-    timestamp,
+    hidden: input.hidden ?? false,
+    timestamp: new Date().toISOString(),
     position: input.position,
     parent_id: input.parent_id,
     parent_type: input.parent_type,
@@ -179,30 +221,57 @@ export function prepareUpdateNodeData(
   };
 }
 
+// ============================================================================
+// Batch Parsing
+// ============================================================================
+
 /**
  * Parse agentstorage query results into CustomGraphNode array
  */
 export function parseAgentStorageResults(results: any[]): CustomGraphNode[] {
-  console.log('[parseAgentStorageResults] Processing', results.length, 'items');
+  log('Processing', results.length, 'node items');
   
-  const parsed = results
-    .map((item, index) => {
-      try {
-        console.log(`[parseAgentStorageResults] Item ${index}:`, item);
-        const node = deserializeNodeData(item.data);
-        console.log(`[parseAgentStorageResults] Parsed node ${index}:`, node);
-        // Ensure the ID from the data matches
-        return node;
-      } catch (error) {
-        console.error('[parseAgentStorageResults] Failed to parse custom node:', item, error);
-        return null;
-      }
-    })
-    .filter((node): node is CustomGraphNode => node !== null);
+  const nodes: CustomGraphNode[] = [];
   
-  console.log('[parseAgentStorageResults] Successfully parsed', parsed.length, 'nodes');
-  return parsed;
+  for (const item of results) {
+    try {
+      nodes.push(deserializeNodeData(item.data));
+    } catch (error) {
+      console.error('[parseAgentStorageResults] Failed to parse:', item.unique_id);
+    }
+  }
+  
+  log('Successfully parsed', nodes.length, 'nodes');
+  return nodes;
 }
+
+/**
+ * Parse agentstorage results for graph edges
+ */
+export function parseEdgeStorageResults(results: any[]): CustomGraphEdge[] {
+  log('Processing', results.length, 'edge items');
+  
+  const edges: CustomGraphEdge[] = [];
+  
+  for (const item of results) {
+    try {
+      edges.push(deserializeEdgeData(item.data));
+    } catch (error) {
+      console.error('[parseEdgeStorageResults] Failed to parse:', item.unique_id);
+    }
+  }
+  
+  log('Successfully parsed', edges.length, 'edges');
+  return edges;
+}
+
+// ============================================================================
+// Validation
+// ============================================================================
+
+// IP validation regex (IPv4 and IPv6)
+const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$/;
+const IPV6_REGEX = /^(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}$/i;
 
 /**
  * Validate node input data
@@ -212,52 +281,44 @@ export function validateNodeInput(
 ): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
-  if (!input.hostname || input.hostname.trim() === '') {
+  if (!input.hostname?.trim()) {
     errors.push('Hostname is required');
   }
 
-  if (!input.ip_address || input.ip_address.trim() === '') {
+  const ip = input.ip_address?.trim();
+  if (!ip) {
     errors.push('IP Address is required');
-  } else {
-    // Basic IP validation (supports IPv4 and IPv6)
-    const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}$/i;
-    if (!ipRegex.test(input.ip_address.trim())) {
-      errors.push('Invalid IP Address format');
-    }
+  } else if (!IPV4_REGEX.test(ip) && !IPV6_REGEX.test(ip)) {
+    errors.push('Invalid IP Address format');
   }
 
-  if (!input.operating_system || input.operating_system.trim() === '') {
+  if (!input.operating_system?.trim()) {
     errors.push('Operating System is required');
   }
 
-  if (!input.architecture || input.architecture.trim() === '') {
+  if (!input.architecture?.trim()) {
     errors.push('Architecture is required');
   }
 
-  return {
-    valid: errors.length === 0,
-    errors,
-  };
+  return { valid: errors.length === 0, errors };
 }
+
+// ============================================================================
+// Migration
+// ============================================================================
 
 /**
  * Migrate data from old localStorage format to agentstorage
- * This function can be called on app initialization
  */
 export function migrateFromLocalStorage(): CreateCustomGraphNodeInput[] | null {
   try {
     const oldData = localStorage.getItem('customNodes');
-    if (!oldData) {
-      return null;
-    }
+    if (!oldData) return null;
 
     const parsedData = JSON.parse(oldData);
-    if (!Array.isArray(parsedData)) {
-      return null;
-    }
+    if (!Array.isArray(parsedData)) return null;
 
-    // Convert old format to new format
-    const nodesToMigrate: CreateCustomGraphNodeInput[] = parsedData.map((node: any) => ({
+    const nodesToMigrate = parsedData.map((node: any) => ({
       hostname: node.host || node.hostname,
       ip_address: node.ip || node.ip_address,
       operating_system: node.os || node.operating_system,
@@ -267,109 +328,10 @@ export function migrateFromLocalStorage(): CreateCustomGraphNodeInput[] | null {
       position: node.position,
     }));
 
-    // Clear old localStorage data after migration
     localStorage.removeItem('customNodes');
-    
     return nodesToMigrate;
-  } catch (error) {
-    console.error('Failed to migrate from localStorage:', error);
+  } catch {
+    console.error('[Migration] Failed to migrate from localStorage');
     return null;
   }
-}
-
-/**
- * Custom Edge Types for persistent storage
- */
-export interface CustomGraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  sourceId: number | string;
-  targetId: number | string;
-  c2profile: string;
-}
-
-/**
- * Generate unique_id for graph edge in agentstorage
- */
-export function generateEdgeUniqueId(edgeId: string): string {
-  return `minerva_graphedge_${edgeId}`;
-}
-
-/**
- * Serialize edge data to bytea format
- */
-export function serializeEdgeData(edge: CustomGraphEdge): string {
-  const jsonString = JSON.stringify(edge);
-  return btoa(unescape(encodeURIComponent(jsonString)));
-}
-
-/**
- * Deserialize edge data from agentstorage
- */
-export function deserializeEdgeData(data: any): CustomGraphEdge {
-  console.log('[deserializeEdgeData] Input type:', typeof data, 'Value:', data);
-  
-  if (typeof data === 'object' && data !== null) {
-    return data as CustomGraphEdge;
-  }
-
-  if (typeof data === 'string') {
-    // Try direct JSON parse
-    try {
-      const parsed = JSON.parse(data);
-      return parsed as CustomGraphEdge;
-    } catch (e1) {
-      // Not direct JSON
-    }
-
-    // Handle hex format (\\x...)
-    if (data.startsWith('\\x')) {
-      try {
-        const hex = data.substring(2);
-        const base64String = hex.match(/.{1,2}/g)?.map(byte => String.fromCharCode(parseInt(byte, 16))).join('');
-        if (base64String) {
-          const jsonString = decodeURIComponent(escape(atob(base64String)));
-          return JSON.parse(jsonString) as CustomGraphEdge;
-        }
-      } catch (e2) {
-        console.error('[deserializeEdgeData] Hex parsing failed:', e2);
-      }
-    }
-
-    // Try base64 decoding
-    try {
-      const decoded = decodeURIComponent(escape(atob(data)));
-      return JSON.parse(decoded) as CustomGraphEdge;
-    } catch (e3) {
-      console.error('[deserializeEdgeData] Base64 parsing failed:', e3);
-    }
-  }
-
-  throw new Error('Invalid edge data format - could not parse');
-}
-
-/**
- * Parse agentstorage results for graph edges
- */
-export function parseEdgeStorageResults(results: any[]): CustomGraphEdge[] {
-  console.log('[parseEdgeStorageResults] Processing', results.length, 'edge items');
-  
-  const edges: CustomGraphEdge[] = [];
-  
-  for (let i = 0; i < results.length; i++) {
-    const item = results[i];
-    console.log('[parseEdgeStorageResults] Edge item', i, ':', item);
-    
-    try {
-      const edge = deserializeEdgeData(item.data);
-      console.log('[parseEdgeStorageResults] Parsed edge', i, ':', edge);
-      edges.push(edge);
-    } catch (error) {
-      console.error('[parseEdgeStorageResults] Failed to parse edge:', item, 'Error:', error);
-    }
-  }
-  
-  console.log('[parseEdgeStorageResults] Successfully parsed', edges.length, 'edges');
-  return edges;
 }
