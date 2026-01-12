@@ -86,7 +86,7 @@ export function CyberModal({
             )}
             
             {/* Content Area */}
-            <div className="px-8 pb-8 pt-2 overflow-y-auto custom-scrollbar">
+            <div className="px-8 pb-8 pt-2 overflow-y-auto cyber-scrollbar">
                 {children}
             </div>
         </div>

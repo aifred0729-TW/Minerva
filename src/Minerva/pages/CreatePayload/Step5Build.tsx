@@ -375,7 +375,7 @@ export function Step5Build({ config }: Step5Props) {
                             <FileText size={14} className="text-gray-400" />
                             <span className="font-mono text-xs font-bold text-signal tracking-wider">BUILD_PARAMETERS</span>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-4 cyber-scrollbar">
                             <table className="w-full text-left border-collapse">
                                 <tbody>
                                     {visibleBuildParams.map((param: any) => (
@@ -398,7 +398,7 @@ export function Step5Build({ config }: Step5Props) {
                             <Radio size={14} className="text-gray-400" />
                             <span className="font-mono text-xs font-bold text-signal tracking-wider">C2_CHANNELS ({config.c2Profiles.length})</span>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
+                        <div className="flex-1 overflow-y-auto p-4 cyber-scrollbar space-y-4">
                             {config.c2Profiles.map((p: any, idx: number) => {
                                 const visibleC2Params = p.c2profileparameters.filter((param: any) => !shouldHide(param, p.c2profileparameters, config.os));
                                 return (
@@ -427,7 +427,7 @@ export function Step5Build({ config }: Step5Props) {
                             <Terminal size={14} className="text-gray-400" />
                             <span className="font-mono text-xs font-bold text-signal tracking-wider">COMMANDS ({config.commands.length})</span>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-4 cyber-scrollbar">
                             <div className="flex flex-wrap gap-1">
                                 {config.commands.map((cmd: string) => (
                                     <span key={cmd} className="px-2 py-1 border border-gray-700 bg-black/50 text-[10px] font-mono text-gray-300">

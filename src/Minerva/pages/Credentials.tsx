@@ -285,14 +285,15 @@ export default function Credentials() {
     };
 
     return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="min-h-screen bg-void text-signal font-sans flex overflow-hidden"
-        >
+        <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
             <Sidebar />
 
-            <div className={cn("flex-1 flex flex-col transition-all duration-300 p-6 lg:p-12", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className={cn("flex-1 flex flex-col transition-all duration-300 p-6 lg:p-12 h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}
+            >
                 {/* Header */}
                 <header className="flex justify-between items-center mb-8 shrink-0">
                     <div className="flex items-center gap-4">
@@ -410,7 +411,7 @@ export default function Credentials() {
                         </div>
                     )}
                 </div>
-            </div>
+            </motion.div>
 
             {/* Create Modal */}
             <AnimatePresence>
@@ -453,7 +454,7 @@ export default function Credentials() {
                     />
                 )}
             </AnimatePresence>
-        </motion.div>
+        </div>
     );
 }
 

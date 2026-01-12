@@ -476,10 +476,14 @@ const Tags = () => {
     };
 
     return (
-        <div className="flex h-screen bg-void">
+        <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
             <Sidebar />
             
-            <div className="flex-1 flex flex-col min-w-0 ml-16">
+            <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="flex-1 flex flex-col min-w-0 ml-16 h-screen">
                 {/* Header */}
                 <div className="h-16 border-b border-ghost/30 flex items-center justify-between px-6 bg-void/90 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -536,8 +540,8 @@ const Tags = () => {
                         </div>
                     )}
                 </div>
-            </div>
-
+            </motion.div>
+            
             {/* Editor Modal */}
             <AnimatePresence>
                 {editorOpen && (

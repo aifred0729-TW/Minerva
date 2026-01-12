@@ -511,7 +511,7 @@ export function PayloadsList() {
                               animate={{ opacity: 1, scale: 1, y: 0 }}
                               exit={{ opacity: 0, scale: 0.95, y: -10 }}
                               transition={{ duration: 0.1 }}
-                              className="fixed z-[9999] w-64 bg-void border border-signal/50 shadow-[0_0_20px_rgba(0,0,0,0.8)] rounded overflow-hidden max-h-[400px] overflow-y-auto custom-scrollbar"
+                              className="fixed z-[9999] w-64 bg-void border border-signal/50 shadow-[0_0_20px_rgba(0,0,0,0.8)] rounded overflow-hidden max-h-[400px] overflow-y-auto cyber-scrollbar"
                               style={{ top: menuPos.top, left: menuPos.left }}
                               onClick={(e) => e.stopPropagation()}
                           >

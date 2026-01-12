@@ -234,7 +234,12 @@ export default function UsersPage() {
     <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
       <Sidebar />
       
-      <div className={cn("transition-all duration-300 p-6 lg:p-12 min-h-screen", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+      <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className={cn("transition-all duration-300 p-6 lg:p-12 h-screen flex flex-col overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}
+      >
         {/* Header */}
         <header className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-4">
@@ -296,7 +301,7 @@ export default function UsersPage() {
           )}
           {activeTab === 'invites' && <InviteLinksSection />}
         </main>
-      </div>
+      </motion.div>
 
       {/* Modals */}
       <AnimatePresence>

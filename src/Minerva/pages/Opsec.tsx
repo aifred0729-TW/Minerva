@@ -25,16 +25,14 @@ const Opsec = () => {
     const tasks = data?.task || [];
 
     return (
-        <motion.div
-            initial={{ opacity: 0, scale: 0.98, filter: "blur(8px)" }}
-            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-            transition={{ duration: 0.4, ease: "easeOut" }}
-            className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex overflow-hidden transition-colors duration-1000"
-        >
+        <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
             <Sidebar />
-
-            <div className={cn("flex-1 transition-all duration-300 flex flex-col h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}>
-                <div className="p-6 lg:p-12 flex-1 flex flex-col">
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className={cn("transition-all duration-300 p-6 lg:p-12 h-screen flex flex-col overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}
+            >
                 <header className="flex justify-between items-center mb-8 transition-colors duration-1000">
                     <div className="flex items-center gap-4">
                         <div className="p-3 border border-signal bg-signal/10 rounded transition-colors duration-1000">
@@ -57,7 +55,7 @@ const Opsec = () => {
                 </header>
 
                 <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-auto">
-                    <div className="bg-black/40 border border-white/10 rounded overflow-auto custom-scrollbar transition-colors duration-1000">
+                    <div className="bg-black/40 border border-white/10 rounded overflow-auto cyber-scrollbar transition-colors duration-1000">
                         <table className="w-full text-xs font-mono text-left border-collapse">
                             <thead className="bg-white/5 text-gray-500 sticky top-0 z-10 backdrop-blur-sm transition-colors duration-1000">
                                 <tr>
@@ -152,9 +150,8 @@ const Opsec = () => {
                         )}
                     </div>
                 </div>
-                </div>
-            </div>
-        </motion.div>
+            </motion.div>
+        </div>
     );
 };
 

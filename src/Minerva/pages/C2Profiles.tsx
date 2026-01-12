@@ -140,7 +140,7 @@ export default function C2Profiles() {
             "flex-1 h-full overflow-hidden flex flex-col transition-all duration-300 relative",
             isSidebarCollapsed ? "ml-16" : "ml-64"
         )}>
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-12">
+            <div className="flex-1 overflow-y-auto cyber-scrollbar p-6 lg:p-12">
                 <header className="flex justify-between items-center mb-8 shrink-0">
                     <div className="flex items-center gap-4">
                         <div className="p-3 border border-signal bg-signal/10 rounded">
@@ -163,7 +163,7 @@ export default function C2Profiles() {
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
+                    transition={{ duration: 0.5 }}
                     className="will-change-transform"
                 >
                     <CyberTable 

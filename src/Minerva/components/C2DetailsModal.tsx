@@ -176,7 +176,7 @@ export function C2DetailsModal({ profile, onClose, isOpen }: C2DetailsModalProps
                             {/* Content */}
                             <div className="flex-1 overflow-hidden relative bg-void/50 p-8 flex flex-col">
                                 {activeTab === 'overview' && (
-                                    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300 h-full overflow-y-auto custom-scrollbar pr-2">
+                                    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300 h-full overflow-y-auto cyber-scrollbar pr-2">
                                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                                             {/* Left Column: Description */}
                                             <div className="lg:col-span-2 space-y-3">
@@ -264,7 +264,7 @@ export function C2DetailsModal({ profile, onClose, isOpen }: C2DetailsModalProps
                                                 <textarea 
                                                     value={configContent}
                                                     onChange={(e) => setConfigContent(e.target.value)}
-                                                    className="w-full h-full bg-transparent text-green-400 font-mono text-sm p-6 focus:outline-none resize-none custom-scrollbar leading-relaxed"
+                                                    className="w-full h-full bg-transparent text-green-400 font-mono text-sm p-6 focus:outline-none resize-none cyber-scrollbar leading-relaxed"
                                                     spellCheck={false}
                                                 />
                                             )}
@@ -288,7 +288,7 @@ export function C2DetailsModal({ profile, onClose, isOpen }: C2DetailsModalProps
                                                 </button>
                                             </div>
                                         </div>
-                                        <div className="flex-1 bg-black border border-gray-800 p-6 font-mono text-sm text-gray-300 overflow-y-auto custom-scrollbar whitespace-pre-wrap rounded-lg shadow-inner">
+                                        <div className="flex-1 bg-black border border-gray-800 p-6 font-mono text-sm text-gray-300 overflow-y-auto cyber-scrollbar whitespace-pre-wrap rounded-lg shadow-inner">
                                             {outputLoading ? "ESTABLISHING_UPLINK..." : consoleOutput}
                                         </div>
                                     </div>

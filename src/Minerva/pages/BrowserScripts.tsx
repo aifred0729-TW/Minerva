@@ -522,10 +522,15 @@ export default function BrowserScripts() {
     }, [scripts]);
 
     return (
-        <div className="min-h-screen bg-void text-signal">
+        <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
             <Sidebar />
 
-            <div className={cn("transition-all duration-300 p-6", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+            <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className={cn("transition-all duration-300 p-6", isSidebarCollapsed ? "ml-16" : "ml-64")}
+            >
                 {/* Header */}
                 <div className="mb-8">
                     <div className="flex items-center gap-3 mb-2">
@@ -634,7 +639,7 @@ export default function BrowserScripts() {
                     <span>Active: {scripts.filter(s => s.active).length}</span>
                     <span>Modified: {scripts.filter(s => s.user_modified).length}</span>
                 </div>
-            </div>
+            </motion.div>
 
             {/* Script Editor Modal */}
             <AnimatePresence>

@@ -281,7 +281,7 @@ const ConsoleTerminal = ({ callbackId, callbackUUID }: { callbackId: number, cal
             </div>
 
             {/* Output */}
-            <div className="flex-1 overflow-auto p-4 space-y-4 custom-scrollbar z-10">
+            <div className="flex-1 overflow-auto p-4 space-y-4 cyber-scrollbar z-10">
                 {tasks.map((task: any) => (
                     <TaskBlock key={task.id} task={task} />
                 ))}
@@ -521,7 +521,7 @@ const ProcessList = ({ host }: { host: string }) => {
     }
 
     return (
-        <div className="h-full overflow-auto custom-scrollbar">
+        <div className="h-full overflow-auto cyber-scrollbar">
             <table className="w-full text-xs font-mono text-left border-collapse">
                 <thead className="bg-black/40 text-gray-500 sticky top-0 z-10 backdrop-blur-sm">
                     <tr>
@@ -616,7 +616,7 @@ const InfoPanel = ({ callback }: { callback: any }) => {
 
     return (
         <div className="h-full flex flex-col">
-            <div className="overflow-auto pr-2 flex-1 custom-scrollbar">
+            <div className="overflow-auto pr-2 flex-1 cyber-scrollbar">
                 <InfoRow label="Callback ID" value={callback.display_id} icon={Shield} />
                 <InfoRow label="User" value={callback.user} icon={User} />
                 <InfoRow label="Host" value={callback.host} icon={Server} />
@@ -654,15 +654,15 @@ export default function Console() {
     if (!callback) return <div className="bg-black text-red-500 p-10 font-mono">ERROR: CALLBACK_NOT_FOUND</div>;
 
     return (
-        <motion.div 
-            initial={{ opacity: 0, scale: 0.95, filter: "blur(10px)" }}
-            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-            transition={{ duration: 0.5, ease: "circOut" }}
-            className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex overflow-hidden transition-colors duration-1000"
-        >
+        <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void overflow-hidden">
             <Sidebar />
             
-            <div className={cn("flex-1 transition-all duration-300 flex flex-col h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+            <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className={cn("flex-1 transition-all duration-300 flex flex-col h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}
+            >
                 {/* Header Bar */}
                 <header className="h-16 bg-black/50 border-b border-signal/20 flex items-center px-6 justify-between backdrop-blur-sm shrink-0 transition-colors duration-1000">
                     <div className="flex items-center gap-4">
@@ -733,7 +733,7 @@ export default function Console() {
                         </div>
                     </div>
                 </div>
-            </div>
-        </motion.div>
+            </motion.div>
+        </div>
     );
 }

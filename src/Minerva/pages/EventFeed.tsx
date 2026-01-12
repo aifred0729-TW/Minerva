@@ -524,6 +524,7 @@ export default function EventFeed() {
             <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
                 className={cn(
                     "transition-all duration-300 p-6 lg:p-12 min-h-screen flex flex-col",
                     isSidebarCollapsed ? "ml-16" : "ml-64"

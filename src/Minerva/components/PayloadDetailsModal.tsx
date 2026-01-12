@@ -111,7 +111,7 @@ export function PayloadDetailsModal({ payload, onClose, isOpen, initialTab = 'ov
                             {/* Content */}
                             <div className="flex-1 overflow-hidden relative bg-void/50 p-8 flex flex-col">
                                 {activeTab === 'overview' && (
-                                    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300 h-full overflow-y-auto custom-scrollbar pr-2">
+                                    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300 h-full overflow-y-auto cyber-scrollbar pr-2">
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                             {/* Left Column: Metadata */}
                                             <div className="space-y-6">
@@ -183,7 +183,7 @@ export function PayloadDetailsModal({ payload, onClose, isOpen, initialTab = 'ov
 
                                                 <div className="space-y-3">
                                                     <label className="text-sm font-mono text-gray-400 flex items-center gap-2 font-bold tracking-wider"><Command size={16}/> INCLUDED_COMMANDS ({payload.payloadcommands?.length || 0})</label>
-                                                    <div className="flex flex-wrap gap-1 max-h-[150px] overflow-y-auto custom-scrollbar p-2 border border-gray-800 bg-black/20 rounded">
+                                                    <div className="flex flex-wrap gap-1 max-h-[150px] overflow-y-auto cyber-scrollbar p-2 border border-gray-800 bg-black/20 rounded">
                                                         {payload.payloadcommands?.map((pc: any) => (
                                                             <span key={pc.command.cmd} className="px-2 py-1 bg-white/5 border border-gray-700 text-[10px] font-mono text-gray-300 rounded">
                                                                 {pc.command.cmd}
@@ -200,7 +200,7 @@ export function PayloadDetailsModal({ payload, onClose, isOpen, initialTab = 'ov
                                 )}
 
                                 {activeTab === 'config' && (
-                                    <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-300 overflow-y-auto custom-scrollbar">
+                                    <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-300 overflow-y-auto cyber-scrollbar">
                                         <table className="w-full text-left border-collapse">
                                             <thead>
                                                 <tr className="border-b border-gray-700 bg-white/5">
@@ -236,7 +236,7 @@ export function PayloadDetailsModal({ payload, onClose, isOpen, initialTab = 'ov
                                     <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-300">
                                         {/* Build Steps Timeline */}
                                         {payload.payload_build_steps && payload.payload_build_steps.length > 0 ? (
-                                            <div className="mb-6 space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar border-b border-gray-800 pb-4">
+                                            <div className="mb-6 space-y-2 max-h-[300px] overflow-y-auto cyber-scrollbar border-b border-gray-800 pb-4">
                                                 {payload.payload_build_steps.map((step: any) => (
                                                     <div key={step.step_number} className="flex items-start gap-4 p-2 hover:bg-white/5 rounded">
                                                         <div className={cn(
@@ -269,7 +269,7 @@ export function PayloadDetailsModal({ payload, onClose, isOpen, initialTab = 'ov
                                         )}
 
                                         {/* Raw Logs */}
-                                        <div className="flex-1 bg-black border border-gray-800 p-6 font-mono text-xs text-gray-300 overflow-y-auto custom-scrollbar whitespace-pre-wrap rounded-lg shadow-inner">
+                                        <div className="flex-1 bg-black border border-gray-800 p-6 font-mono text-xs text-gray-300 overflow-y-auto cyber-scrollbar whitespace-pre-wrap rounded-lg shadow-inner">
                                             <div className="mb-2 text-gray-500 font-bold border-b border-gray-800 pb-1">RAW_OUTPUT_STREAM</div>
                                             {payload.build_message}
                                             {payload.build_stdout && (

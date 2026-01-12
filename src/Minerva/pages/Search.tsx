@@ -857,10 +857,15 @@ const Search = () => {
     const totalPages = Math.ceil(totalCount / limit);
 
     return (
-        <div className="flex h-screen bg-void">
+        <div className="flex h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
             <Sidebar />
             
-            <div className="flex-1 flex flex-col min-w-0 ml-16">
+            <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="flex-1 flex flex-col min-w-0 ml-16"
+            >
                 {/* Header with Search Bar */}
                 <div className="border-b border-ghost/30 bg-void/90 backdrop-blur-sm">
                     <div className="px-6 py-4">
@@ -886,7 +891,7 @@ const Search = () => {
                     </div>
 
                     {/* Tabs */}
-                    <div className="px-6 flex gap-1 overflow-x-auto pb-2 custom-scrollbar">
+                    <div className="px-6 flex gap-1 overflow-x-auto pb-2 cyber-scrollbar">
                         {TABS.map((tab) => (
                             <button
                                 key={tab.id}
@@ -955,7 +960,7 @@ const Search = () => {
                         </button>
                     </div>
                 )}
-            </div>
+            </motion.div>
         </div>
     );
 };

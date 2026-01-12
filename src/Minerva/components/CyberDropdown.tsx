@@ -1,11 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 
 interface Option {
     label: string;
     value: string | number;
+    icon?: React.ReactNode;
 }
 
 interface CyberDropdownProps {
@@ -15,94 +17,223 @@ interface CyberDropdownProps {
     placeholder?: string;
     className?: string;
     disabled?: boolean;
+    size?: 'sm' | 'md' | 'lg';
 }
 
-export function CyberDropdown({ options, value, onChange, placeholder = "SELECT...", className, disabled }: CyberDropdownProps) {
+export function CyberDropdown({ 
+    options, 
+    value, 
+    onChange, 
+    placeholder = "SELECT...", 
+    className, 
+    disabled,
+    size = 'md'
+}: CyberDropdownProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
 
     // Normalize options
     const normalizedOptions: Option[] = options.map(opt => 
-        typeof opt === 'object' ? opt : { label: opt, value: opt }
+        typeof opt === 'object' ? opt : { label: String(opt), value: opt }
     );
 
     const selectedOption = normalizedOptions.find(opt => opt.value === value);
 
+    const updateMenuPosition = useCallback(() => {
+        if (buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            setMenuPosition({
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: rect.width
+            });
+        }
+    }, []);
+
     useEffect(() => {
+        if (!isOpen) return;
+        
         const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            // Check if click is outside both button container and menu portal
+            const isOutsideContainer = containerRef.current && !containerRef.current.contains(target);
+            const isOutsideMenu = menuRef.current && !menuRef.current.contains(target);
+            
+            if (isOutsideContainer && isOutsideMenu) {
                 setIsOpen(false);
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+        
+        // Use setTimeout to avoid closing immediately when opening
+        const timeoutId = setTimeout(() => {
+            document.addEventListener('mousedown', handleClickOutside);
+        }, 0);
+        
+        return () => {
+            clearTimeout(timeoutId);
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isOpen]);
 
-    const handleSelect = (val: any) => {
+    useEffect(() => {
+        if (isOpen) {
+            updateMenuPosition();
+            window.addEventListener('scroll', updateMenuPosition, true);
+            window.addEventListener('resize', updateMenuPosition);
+            return () => {
+                window.removeEventListener('scroll', updateMenuPosition, true);
+                window.removeEventListener('resize', updateMenuPosition);
+            };
+        }
+    }, [isOpen, updateMenuPosition]);
+
+    const handleSelect = (val: any, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
         onChange(val);
         setIsOpen(false);
     };
 
+    const sizeClasses = {
+        sm: 'px-2 py-1 text-xs',
+        md: 'px-3 py-2 text-sm',
+        lg: 'px-4 py-3 text-base'
+    };
+
+    const dropdownMenu = isOpen && (
+        <motion.div
+            ref={menuRef}
+            initial={{ opacity: 0, y: -8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.95 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            style={{
+                position: 'fixed',
+                top: menuPosition.top,
+                left: menuPosition.left,
+                width: menuPosition.width,
+                zIndex: 99999
+            }}
+            className="border border-signal bg-void/98 backdrop-blur-xl shadow-[0_0_30px_rgba(0,255,255,0.2),0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden"
+        >
+            {/* Scanline effect */}
+            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] opacity-20" />
+            
+            {/* Glowing top border */}
+            <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-signal to-transparent" />
+            
+            <div className="max-h-[240px] overflow-y-auto cyber-scrollbar relative">
+                {normalizedOptions.length === 0 ? (
+                    <div className="p-4 text-gray-500 text-xs font-mono text-center">
+                        <span className="animate-pulse">NO_OPTIONS_AVAILABLE</span>
+                    </div>
+                ) : (
+                    normalizedOptions.map((opt, index) => (
+                        <button
+                            key={String(opt.value)}
+                            type="button"
+                            onClick={(e) => handleSelect(opt.value, e)}
+                            className={cn(
+                                "w-full text-left px-3 py-2 font-mono text-xs transition-all duration-150 flex items-center gap-3 relative group",
+                                "hover:bg-signal/15 hover:text-signal",
+                                opt.value === value 
+                                    ? "text-signal bg-signal/10 font-bold" 
+                                    : "text-gray-400",
+                                index !== normalizedOptions.length - 1 && "border-b border-gray-800/50"
+                            )}
+                        >
+                            {/* Selection indicator bar */}
+                            <div className={cn(
+                                "absolute left-0 top-0 bottom-0 w-[2px] transition-all duration-150",
+                                opt.value === value 
+                                    ? "bg-signal shadow-[0_0_8px_rgba(255,255,255,0.5)]" 
+                                    : "bg-transparent group-hover:bg-signal/50"
+                            )} />
+                            
+                            {opt.icon && <span className="flex-shrink-0">{opt.icon}</span>}
+                            
+                            <span className="flex-1 truncate">{opt.label}</span>
+                            
+                            {opt.value === value && (
+                                <Check size={12} className="flex-shrink-0 text-signal" />
+                            )}
+                        </button>
+                    ))
+                )}
+            </div>
+            
+            {/* Glowing bottom border */}
+            <div className="h-[2px] bg-gradient-to-r from-signal/30 via-signal to-signal/30" />
+        </motion.div>
+    );
+
     return (
         <div 
             ref={containerRef} 
-            className={cn("relative font-mono text-sm", className)}
+            className={cn("relative font-mono", className)}
         >
             <button
+                ref={buttonRef}
                 type="button"
-                onClick={() => !disabled && setIsOpen(!isOpen)}
+                onClick={() => {
+                    if (!disabled) {
+                        updateMenuPosition();
+                        setIsOpen(!isOpen);
+                    }
+                }}
                 disabled={disabled}
                 className={cn(
-                    "w-full flex items-center justify-between px-3 py-2 border transition-all duration-300 relative overflow-hidden group",
+                    "w-full flex items-center justify-between border transition-all duration-200 relative overflow-hidden group",
+                    sizeClasses[size],
                     isOpen 
-                        ? "border-signal bg-white/10 text-signal shadow-[0_0_10px_rgba(255,255,255,0.3)]" 
-                        : "border-gray-700 bg-black/40 text-gray-300 hover:border-gray-500 hover:bg-white/5",
-                    disabled && "opacity-50 cursor-not-allowed"
+                        ? "border-signal bg-signal/10 text-signal shadow-[0_0_15px_rgba(255,255,255,0.2),inset_0_0_15px_rgba(255,255,255,0.05)]" 
+                        : "border-gray-700 bg-void/60 text-gray-300 hover:border-signal/50 hover:bg-void/80",
+                    disabled && "opacity-40 cursor-not-allowed grayscale"
                 )}
             >
-                {/* Glitch/Scanline effect on hover */}
-                {!disabled && <div className="absolute inset-0 bg-signal/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-300 pointer-events-none" />}
+                {/* Hover sweep effect */}
+                {!disabled && (
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-signal/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 pointer-events-none" />
+                )}
+                
+                {/* Corner accents */}
+                <div className={cn(
+                    "absolute top-0 left-0 w-2 h-2 border-t border-l transition-colors duration-200",
+                    isOpen ? "border-signal" : "border-gray-600 group-hover:border-signal/50"
+                )} />
+                <div className={cn(
+                    "absolute top-0 right-0 w-2 h-2 border-t border-r transition-colors duration-200",
+                    isOpen ? "border-signal" : "border-gray-600 group-hover:border-signal/50"
+                )} />
+                <div className={cn(
+                    "absolute bottom-0 left-0 w-2 h-2 border-b border-l transition-colors duration-200",
+                    isOpen ? "border-signal" : "border-gray-600 group-hover:border-signal/50"
+                )} />
+                <div className={cn(
+                    "absolute bottom-0 right-0 w-2 h-2 border-b border-r transition-colors duration-200",
+                    isOpen ? "border-signal" : "border-gray-600 group-hover:border-signal/50"
+                )} />
                 
                 <span className="truncate relative z-10">
-                    {selectedOption ? selectedOption.label : <span className="text-gray-500">{placeholder}</span>}
+                    {selectedOption ? selectedOption.label : <span className="text-gray-500 italic">{placeholder}</span>}
                 </span>
                 
-                <div className="relative z-10 ml-2">
-                    {isOpen ? <ChevronUp size={14} className="text-signal" /> : <ChevronDown size={14} className="text-gray-500 group-hover:text-signal" />}
+                <div className={cn(
+                    "relative z-10 ml-2 transition-transform duration-200",
+                    isOpen && "rotate-180"
+                )}>
+                    <ChevronDown size={14} className={cn(
+                        "transition-colors duration-200",
+                        isOpen ? "text-signal" : "text-gray-500 group-hover:text-signal"
+                    )} />
                 </div>
             </button>
 
             <AnimatePresence>
-                {isOpen && (
-                    <motion.div
-                        initial={{ opacity: 0, y: -5, height: 0 }}
-                        animate={{ opacity: 1, y: 0, height: "auto" }}
-                        exit={{ opacity: 0, y: -5, height: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute top-full left-0 w-full mt-1 border border-signal bg-void/95 backdrop-blur-md z-50 max-h-[200px] overflow-y-auto custom-scrollbar shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
-                    >
-                        {normalizedOptions.length === 0 ? (
-                            <div className="p-3 text-gray-500 text-xs italic">NO_OPTIONS</div>
-                        ) : (
-                            normalizedOptions.map((opt) => (
-                                <button
-                                    key={String(opt.value)}
-                                    type="button"
-                                    onClick={() => handleSelect(opt.value)}
-                                    className={cn(
-                                        "w-full text-left px-3 py-2 text-xs border-b border-gray-800 last:border-0 hover:bg-white/10 hover:text-signal transition-colors flex items-center justify-between group",
-                                        opt.value === value ? "text-signal bg-white/5 font-bold" : "text-gray-400"
-                                    )}
-                                >
-                                    <span className="truncate">{opt.label}</span>
-                                    {opt.value === value && <div className="w-1.5 h-1.5 bg-signal rounded-full shadow-[0_0_5px_white]" />}
-                                </button>
-                            ))
-                        )}
-                        {/* Decorative bottom line */}
-                        <div className="h-0.5 bg-signal/50 w-full" />
-                    </motion.div>
-                )}
+                {isOpen && createPortal(dropdownMenu, document.body)}
             </AnimatePresence>
         </div>
     );

@@ -220,10 +220,15 @@ export default function Operations() {
   ];
 
   return (
-    <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex">
+    <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
       <Sidebar />
       
-      <div className={cn("flex-1 transition-all duration-300 flex flex-col", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+      <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+          className={cn("flex-1 transition-all duration-300 flex flex-col h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}
+      >
         <div className="p-6 lg:p-12 flex-1 flex flex-col">
         {/* Header (align with PAYLOADS OVERVIEW) */}
         <header className="flex justify-between items-center mb-8">
@@ -254,7 +259,7 @@ export default function Operations() {
             />
         </main>
         </div>
-      </div>
+      </motion.div>
 
       {/* Modals */}
       <AnimatePresence>
@@ -475,7 +480,7 @@ function MembersOperationModal({ operation, operators, onClose, onSuccess }: { o
                     <Users className="text-signal" /> MANAGE_MEMBERS
                 </h2>
                 
-                <div className="flex-1 overflow-y-auto custom-scrollbar border border-gray-800 bg-black/30 p-2 space-y-1">
+                <div className="flex-1 overflow-y-auto cyber-scrollbar border border-gray-800 bg-black/30 p-2 space-y-1">
                     {operators.map(op => {
                         const isMember = selectedOperators.has(op.id);
                         const isAdmin = op.id === operation.admin.id;

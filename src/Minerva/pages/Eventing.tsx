@@ -819,7 +819,12 @@ export default function Eventing() {
         <div className="min-h-screen bg-void text-signal">
             <Sidebar />
 
-            <div className={cn("transition-all duration-300 p-6", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+            <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className={cn("transition-all duration-300 p-6", isSidebarCollapsed ? "ml-16" : "ml-64")}
+            >
                 {/* Header */}
                 <div className="mb-8">
                     <div className="flex items-center gap-3 mb-2">
@@ -944,7 +949,7 @@ export default function Eventing() {
                         )}
                     </div>
                 )}
-            </div>
+            </motion.div>
 
             {/* Create Workflow Modal */}
             <AnimatePresence>

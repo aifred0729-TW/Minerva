@@ -172,7 +172,7 @@ const PayloadCreationWizard = () => {
                     <Disc size={100} className={loadingTypes ? "animate-spin" : ""} />
                 </div>
 
-                <div className="p-8 flex-1 overflow-y-auto custom-scrollbar">
+                <div className="p-8 flex-1 overflow-y-auto cyber-scrollbar">
                     <AnimatePresence mode="wait">
                         {currentStep === 0 && (
                             <motion.div

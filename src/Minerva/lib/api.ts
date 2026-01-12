@@ -293,6 +293,105 @@ mutation removeEdgeMutation($edge_id: Int!){
 }
 `;
 
+// Custom Nodes for Callback Graph - Using agentstorage table for multi-user collaboration
+// unique_id format: "minerva_customnode_{id}"
+export const GET_CUSTOM_GRAPH_NODES = gql`
+query GetCustomGraphNodes {
+  agentstorage(
+    where: { unique_id: { _like: "minerva_customnode_%" } }
+    order_by: { id: asc }
+  ) {
+    id
+    unique_id
+    data
+  }
+}
+`;
+
+export const CREATE_CUSTOM_GRAPH_NODE = gql`
+mutation CreateCustomGraphNode(
+  $unique_id: String!
+  $data: bytea!
+) {
+  insert_agentstorage_one(
+    object: {
+      unique_id: $unique_id
+      data: $data
+    }
+  ) {
+    id
+    unique_id
+  }
+}
+`;
+
+export const UPDATE_CUSTOM_GRAPH_NODE = gql`
+mutation UpdateCustomGraphNode(
+  $unique_id: String!
+  $data: bytea!
+) {
+  update_agentstorage(
+    where: { unique_id: { _eq: $unique_id } }
+    _set: { data: $data }
+  ) {
+    affected_rows
+    returning {
+      id
+      unique_id
+      data
+    }
+  }
+}
+`;
+
+export const DELETE_CUSTOM_GRAPH_NODE = gql`
+mutation DeleteCustomGraphNode($unique_id: String!) {
+  delete_agentstorage(
+    where: { unique_id: { _eq: $unique_id } }
+  ) {
+    affected_rows
+  }
+}
+`;
+
+// Custom Graph Edge operations (stored in agentstorage with prefix minerva_graphedge_)
+export const GET_CUSTOM_GRAPH_EDGES = gql`
+query GetCustomGraphEdges {
+  agentstorage(where: { unique_id: { _like: "minerva_graphedge_%" } }) {
+    id
+    unique_id
+    data
+  }
+}
+`;
+
+export const CREATE_CUSTOM_GRAPH_EDGE = gql`
+mutation CreateCustomGraphEdge(
+  $unique_id: String!
+  $data: bytea!
+) {
+  insert_agentstorage_one(
+    object: {
+      unique_id: $unique_id
+      data: $data
+    }
+  ) {
+    id
+    unique_id
+  }
+}
+`;
+
+export const DELETE_CUSTOM_GRAPH_EDGE = gql`
+mutation DeleteCustomGraphEdge($unique_id: String!) {
+  delete_agentstorage(
+    where: { unique_id: { _eq: $unique_id } }
+  ) {
+    affected_rows
+  }
+}
+`;
+
 export const GET_P2P_PROFILES_AND_CALLBACKS = gql`
 query getP2PProfilesAndCallbacks{
   c2profile(where: {is_p2p: {_eq: true}, deleted: {_eq: false}}) {

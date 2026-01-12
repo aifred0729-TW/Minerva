@@ -37,25 +37,26 @@ export function Sidebar() {
     const { mode, toggleCombat, toggleRecon } = useOperationMode();
 
     const menuItems = [
-        { icon: <LayoutDashboard size={20} />, label: "DASHBOARD", path: "/dashboard" },
-        { icon: <Layers size={20} />, label: "OPERATIONS", path: "/operations" },
-        { icon: <Box size={20} />, label: "PAYLOADS", path: "/payloads" },
-        { icon: <Folder size={20} />, label: "FILES", path: "/files" },
-        { icon: <Key size={20} />, label: "CREDENTIALS", path: "/credentials" },
-        { icon: <ActivityIcon />, label: "CALLBACKS", path: "/callbacks" },
-        { icon: <Network size={20} />, label: "C2 PROFILES", path: "/c2-profiles" },
-        { icon: <Terminal size={20} />, label: "CONSOLE", path: "/console" },
-        { icon: <Shield size={20} />, label: "OPSEC", path: "/opsec" },
-        { icon: <NotificationBell />, label: "EVENTS", path: "/events", hasAlert: true },
-        { icon: <Database size={20} />, label: "ARTIFACTS", path: "/artifacts" },
-        { icon: <Target size={20} />, label: "MITRE", path: "/mitre" },
-        { icon: <FileText size={20} />, label: "REPORTING", path: "/reporting" },
-        { icon: <Tag size={20} />, label: "TAGS", path: "/tags" },
-        { icon: <Code size={20} />, label: "SCRIPTS", path: "/browser-scripts" },
-        { icon: <Zap size={20} />, label: "EVENTING", path: "/eventing" },
-        { icon: <Users size={20} />, label: "USERS", path: "/users" },
-        { icon: <Search size={20} />, label: "SEARCH", path: "/search" },
-        { icon: <Settings size={20} />, label: "SETTINGS", path: "/settings" },
+        { icon: <LayoutDashboard size={20} />, label: "DASHBOARD", path: "/dashboard", primary: true },
+        { icon: <NotificationBell />, label: "EVENTS", path: "/events", hasAlert: true, primary: true },
+        { icon: <ActivityIcon />, label: "CALLBACKS", path: "/callbacks", primary: true },
+        { icon: <Box size={20} />, label: "PAYLOADS", path: "/payloads", primary: true },
+        { icon: <Key size={20} />, label: "CREDENTIALS", path: "/credentials", primary: true },
+        { icon: <Folder size={20} />, label: "FILES", path: "/files", primary: true },
+        { icon: <Network size={20} />, label: "C2 PROFILES", path: "/c2-profiles", primary: true },
+        { icon: <Shield size={20} />, label: "OPSEC", path: "/opsec", primary: true },
+        { icon: <Users size={20} />, label: "USERS", path: "/users", primary: true },
+        { icon: <Search size={20} />, label: "SEARCH", path: "/search", primary: true },
+        { icon: <Settings size={20} />, label: "SETTINGS", path: "/settings", primary: true },
+        // Secondary items (shown only when expanded)
+        { icon: <Layers size={20} />, label: "OPERATIONS", path: "/operations", primary: false },
+        { icon: <Terminal size={20} />, label: "CONSOLE", path: "/console", primary: false },
+        { icon: <Database size={20} />, label: "ARTIFACTS", path: "/artifacts", primary: false },
+        { icon: <Target size={20} />, label: "MITRE", path: "/mitre", primary: false },
+        { icon: <FileText size={20} />, label: "REPORTING", path: "/reporting", primary: false },
+        { icon: <Tag size={20} />, label: "TAGS", path: "/tags", primary: false },
+        { icon: <Code size={20} />, label: "SCRIPTS", path: "/browser-scripts", primary: false },
+        { icon: <Zap size={20} />, label: "EVENTING", path: "/eventing", primary: false },
     ];
 
     const isCombat = mode === 'combat';
@@ -99,9 +100,14 @@ export function Sidebar() {
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 py-6 space-y-2 overflow-y-auto custom-scrollbar overflow-x-hidden">
+            <nav className="flex-1 py-6 space-y-2 overflow-y-auto cyber-scrollbar overflow-x-hidden">
                 {menuItems.map((item) => {
                     const isActive = location.pathname.startsWith(item.path);
+                    // Hide secondary items when sidebar is collapsed
+                    if (isCollapsed && !item.primary) {
+                        return null;
+                    }
+                    
                     return (
                         <Link 
                             key={item.path} 

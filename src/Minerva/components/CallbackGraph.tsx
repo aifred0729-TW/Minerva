@@ -17,9 +17,36 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useQuery, useMutation } from '@apollo/client';
-import { GET_CALLBACK_GRAPH_EDGES, GET_CALLBACKS, HIDE_CALLBACK_MUTATION, LOCK_CALLBACK_MUTATION, UPDATE_CALLBACK_DESCRIPTION_MUTATION, ADD_EDGE_MUTATION, REMOVE_EDGE_MUTATION, GET_P2P_PROFILES_AND_CALLBACKS, GET_C2_PROFILES } from '../lib/api';
+import { 
+    GET_CALLBACK_GRAPH_EDGES, 
+    GET_CALLBACKS, 
+    HIDE_CALLBACK_MUTATION, 
+    LOCK_CALLBACK_MUTATION, 
+    UPDATE_CALLBACK_DESCRIPTION_MUTATION, 
+    ADD_EDGE_MUTATION, 
+    REMOVE_EDGE_MUTATION, 
+    GET_P2P_PROFILES_AND_CALLBACKS, 
+    GET_C2_PROFILES,
+    GET_CUSTOM_GRAPH_NODES,
+    CREATE_CUSTOM_GRAPH_NODE,
+    UPDATE_CUSTOM_GRAPH_NODE,
+    DELETE_CUSTOM_GRAPH_NODE,
+    GET_CUSTOM_GRAPH_EDGES,
+    CREATE_CUSTOM_GRAPH_EDGE,
+    DELETE_CUSTOM_GRAPH_EDGE
+} from '../lib/api';
+import { 
+    parseAgentStorageResults, 
+    prepareCreateNodeData, 
+    prepareUpdateNodeData, 
+    generateNextId,
+    generateUniqueId,
+    parseEdgeStorageResults,
+    serializeEdgeData,
+    generateEdgeUniqueId
+} from '../lib/customGraphNodeService';
 // @ts-ignore
-import { Terminal, Cpu, User, Share2, Hexagon, Shield, Network, Monitor, Skull, Lock, Unlock, EyeOff, Edit, Info, GitBranch, X, ChevronRight } from 'lucide-react';
+import { Terminal, Cpu, User, Share2, Hexagon, Shield, Network, Monitor, Skull, Lock, Unlock, EyeOff, Edit, Info, GitBranch, X, ChevronRight, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { snackActions } from '../../Archive/components/utilities/Snackbar';
 import { CyberModal } from './CyberModal';
@@ -99,12 +126,16 @@ const CyberNode = ({ data }: any) => {
                 sleep_info: data.sleep_info,
                 payloadType: data.payloadType,
                 last_checkin: data.last_checkin,
+                isCustom: data.isCustom || false, // 必須傳遞 isCustom 屬性
+                db_id: data.db_id, // 對於 custom nodes，需要 db_id
             }, rect);
         }
     }, [data]);
 
     // Calculate last checkin with live update
     const calculateTimeAgo = useCallback(() => {
+        // Custom nodes don't have real checkin times
+        if (data.isCustom) return "N/A";
         if (!data.last_checkin) return "NEVER";
         try {
             const timeStr = data.last_checkin.endsWith('Z') ? data.last_checkin : `${data.last_checkin}Z`;
@@ -120,7 +151,7 @@ const CyberNode = ({ data }: any) => {
         } catch (e) {
             return "ERROR";
         }
-    }, [data.last_checkin]);
+    }, [data.last_checkin, data.isCustom]);
 
     const [lastCheckinText, setLastCheckinText] = useState(calculateTimeAgo());
 
@@ -136,6 +167,8 @@ const CyberNode = ({ data }: any) => {
     
     // Parse time to determining status
     const deadCheck = useMemo(() => {
+        // Custom nodes are never "dead"
+        if (data.isCustom) return false;
         if (!data.last_checkin) return false;
         try {
             const timeStr = data.last_checkin.endsWith('Z') ? data.last_checkin : `${data.last_checkin}Z`;
@@ -146,7 +179,7 @@ const CyberNode = ({ data }: any) => {
         } catch(e) {
             return false;
         }
-    }, [lastCheckinText, data.last_checkin]);
+    }, [lastCheckinText, data.last_checkin, data.isCustom]);
 
     // Delay the "Dead" appearance to allow entry animations to complete first
     useEffect(() => {
@@ -227,8 +260,8 @@ const CyberNode = ({ data }: any) => {
             borderColor: isDead ? "#ef4444" : (isHighIntegrity ? "#eab308" : "rgba(34, 197, 94, 0.5)"), // Transition to color
             filter: "blur(0px)",
             transition: {
-                clipPath: { delay: animationDelay + 0.2, duration: 0.5, ease: "easeOut" }, // Faster, snappier reveal
-                borderColor: { delay: animationDelay + 1.0, duration: 1.2, ease: "easeInOut" }, // Faster colorize
+                clipPath: { delay: animationDelay + 0.2, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }, // Faster, snappier reveal
+                borderColor: { delay: animationDelay + 1.0, duration: 1.2, ease: [0.42, 0, 0.58, 1] }, // Faster colorize
                 opacity: { duration: 0.4, delay: animationDelay },
                 scale: { duration: 0.4, delay: animationDelay },
                 filter: { duration: 0.4, delay: animationDelay }
@@ -242,7 +275,7 @@ const CyberNode = ({ data }: any) => {
         visible: { 
             opacity: 1, 
             x: 0,
-            transition: { delay: animationDelay + 0.8, duration: 0.4, ease: "easeOut" } // Faster content reveal
+            transition: { delay: animationDelay + 0.8, duration: 0.4 }
         }
     };
 
@@ -261,7 +294,7 @@ const CyberNode = ({ data }: any) => {
         hidden: { opacity: 0 },
         visible: { 
             opacity: 1, 
-            transition: { delay: animationDelay + 1.0, duration: 1.2, ease: "easeInOut" } // Match border color timing
+            transition: { delay: animationDelay + 1.0, duration: 1.2 } // Match border color timing
         }
     };
 
@@ -274,7 +307,7 @@ const CyberNode = ({ data }: any) => {
         visible: { 
             clipPath: "inset(0 0 0 0)",
             opacity: 1,
-            transition: { delay: animationDelay + 0.5, duration: 0.4, ease: "easeOut" } // Faster wipe
+            transition: { delay: animationDelay + 0.5, duration: 0.4 } // Faster wipe
         }
     };
 
@@ -311,17 +344,16 @@ const CyberNode = ({ data }: any) => {
                                 default: { duration: 0.5 }
                             }
                         }}
-                        // remove className bg 
-                        className={`relative border p-3 shadow-[0_0_15px_rgba(0,0,0,0.5)] flex items-center gap-3 overflow-hidden`}
+                        // Fixed width to prevent dynamic resizing based on hostname length
+                        className={`relative border p-3 shadow-[0_0_15px_rgba(0,0,0,0.5)] flex items-center gap-3 overflow-hidden w-[230px]`}
                     > 
                      
                     <Handle type="target" position={Position.Top} className="!opacity-0 pointer-events-none !w-3 !h-3" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }} />
                     
                     {/* OS Icon or Skull - Appears after expansion */}
                     <motion.div
-                        variant="visible"
                         className={(isHighIntegrity && !isDead) ? "animate-pulse" : ""}
-                        style={{ color: "#ffffff" }} // Start white
+                        style={{ color: "#ffffff" }}
                         initial={{ color: "#ffffff", opacity: 0, scale: 0 }}
                         animate={{ 
                             color: isDead ? "#000000" : mainColor, 
@@ -341,10 +373,10 @@ const CyberNode = ({ data }: any) => {
                     </motion.div>
 
                     {/* Info Container */}
-                    <div className="flex flex-col min-w-0 whitespace-nowrap"> 
+                    <div className="flex flex-col min-w-0 flex-1 overflow-hidden"> 
                         {/* Hostname - Appears after expansion (Step 2) */}
                         <motion.span 
-                            className="font-bold text-sm tracking-wide block" 
+                            className="font-bold text-sm tracking-wide block truncate" 
                             variants={hostnameVariants}
                             initial="hidden" 
                             animate={{ 
@@ -362,7 +394,7 @@ const CyberNode = ({ data }: any) => {
                         {/* IP - Appears after hostname (Step 3) */}
                         <motion.span 
                             variants={contentRevealVariants}
-                            className={`text-xs font-mono truncate block ${isDead ? "text-black/80" : "text-gray-500"}`} // Added block
+                            className={`text-xs font-mono truncate block ${isDead ? "text-black/80" : "text-gray-500"}`}
                         >
                             {data.ip}
                         </motion.span>
@@ -482,18 +514,28 @@ const CyberNode = ({ data }: any) => {
                                 <div className="bg-white/5 rounded p-2 border border-white/5">
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[9px] font-mono text-gray-500 uppercase">Last Checkin</span>
-                                        <span className={`text-[10px] font-mono font-bold ${lastCheckinText.includes('s') ? 'text-green-500' : 'text-red-400'}`}>
+                                        <span className={`text-[10px] font-mono font-bold ${
+                                            data.isCustom ? 'text-cyan-400' : 
+                                            (lastCheckinText.includes('s') ? 'text-green-500' : 'text-red-400')
+                                        }`}>
                                             {lastCheckinText}
                                         </span>
                                     </div>
-                                    <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
-                                        <motion.div 
-                                            className={`h-full ${lastCheckinText.includes('s') ? 'bg-green-500' : 'bg-red-500'}`}
-                                            initial={{ width: 0 }}
-                                            animate={{ width: lastCheckinText.includes('s') ? '100%' : '30%' }}
-                                            transition={{ duration: 1 }}
-                                        />
-                                    </div>
+                                    {!data.isCustom && (
+                                        <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
+                                            <motion.div 
+                                                className={`h-full ${lastCheckinText.includes('s') ? 'bg-green-500' : 'bg-red-500'}`}
+                                                initial={{ width: 0 }}
+                                                animate={{ width: lastCheckinText.includes('s') ? '100%' : '30%' }}
+                                                transition={{ duration: 1 }}
+                                            />
+                                        </div>
+                                    )}
+                                    {data.isCustom && (
+                                        <div className="text-[9px] text-cyan-400 mt-1 italic">
+                                            Custom node - no active connection
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Description if available */}
@@ -699,7 +741,7 @@ const PulseEdge = ({
           <g>
              <circle r="4" fill="#ffffff" filter="url(#glow-pulse)" opacity="0">
                 <animateMotion 
-                    key={timestamp}
+                    key={String(timestamp || '')}
                     dur="1.5s" 
                     repeatCount="1" 
                     path={edgePath} 
@@ -788,8 +830,8 @@ export function CallbackGraph() {
     const [addEdge] = useMutation(ADD_EDGE_MUTATION);
     const [removeEdge] = useMutation(REMOVE_EDGE_MUTATION);
 
-    const [nodes, setNodes, onNodesChange] = useNodesState([]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
     const viewportRef = useRef({ x: 0, y: 0, zoom: 1 });
     const [isInitialRender, setIsInitialRender] = useState(true);
     const seenNodeIds = useRef(new Set<string>());
@@ -805,6 +847,134 @@ export function CallbackGraph() {
     const [selectedDestination, setSelectedDestination] = useState<any>(null);
     const [edgeLabel, setEdgeLabel] = useState("");
     const [isP2PConnection, setIsP2PConnection] = useState(true);
+    
+    // Custom Node State
+    const [showCustomNodeModal, setShowCustomNodeModal] = useState(false);
+    const [editCustomNodeModal, setEditCustomNodeModal] = useState<any | null>(null);
+    const [customNodes, setCustomNodes] = useState<any[]>([]);
+    const [customEdges, setCustomEdges] = useState<any[]>([]);
+    const [customNodeForm, setCustomNodeForm] = useState({
+        host: '',
+        os: 'Windows',
+        ip: '',
+        user: '',
+        description: '',
+        architecture: 'x64'
+    });
+    const [showHiddenNodes, setShowHiddenNodes] = useState(false);
+    const [showExportImportModal, setShowExportImportModal] = useState(false);
+    const [exportData, setExportData] = useState('');
+    const [importData, setImportData] = useState('');
+
+    // GraphQL for custom nodes - use polling for real-time updates
+    const { data: customNodesData, refetch: refetchCustomNodes } = useQuery(GET_CUSTOM_GRAPH_NODES, {
+        pollInterval: 5000,
+        fetchPolicy: 'network-only'
+    });
+
+    // GraphQL for custom edges - use polling for real-time updates
+    const { data: customEdgesData, refetch: refetchCustomEdges } = useQuery(GET_CUSTOM_GRAPH_EDGES, {
+        pollInterval: 5000,
+        fetchPolicy: 'network-only'
+    });
+
+    const [createCustomNodeMutation] = useMutation(CREATE_CUSTOM_GRAPH_NODE);
+    const [updateCustomNodeMutation] = useMutation(UPDATE_CUSTOM_GRAPH_NODE);
+    const [deleteCustomNodeMutation] = useMutation(DELETE_CUSTOM_GRAPH_NODE);
+    const [createCustomEdgeMutation] = useMutation(CREATE_CUSTOM_GRAPH_EDGE);
+    const [deleteCustomEdgeMutation] = useMutation(DELETE_CUSTOM_GRAPH_EDGE);
+
+    // Sync custom nodes from GraphQL (agentstorage)
+    useEffect(() => {
+        console.log('[CallbackGraph] customNodesData changed:', customNodesData);
+        
+        if (customNodesData?.agentstorage) {
+            console.log('[CallbackGraph] Found agentstorage data:', customNodesData.agentstorage);
+            try {
+                const parsedNodes = parseAgentStorageResults(customNodesData.agentstorage);
+                console.log('[CallbackGraph] Parsed nodes:', parsedNodes);
+                
+                const nodes = parsedNodes.map((node: any) => ({
+                    id: `custom-${node.id}`,
+                    db_id: node.id,
+                    display_id: node.id, // Add display_id for compatibility
+                    host: node.hostname,
+                    ip: node.ip_address,
+                    os: node.operating_system,
+                    architecture: node.architecture,
+                    user: node.username || 'N/A',
+                    description: node.description || '',
+                    isHidden: node.hidden || false,
+                    isCustom: true,
+                    timestamp: node.timestamp,
+                    position: node.position,
+                    parent_id: node.parent_id,
+                    parent_type: node.parent_type,
+                    c2profile: node.c2profile
+                }));
+                
+                console.log('[CallbackGraph] Mapped internal nodes:', nodes);
+                setCustomNodes(nodes);
+                console.log('[CallbackGraph] setCustomNodes called with', nodes.length, 'nodes');
+                
+                // Generate edges from parent relationships
+                const parentEdgesFromNodes = nodes
+                    .filter((node: any) => node.parent_id !== undefined && node.parent_id !== null)
+                    .map((node: any) => ({
+                        id: `custom-edge-${node.db_id}`,
+                        source: node.id,
+                        target: node.parent_type === 'custom' ? `custom-${node.parent_id}` : node.parent_id,
+                        sourceId: node.db_id,
+                        targetId: node.parent_id,
+                        c2profile: node.c2profile || ''
+                    }));
+                
+                console.log('[CallbackGraph] Generated edges from parent relationships:', parentEdgesFromNodes);
+                
+                // Update edges while preserving callback->custom edges
+                setCustomEdges(prevEdges => {
+                    // Keep callback->custom edges (from database)
+                    const callbackEdges = prevEdges.filter(e => e.id.includes('callback-'));
+                    // Replace parent edges with new ones
+                    console.log('[CallbackGraph] Merging parent edges:', parentEdgesFromNodes.length, 'with callback edges:', callbackEdges.length);
+                    return [...parentEdgesFromNodes, ...callbackEdges];
+                });
+            } catch (error) {
+                console.error('[CallbackGraph] Failed to parse custom nodes from agentstorage:', error);
+                snackActions.error('Failed to load custom nodes: ' + (error as Error).message);
+            }
+        } else {
+            console.log('[CallbackGraph] No agentstorage data in customNodesData');
+        }
+    }, [customNodesData]);
+
+    // Sync custom edges from GraphQL (stored edges in agentstorage)
+    useEffect(() => {
+        console.log('[CallbackGraph] customEdgesData changed:', customEdgesData);
+        
+        if (customEdgesData?.agentstorage) {
+            console.log('[CallbackGraph] Found custom edges data:', customEdgesData.agentstorage);
+            try {
+                const storedCallbackEdges = parseEdgeStorageResults(customEdgesData.agentstorage);
+                console.log('[CallbackGraph] Parsed callback->custom edges:', storedCallbackEdges);
+                
+                // Update edges while preserving parent edges
+                setCustomEdges(prevEdges => {
+                    // Keep parent edges (custom node -> callback/custom)
+                    const parentEdges = prevEdges.filter(e => e.id.startsWith('custom-edge-') && !e.id.includes('callback-'));
+                    // Replace callback edges with stored ones
+                    console.log('[CallbackGraph] Merging stored callback edges:', storedCallbackEdges.length, 'with parent edges:', parentEdges.length);
+                    return [...parentEdges, ...storedCallbackEdges];
+                });
+            } catch (error) {
+                console.error('[CallbackGraph] Failed to parse custom edges:', error);
+            }
+        } else {
+            console.log('[CallbackGraph] No custom edges data, keeping only parent edges');
+            // No stored edges, remove callback edges but keep parent edges
+            setCustomEdges(prevEdges => prevEdges.filter(e => e.id.startsWith('custom-edge-') && !e.id.includes('callback-')));
+        }
+    }, [customEdgesData]);
 
     // Context menu handlers
     const handleContextMenu = useCallback((e: React.MouseEvent, callback: any, nodeRect: DOMRect | undefined) => {
@@ -873,11 +1043,341 @@ export function CallbackGraph() {
         setContextMenu(null);
     };
 
-    const handleSetParent = async () => {
-        if (!setParentModal || !selectedProfile || !selectedDestination) {
-            snackActions.error("Please select a C2 profile and destination callback");
+    const handleCreateCustomNode = async () => {
+        console.log('[handleCreateCustomNode] === START ===');
+        console.log('[handleCreateCustomNode] Form:', customNodeForm);
+        
+        if (!customNodeForm.host || !customNodeForm.ip) {
+            console.error('[handleCreateCustomNode] Validation failed - missing host or IP');
+            snackActions.error("Hostname and IP are required");
             return;
         }
+        
+        try {
+            console.log('[handleCreateCustomNode] Parsing existing nodes...');
+            // Generate next ID based on existing nodes
+            const parsedNodes = customNodesData?.agentstorage 
+                ? parseAgentStorageResults(customNodesData.agentstorage) 
+                : [];
+            console.log('[handleCreateCustomNode] Found', parsedNodes.length, 'existing nodes');
+            console.log('[handleCreateCustomNode] Existing node IDs:', parsedNodes.map(n => n.id));
+            
+            const nextId = generateNextId(parsedNodes);
+            console.log('[handleCreateCustomNode] Generated next ID:', nextId);
+            
+            // Prepare data for agentstorage
+            console.log('[handleCreateCustomNode] Preparing node data...');
+            const { unique_id, data } = prepareCreateNodeData({
+                hostname: customNodeForm.host,
+                ip_address: customNodeForm.ip,
+                operating_system: customNodeForm.os,
+                architecture: customNodeForm.architecture,
+                username: customNodeForm.user || undefined,
+                description: customNodeForm.description
+            }, nextId);
+            
+            console.log('[handleCreateCustomNode] unique_id:', unique_id);
+            console.log('[handleCreateCustomNode] data (first 100 chars):', data.substring(0, 100));
+            console.log('[handleCreateCustomNode] data length:', data.length);
+            
+            console.log('[handleCreateCustomNode] Calling createCustomNodeMutation...');
+            const result = await createCustomNodeMutation({
+                variables: {
+                    unique_id,
+                    data
+                }
+            });
+
+            console.log('[handleCreateCustomNode] Mutation completed. Result:', result);
+            
+            if (result.data?.insert_agentstorage_one) {
+                console.log('[handleCreateCustomNode] Created successfully:', result.data.insert_agentstorage_one);
+                snackActions.success(`Custom node "${customNodeForm.host}" created`);
+                setShowCustomNodeModal(false);
+                
+                // Force refetch to get updated data
+                console.log('[handleCreateCustomNode] Refetching custom nodes...');
+                await refetchCustomNodes();
+                console.log('[handleCreateCustomNode] Refetch complete');
+                
+                // Reset form
+                setCustomNodeForm({
+                    host: '',
+                    os: 'Windows',
+                    ip: '',
+                    user: '',
+                    description: '',
+                    architecture: 'x64'
+                });
+            } else {
+                throw new Error('Failed to create node');
+            }
+        } catch (e: any) {
+            console.error('Create custom node error:', e);
+            snackActions.error("Failed to create custom node: " + e.message);
+        }
+    };
+    
+    const openEditCustomNode = (node: any) => {
+        setEditCustomNodeModal(node);
+        setCustomNodeForm({
+            host: node.host,
+            os: node.os,
+            ip: node.ip,
+            user: node.user,
+            description: node.description || '',
+            architecture: node.architecture
+        });
+        setContextMenu(null);
+    };
+    
+    const handleUpdateCustomNode = async () => {
+        if (!customNodeForm.host || !customNodeForm.ip) {
+            snackActions.error("Hostname and IP are required");
+            return;
+        }
+
+        try {
+            // Prepare data for agentstorage update
+            const { unique_id, data } = prepareUpdateNodeData({
+                id: editCustomNodeModal.db_id,
+                hostname: customNodeForm.host,
+                ip_address: customNodeForm.ip,
+                operating_system: customNodeForm.os,
+                architecture: customNodeForm.architecture,
+                username: customNodeForm.user || undefined,
+                description: customNodeForm.description,
+                hidden: editCustomNodeModal.isHidden || false
+            });
+            
+            const result = await updateCustomNodeMutation({
+                variables: {
+                    unique_id,
+                    data
+                }
+            });
+
+            if (result.data?.update_agentstorage?.affected_rows > 0) {
+                snackActions.success('Custom node updated successfully');
+                setEditCustomNodeModal(null);
+                refetchCustomNodes();
+                
+                setCustomNodeForm({
+                    host: '',
+                    os: 'Windows',
+                    ip: '',
+                    user: '',
+                    description: '',
+                    architecture: 'x64'
+                });
+            } else {
+                throw new Error('No rows updated');
+            }
+        } catch (e: any) {
+            console.error('Update custom node error:', e);
+            snackActions.error("Failed to update custom node: " + e.message);
+        }
+    };
+    
+    const handleDeleteCustomNode = async (node: any) => {
+        try {
+            const unique_id = generateUniqueId(node.db_id);
+            
+            const result = await deleteCustomNodeMutation({
+                variables: {
+                    unique_id
+                }
+            });
+
+            if (result.data?.delete_agentstorage?.affected_rows > 0) {
+                // Remove edges connected to this custom node (local only)
+                setCustomEdges(
+                    customEdges.filter(
+                        (edge) => edge.source !== node.id && edge.target !== node.id
+                    )
+                );
+                snackActions.success(`Custom node "${node.host}" deleted successfully`);
+                setContextMenu(null);
+                refetchCustomNodes();
+            } else {
+                throw new Error('Failed to delete node from database');
+            }
+        } catch (e: any) {
+            console.error('Delete custom node error:', e);
+            snackActions.error("Failed to delete custom node: " + e.message);
+        }
+    };
+    
+    const handleExportCustomNodes = () => {
+        const exportObj = {
+            version: '1.0',
+            timestamp: new Date().toISOString(),
+            customNodes,
+            customEdges
+        };
+        setExportData(JSON.stringify(exportObj, null, 2));
+        setShowExportImportModal(true);
+    };
+    
+    const handleImportCustomNodes = () => {
+        try {
+            const importObj = JSON.parse(importData);
+            if (!importObj.customNodes || !Array.isArray(importObj.customNodes)) {
+                snackActions.error('Invalid import data format');
+                return;
+            }
+            
+            // Import custom edges (local only)
+            if (importObj.customEdges && Array.isArray(importObj.customEdges)) {
+                const existingEdgeIds = new Set(customEdges.map((e: any) => e.id));
+                const newEdges = importObj.customEdges.filter((e: any) => !existingEdgeIds.has(e.id));
+                setCustomEdges([...customEdges, ...newEdges]);
+            }
+            
+            snackActions.success(`Import data ready - nodes will be created in the backend`);
+            setShowExportImportModal(false);
+            setImportData('');
+        } catch (e: any) {
+            snackActions.error('Failed to import: ' + e.message);
+        }
+    };
+    
+    const handleCopyExportData = () => {
+        navigator.clipboard.writeText(exportData);
+        snackActions.success('Copied to clipboard');
+    };
+    
+    const handleSetParent = async () => {
+        if (!setParentModal || !selectedProfile || !selectedDestination) {
+            snackActions.error("Please select a C2 profile and destination node");
+            return;
+        }
+        
+        // Check if either node is a custom node
+        const isSourceCustom = setParentModal.isCustom;
+        const isDestCustom = selectedDestination.isCustom;
+        
+        console.log('[handleSetParent] isSourceCustom:', isSourceCustom, 'isDestCustom:', isDestCustom);
+        console.log('[handleSetParent] setParentModal:', setParentModal);
+        console.log('[handleSetParent] selectedDestination:', selectedDestination);
+        
+        if (isSourceCustom) {
+            // Source is a custom node - need to update in database
+            try {
+                console.log('[handleSetParent] Updating custom node parent connection...');
+                console.log('[handleSetParent] Source:', setParentModal.id, 'db_id:', setParentModal.db_id);
+                console.log('[handleSetParent] Destination:', selectedDestination.id, 'display_id:', selectedDestination.display_id);
+                
+                // Find the full custom node data
+                const sourceNode = customNodes.find(n => n.id === setParentModal.id);
+                if (!sourceNode) {
+                    console.error('[handleSetParent] Source node not found in customNodes:', setParentModal.id);
+                    console.error('[handleSetParent] Available custom nodes:', customNodes.map(n => n.id));
+                    snackActions.error("Source node not found");
+                    return;
+                }
+                
+                console.log('[handleSetParent] Found source node:', sourceNode);
+                
+                // Prepare updated node data with parent connection
+                const { unique_id, data } = prepareUpdateNodeData({
+                    id: sourceNode.db_id,
+                    hostname: sourceNode.host,
+                    ip_address: sourceNode.ip,
+                    operating_system: sourceNode.os,
+                    architecture: sourceNode.architecture,
+                    username: sourceNode.user !== 'N/A' ? sourceNode.user : undefined,
+                    description: sourceNode.description,
+                    hidden: sourceNode.isHidden,
+                    parent_id: isDestCustom ? selectedDestination.db_id : selectedDestination.display_id,
+                    parent_type: isDestCustom ? 'custom' : 'callback',
+                    c2profile: selectedProfile.name
+                });
+                
+                console.log('[handleSetParent] Updating with parent_id:', isDestCustom ? selectedDestination.db_id : selectedDestination.display_id);
+                
+                const result = await updateCustomNodeMutation({
+                    variables: { unique_id, data }
+                });
+                
+                if (result.data?.update_agentstorage?.affected_rows > 0) {
+                    snackActions.success(`Linked to ${isDestCustom ? 'Custom Node' : 'Callback'} #${selectedDestination.display_id || selectedDestination.db_id}`);
+                    refetchCustomNodes();
+                } else {
+                    snackActions.error("Failed to update custom node connection");
+                }
+            } catch (e: any) {
+                console.error('[handleSetParent] Error:', e);
+                snackActions.error("Failed to link: " + e.message);
+            }
+            setSetParentModal(null);
+            return;
+        }
+        
+        if (isDestCustom) {
+            // Regular callback linking to custom node as parent
+            // Store this as a custom edge in database (agentstorage)
+            try {
+                console.log('[handleSetParent] Creating custom edge: callback → custom node');
+                console.log('[handleSetParent] Source (callback):', setParentModal.id, setParentModal.display_id);
+                console.log('[handleSetParent] Destination (custom):', selectedDestination.id, selectedDestination.db_id);
+                
+                // Create edge object
+                const edgeId = `callback-${setParentModal.display_id}-to-custom-${selectedDestination.db_id}`;
+                const newEdge = {
+                    id: edgeId,
+                    source: String(setParentModal.id), // callback id
+                    target: selectedDestination.id, // custom node id (format: "custom-1")
+                    sourceId: setParentModal.display_id,
+                    targetId: selectedDestination.db_id,
+                    c2profile: selectedProfile.name
+                };
+                
+                console.log('[handleSetParent] Saving edge to database:', newEdge);
+                
+                // Delete ALL existing edges from this callback (query from current edges data)
+                const existingEdgesFromCallback = customEdges.filter(e => e.source === String(setParentModal.id));
+                console.log('[handleSetParent] Found', existingEdgesFromCallback.length, 'existing edges to remove');
+                
+                for (const edge of existingEdgesFromCallback) {
+                    try {
+                        console.log('[handleSetParent] Deleting edge:', edge.id, 'unique_id:', generateEdgeUniqueId(edge.id));
+                        await deleteCustomEdgeMutation({
+                            variables: { unique_id: generateEdgeUniqueId(edge.id) }
+                        });
+                    } catch (delError: any) {
+                        console.warn('[handleSetParent] Failed to delete edge:', edge.id, delError.message);
+                        // Continue anyway - edge might not exist in DB
+                    }
+                }
+                
+                // Small delay to ensure deletion completes
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Save to database
+                const result = await createCustomEdgeMutation({
+                    variables: {
+                        unique_id: generateEdgeUniqueId(edgeId),
+                        data: serializeEdgeData(newEdge)
+                    }
+                });
+                
+                if (result.data?.insert_agentstorage_one) {
+                    snackActions.success(`Linked to Custom Node #${selectedDestination.db_id} (persistent)`);
+                    // Refetch to update UI
+                    await refetchCustomEdges();
+                } else {
+                    snackActions.error("Failed to save connection");
+                }
+            } catch (e: any) {
+                console.error('[handleSetParent] Error creating custom edge:', e);
+                snackActions.error("Failed to link: " + e.message);
+            }
+            setSetParentModal(null);
+            return;
+        }
+        
+        // Original database operation for regular callbacks
         try {
             // First, remove any existing edges where this callback is the source
             if (edgesData?.callbackgraphedge) {
@@ -925,7 +1425,12 @@ export function CallbackGraph() {
     };
 
     // Check if a callback has a parent connection (is source of an edge)
-    const getParentEdge = useCallback((callbackId: number) => {
+    const getParentEdge = useCallback((callbackId: number | string) => {
+        // Check custom edges first
+        const customEdge = customEdges.find(e => e.source === callbackId);
+        if (customEdge) return customEdge;
+        
+        // Then check database edges
         if (!edgesData?.callbackgraphedge) return null;
         return edgesData.callbackgraphedge.find(
             (e: any) => e.source?.id === callbackId && !e.end_timestamp
@@ -941,6 +1446,69 @@ export function CallbackGraph() {
             return;
         }
 
+        // Check if it's a custom node
+        if (callback.isCustom) {
+            try {
+                console.log('[handleDisconnectParent] Removing parent from custom node:', callback.db_id);
+                
+                // Update the custom node to remove parent connection
+                const { unique_id, data } = prepareUpdateNodeData({
+                    id: callback.db_id,
+                    hostname: callback.host,
+                    ip_address: callback.ip,
+                    operating_system: callback.os,
+                    architecture: callback.architecture,
+                    username: callback.user !== 'N/A' ? callback.user : undefined,
+                    description: callback.description,
+                    hidden: callback.isHidden,
+                    parent_id: undefined,
+                    parent_type: undefined,
+                    c2profile: undefined
+                });
+                
+                const result = await updateCustomNodeMutation({
+                    variables: { unique_id, data }
+                });
+                
+                if (result.data?.update_agentstorage?.affected_rows > 0) {
+                    snackActions.success("Disconnected from parent");
+                    refetchCustomNodes();
+                } else {
+                    snackActions.error("Failed to disconnect");
+                }
+            } catch (e: any) {
+                console.error('[handleDisconnectParent] Error:', e);
+                snackActions.error("Failed to disconnect: " + e.message);
+            }
+            setContextMenu(null);
+            return;
+        }
+
+        // Check if it's a custom edge (callback → custom node connection)
+        if (parentEdge.source && typeof parentEdge.source === 'string' && !parentEdge.id.startsWith('e')) {
+            // This is a custom edge, remove it from database
+            try {
+                console.log('[handleDisconnectParent] Removing custom edge from database:', parentEdge.id);
+                
+                const result = await deleteCustomEdgeMutation({
+                    variables: { unique_id: generateEdgeUniqueId(parentEdge.id) }
+                });
+                
+                if (result.data?.delete_agentstorage?.affected_rows > 0) {
+                    snackActions.success(`Disconnected from Custom Node #${parentEdge.targetId}`);
+                    refetchCustomEdges();
+                } else {
+                    snackActions.error("Failed to remove connection from database");
+                }
+            } catch (e: any) {
+                console.error('[handleDisconnectParent] Error removing custom edge:', e);
+                snackActions.error("Failed to disconnect: " + e.message);
+            }
+            setContextMenu(null);
+            return;
+        }
+
+        // Handle database edge removal for regular callbacks
         try {
             const result = await removeEdge({ variables: { edge_id: parentEdge.id } });
             if (result.data?.callbackgraphedge_remove?.status === "success") {
@@ -979,9 +1547,16 @@ export function CallbackGraph() {
 
     // Transform data to React Flow format
     const graphData = useMemo(() => {
-        if (!callbacksData?.callback) return { nodes: [], edges: [] };
+        if (!callbacksData?.callback && customNodes.length === 0) return { nodes: [], edges: [] };
 
-        const flowNodes: Node[] = callbacksData.callback.map((c: any, index: number) => {
+        // Filter callbacks based on showHiddenNodes toggle
+        const visibleCallbacks = showHiddenNodes 
+            ? (callbacksData?.callback || [])
+            : (callbacksData?.callback || []).filter((c: any) => c.active !== false);
+        
+        const allCallbacks = [...visibleCallbacks, ...customNodes];
+        
+        const flowNodes: Node[] = allCallbacks.map((c: any, index: number) => {
             const nodeId = String(c.id);
             const isNewNode = !seenNodeIds.current.has(nodeId);
             
@@ -1007,11 +1582,12 @@ export function CallbackGraph() {
                 data: { 
                     callback_id: c.id,
                     display_id: c.display_id, 
+                    db_id: c.db_id, // For custom nodes
                     user: c.user, 
                     host: c.host,
-                    ip: (() => { try { return JSON.parse(c.ip)[0] } catch(e) { return c.ip } })(),
+                    ip: c.isCustom ? c.ip : (() => { try { return JSON.parse(c.ip)[0] } catch(e) { return c.ip } })(),
                     integrity_level: c.integrity_level,
-                    payloadType: c.payload?.payloadtype?.name || '',
+                    payloadType: c.payloadType || c.payload?.payloadtype?.name || '',
                     os: c.os,
                     last_checkin: c.last_checkin,
                     pid: c.pid,
@@ -1022,8 +1598,9 @@ export function CallbackGraph() {
                     sleep_info: c.sleep_info,
                     animationDelay: animationDelay,
                     isNewNode: isNewNode || isInitialRender,
-                    label: `Callback ${c.display_id}`,
+                    label: `${c.isCustom ? 'Custom Node' : 'Callback'} ${c.display_id}`,
                     onContextMenu: handleContextMenu,
+                    isCustom: c.isCustom || false,
                     // C2 profiles for this callback (for edge labels)
                     c2profiles: c.callbackc2profiles?.map((cp: any) => cp.c2profile?.name).filter(Boolean) || [],
                 },
@@ -1058,6 +1635,19 @@ export function CallbackGraph() {
                 }
             });
         }
+        
+        // Add custom edges (for custom nodes)
+        customEdges.forEach((e: any) => {
+            flowEdges.push({
+                id: e.id,
+                source: String(e.source),
+                target: String(e.target),
+                animated: false,
+                style: { stroke: '#00ffff', strokeWidth: 2.5 }, // Cyan for custom edges
+                markerEnd: { type: MarkerType.ArrowClosed, color: '#00ffff' },
+                label: e.c2profile || 'Custom'
+            });
+        });
 
         // Get all visible node IDs (excluding root)
         const visibleNodeIds = new Set(flowNodes.filter(n => n.id !== 'root').map(n => n.id));
@@ -1084,7 +1674,8 @@ export function CallbackGraph() {
                 let timestamp = '';
                 if (n.data?.last_checkin) {
                     try {
-                        const timeStr = n.data.last_checkin.endsWith('Z') ? n.data.last_checkin : `${n.data.last_checkin}Z`;
+                        const lastCheckin = String(n.data.last_checkin);
+                        const timeStr = lastCheckin.endsWith('Z') ? lastCheckin : `${lastCheckin}Z`;
                         timestamp = timeStr;
                         const last = new Date(timeStr).getTime();
                         const now = new Date().getTime();
@@ -1094,7 +1685,7 @@ export function CallbackGraph() {
                 }
 
                 // Get C2 profile names for this callback
-                const c2Profiles = n.data?.c2profiles || [];
+                const c2Profiles = Array.isArray(n.data?.c2profiles) ? n.data.c2profiles : [];
                 const c2Label = c2Profiles.length > 0 ? c2Profiles.join(', ') : '';
 
                 flowEdges.push({
@@ -1109,12 +1700,12 @@ export function CallbackGraph() {
                     labelStyle: { fill: '#a0aec0', fontSize: 10, fontWeight: 500 },
                     labelBgStyle: { fill: 'rgba(0, 0, 0, 0.6)', fillOpacity: 0.8 },
                     labelBgPadding: [4, 2] as [number, number],
-                    data: { active: isRecent, timestamp: timestamp, highIntegrity: n.data.integrity_level > 2 }
+                    data: { active: isRecent, timestamp: timestamp, highIntegrity: Number(n.data?.integrity_level || 0) > 2 }
                 });
             });
 
         return { nodes: flowNodes, edges: flowEdges };
-    }, [callbacksData, edgesData, handleContextMenu, isInitialRender]);
+    }, [callbacksData, edgesData, handleContextMenu, isInitialRender, customNodes, showHiddenNodes, customEdges]);
 
     // Apply layout when data changes
     React.useEffect(() => {
@@ -1122,7 +1713,8 @@ export function CallbackGraph() {
             const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(graphData.nodes, graphData.edges);
 
             // 保留既有節點的位置，僅為新節點設定 layout 位置，避免視角跳動
-            setNodes((prev) => {
+            // @ts-ignore
+            setNodes((prev: Node[]) => {
                 const prevMap = new Map(prev.map(n => [n.id, n]));
                 return layoutedNodes.map((n) => {
                     const existing = prevMap.get(n.id);
@@ -1132,21 +1724,57 @@ export function CallbackGraph() {
                     return n;
                 });
             });
-            setEdges(layoutedEdges);
+            // @ts-ignore
+            setEdges(layoutedEdges as Edge[]);
         }
     }, [graphData, setNodes, setEdges]);
 
-    // Get filtered callbacks for set parent modal - show ALL active callbacks
+    // Get filtered callbacks for set parent modal - show ALL active callbacks and custom nodes
     const filteredCallbacksForParent = useMemo(() => {
-        if (!setParentModal || !callbacksData?.callback) return [];
-        // Filter out the current callback from the list
-        return callbacksData.callback.filter(
+        if (!setParentModal) return [];
+        const allNodes = [...(callbacksData?.callback || []), ...customNodes];
+        // Filter out the current callback/node from the list
+        return allNodes.filter(
             (c: any) => c.id !== setParentModal.id && c.display_id !== setParentModal.display_id
         ) || [];
-    }, [callbacksData, setParentModal]);
+    }, [callbacksData, setParentModal, customNodes]);
 
     return (
         <div className="w-full h-full bg-[#050505] border border-ghost/30 relative overflow-hidden rounded-lg">
+             {/* Control Buttons */}
+             <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+                <button
+                    onClick={() => setShowHiddenNodes(!showHiddenNodes)}
+                    className={`flex items-center gap-2 px-3 py-2 border rounded transition-colors text-xs font-mono ${
+                        showHiddenNodes 
+                            ? 'bg-yellow-500/20 hover:bg-yellow-500/30 border-yellow-500/50 text-yellow-500'
+                            : 'bg-gray-500/20 hover:bg-gray-500/30 border-gray-500/50 text-gray-400'
+                    }`}
+                    title={showHiddenNodes ? "Hide Hidden Nodes" : "Show Hidden Nodes"}
+                >
+                    <EyeOff size={14} />
+                    {showHiddenNodes ? 'HIDE' : 'SHOW'} HIDDEN
+                </button>
+                {customNodes.length > 0 && (
+                    <button
+                        onClick={handleExportCustomNodes}
+                        className="flex items-center gap-2 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-400 rounded transition-colors text-xs font-mono"
+                        title="Export/Import Custom Nodes"
+                    >
+                        <Share2 size={14} />
+                        SHARE
+                    </button>
+                )}
+                <button
+                    onClick={() => setShowCustomNodeModal(true)}
+                    className="flex items-center gap-2 px-3 py-2 bg-signal/20 hover:bg-signal/30 border border-signal/50 text-signal rounded transition-colors text-xs font-mono"
+                    title="Add Custom Node"
+                >
+                    <Plus size={14} />
+                    ADD NODE
+                </button>
+            </div>
+            
              {/* Loading/Error Indicators */}
              {(callbacksLoading && !callbacksData) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20 text-signal font-mono text-xs">
@@ -1208,11 +1836,17 @@ export function CallbackGraph() {
             </ReactFlow>
             
             {/* Status Overlay */}
-            <div className="absolute top-4 left-4 z-10 pointer-events-none">
+            <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-2">
                 <div className="flex items-center gap-2 text-xs font-mono text-signal bg-black/60 px-3 py-1 border border-signal/20 backdrop-blur-sm shadow-[0_0_10px_rgba(34,197,94,0.2)]">
                     <div className="w-2 h-2 bg-signal rounded-full animate-pulse shadow-[0_0_5px_#22c55e]"></div>
                     NETWORK_TOPOLOGY_ACTIVE
                 </div>
+                {customNodes.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 bg-black/60 px-3 py-1 border border-cyan-500/20 backdrop-blur-sm">
+                        <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
+                        {customNodes.length} CUSTOM_NODE{customNodes.length > 1 ? 'S' : ''}
+                    </div>
+                )}
             </div>
 
             {/* Context Menu Portal */}
@@ -1232,7 +1866,7 @@ export function CallbackGraph() {
                     {/* Header */}
                     <div className="px-3 py-2 border-b border-signal/20 flex items-center justify-between">
                         <span className="text-xs font-mono text-signal font-bold">
-                            CALLBACK_{contextMenu.callback.display_id}
+                            {contextMenu.callback.isCustom ? 'CUSTOM_NODE_' : 'CALLBACK_'}{contextMenu.callback.display_id}
                         </span>
                         {contextMenu.callback.locked && (
                             <Lock size={12} className="text-red-500" />
@@ -1240,75 +1874,125 @@ export function CallbackGraph() {
                     </div>
 
                     <div className="p-1 flex flex-col">
-                        {/* View Details */}
-                        <button 
-                            onClick={() => openDetails(contextMenu.callback)} 
-                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
-                        >
-                            <Info size={14} className="text-gray-500 group-hover:text-signal" /> 
-                            <span>View Details</span>
-                            <ChevronRight size={12} className="ml-auto text-gray-600" />
-                        </button>
+                        {contextMenu.callback.isCustom ? (
+                            /* Custom Node Options */
+                            <>
+                                {/* Edit Custom Node */}
+                                <button 
+                                    onClick={() => openEditCustomNode(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
+                                >
+                                    <Edit size={14} className="text-gray-500 group-hover:text-signal" /> 
+                                    <span>Edit Node</span>
+                                </button>
 
-                        {/* Edit Description */}
-                        <button 
-                            onClick={() => openEditDescription(contextMenu.callback)} 
-                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
-                        >
-                            <Edit size={14} className="text-gray-500 group-hover:text-signal" /> 
-                            <span>Edit Description</span>
-                        </button>
+                                <div className="h-px bg-white/10 my-1" />
 
-                        {/* Lock/Unlock */}
-                        <button 
-                            onClick={() => handleLockToggle(contextMenu.callback)} 
-                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
-                        >
-                            {contextMenu.callback.locked ? (
-                                <>
-                                    <Unlock size={14} className="text-gray-500 group-hover:text-signal" /> 
-                                    <span>Unlock Callback</span>
-                                </>
-                            ) : (
-                                <>
-                                    <Lock size={14} className="text-gray-500 group-hover:text-signal" /> 
-                                    <span>Lock Callback</span>
-                                </>
-                            )}
-                        </button>
+                                {/* Set Parent Edge */}
+                                <button 
+                                    onClick={() => openSetParent(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
+                                >
+                                    <GitBranch size={14} className="text-blue-500" /> 
+                                    <span>Link to Parent</span>
+                                </button>
 
-                        <div className="h-px bg-white/10 my-1" />
+                                {/* Disconnect from Parent - only show if has parent */}
+                                {getParentEdge(contextMenu.callback.id) && (
+                                    <button 
+                                        onClick={() => handleDisconnectParent(contextMenu.callback)} 
+                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
+                                    >
+                                        <X size={14} className="text-orange-500" /> 
+                                        <span>Disconnect from Parent</span>
+                                    </button>
+                                )}
 
-                        {/* Set Parent Edge */}
-                        <button 
-                            onClick={() => openSetParent(contextMenu.callback)} 
-                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
-                        >
-                            <GitBranch size={14} className="text-blue-500" /> 
-                            <span>Link to Parent</span>
-                        </button>
+                                <div className="h-px bg-white/10 my-1" />
 
-                        {/* Disconnect from Parent - only show if has parent */}
-                        {getParentEdge(contextMenu.callback.id) && (
-                            <button 
-                                onClick={() => handleDisconnectParent(contextMenu.callback)} 
-                                className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
-                            >
-                                <X size={14} className="text-orange-500" /> 
-                                <span>Disconnect from Parent</span>
-                            </button>
+                                {/* Delete Custom Node */}
+                                <button 
+                                    onClick={() => handleDeleteCustomNode(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors group"
+                                >
+                                    <X size={14} className="text-red-500" /> 
+                                    <span>Delete Node</span>
+                                </button>
+                            </>
+                        ) : (
+                            /* Regular Callback Options */
+                            <>
+                                {/* View Details */}
+                                <button 
+                                    onClick={() => openDetails(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
+                                >
+                                    <Info size={14} className="text-gray-500 group-hover:text-signal" /> 
+                                    <span>View Details</span>
+                                    <ChevronRight size={12} className="ml-auto text-gray-600" />
+                                </button>
+
+                                {/* Edit Description */}
+                                <button 
+                                    onClick={() => openEditDescription(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
+                                >
+                                    <Edit size={14} className="text-gray-500 group-hover:text-signal" /> 
+                                    <span>Edit Description</span>
+                                </button>
+
+                                {/* Lock/Unlock */}
+                                <button 
+                                    onClick={() => handleLockToggle(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
+                                >
+                                    {contextMenu.callback.locked ? (
+                                        <>
+                                            <Unlock size={14} className="text-gray-500 group-hover:text-signal" /> 
+                                            <span>Unlock Callback</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Lock size={14} className="text-gray-500 group-hover:text-signal" /> 
+                                            <span>Lock Callback</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                <div className="h-px bg-white/10 my-1" />
+
+                                {/* Set Parent Edge */}
+                                <button 
+                                    onClick={() => openSetParent(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
+                                >
+                                    <GitBranch size={14} className="text-blue-500" /> 
+                                    <span>Link to Parent</span>
+                                </button>
+
+                                {/* Disconnect from Parent - only show if has parent */}
+                                {getParentEdge(contextMenu.callback.id) && (
+                                    <button 
+                                        onClick={() => handleDisconnectParent(contextMenu.callback)} 
+                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
+                                    >
+                                        <X size={14} className="text-orange-500" /> 
+                                        <span>Disconnect from Parent</span>
+                                    </button>
+                                )}
+
+                                <div className="h-px bg-white/10 my-1" />
+
+                                {/* Hide Callback */}
+                                <button 
+                                    onClick={() => handleHide(contextMenu.callback)} 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors group"
+                                >
+                                    <EyeOff size={14} className="text-red-500" /> 
+                                    <span>Hide Callback</span>
+                                </button>
+                            </>
                         )}
-
-                        <div className="h-px bg-white/10 my-1" />
-
-                        {/* Hide Callback */}
-                        <button 
-                            onClick={() => handleHide(contextMenu.callback)} 
-                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors group"
-                        >
-                            <EyeOff size={14} className="text-red-500" /> 
-                            <span>Hide Callback</span>
-                        </button>
                     </div>
                 </motion.div>,
                 document.body
@@ -1350,6 +2034,302 @@ export function CallbackGraph() {
                 )}
             </AnimatePresence>
 
+            {/* Custom Node Modal */}
+            <AnimatePresence>
+                {showCustomNodeModal && (
+                    <CyberModal 
+                        title="CREATE_CUSTOM_NODE" 
+                        onClose={() => setShowCustomNodeModal(false)}
+                        icon={<Plus />}
+                    >
+                        <div className="space-y-4">
+                            <div className="text-xs text-gray-400 mb-4">
+                                Create a custom node to represent external systems or planned targets in the topology.
+                            </div>
+                            
+                            {/* Hostname */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">HOSTNAME *</label>
+                                <input 
+                                    type="text" 
+                                    value={customNodeForm.host}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, host: e.target.value})}
+                                    placeholder="TARGET-PC-01"
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                />
+                            </div>
+                            
+                            {/* OS */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">OPERATING SYSTEM *</label>
+                                <select
+                                    value={customNodeForm.os}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, os: e.target.value})}
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                >
+                                    <option value="Windows">Windows</option>
+                                    <option value="Linux">Linux</option>
+                                    <option value="macOS">macOS</option>
+                                    <option value="Unknown">Unknown</option>
+                                </select>
+                            </div>
+                            
+                            {/* IP */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">IP ADDRESS *</label>
+                                <input 
+                                    type="text" 
+                                    value={customNodeForm.ip}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, ip: e.target.value})}
+                                    placeholder="192.168.1.100"
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                />
+                            </div>
+                            
+                            {/* Architecture */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">ARCHITECTURE</label>
+                                <select
+                                    value={customNodeForm.architecture}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, architecture: e.target.value})}
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                >
+                                    <option value="x64">x64</option>
+                                    <option value="x86">x86</option>
+                                    <option value="arm64">ARM64</option>
+                                </select>
+                            </div>
+                            
+                            {/* User */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">USER</label>
+                                <input 
+                                    type="text" 
+                                    value={customNodeForm.user}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, user: e.target.value})}
+                                    placeholder="Administrator"
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                />
+                            </div>
+                            
+                            {/* Description */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">DESCRIPTION</label>
+                                <textarea 
+                                    value={customNodeForm.description}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, description: e.target.value})}
+                                    placeholder="Target system details..."
+                                    rows={3}
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm resize-none"
+                                />
+                            </div>
+                            
+                            <div className="flex justify-end gap-3 pt-4">
+                                <button 
+                                    onClick={() => setShowCustomNodeModal(false)}
+                                    className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm"
+                                >
+                                    CANCEL
+                                </button>
+                                <button 
+                                    onClick={handleCreateCustomNode}
+                                    className="px-6 py-2 bg-signal text-void font-bold font-mono text-sm hover:bg-white transition-colors"
+                                >
+                                    CREATE
+                                </button>
+                            </div>
+                        </div>
+                    </CyberModal>
+                )}
+            </AnimatePresence>
+
+            {/* Edit Custom Node Modal */}
+            <AnimatePresence>
+                {editCustomNodeModal && (
+                    <CyberModal 
+                        title="EDIT_CUSTOM_NODE" 
+                        onClose={() => setEditCustomNodeModal(null)}
+                        icon={<Edit />}
+                    >
+                        <div className="space-y-4">
+                            <div className="text-xs text-gray-400 mb-4">
+                                Edit custom node #{editCustomNodeModal.display_id} - {editCustomNodeModal.host}
+                            </div>
+                            
+                            {/* Hostname */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">HOSTNAME *</label>
+                                <input 
+                                    type="text" 
+                                    value={customNodeForm.host}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, host: e.target.value})}
+                                    placeholder="TARGET-PC-01"
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                />
+                            </div>
+                            
+                            {/* OS */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">OPERATING SYSTEM *</label>
+                                <select
+                                    value={customNodeForm.os}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, os: e.target.value})}
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                >
+                                    <option value="Windows">Windows</option>
+                                    <option value="Linux">Linux</option>
+                                    <option value="macOS">macOS</option>
+                                    <option value="Unknown">Unknown</option>
+                                </select>
+                            </div>
+                            
+                            {/* IP */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">IP ADDRESS *</label>
+                                <input 
+                                    type="text" 
+                                    value={customNodeForm.ip}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, ip: e.target.value})}
+                                    placeholder="192.168.1.100"
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                />
+                            </div>
+                            
+                            {/* Architecture */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">ARCHITECTURE</label>
+                                <select
+                                    value={customNodeForm.architecture}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, architecture: e.target.value})}
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                >
+                                    <option value="x64">x64</option>
+                                    <option value="x86">x86</option>
+                                    <option value="arm64">ARM64</option>
+                                </select>
+                            </div>
+                            
+                            {/* User */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">USER</label>
+                                <input 
+                                    type="text" 
+                                    value={customNodeForm.user}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, user: e.target.value})}
+                                    placeholder="Administrator"
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
+                                />
+                            </div>
+                            
+                            {/* Description */}
+                            <div>
+                                <label className="block text-xs font-mono text-gray-500 mb-1">DESCRIPTION</label>
+                                <textarea 
+                                    value={customNodeForm.description}
+                                    onChange={(e) => setCustomNodeForm({...customNodeForm, description: e.target.value})}
+                                    placeholder="Target system details..."
+                                    rows={3}
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm resize-none"
+                                />
+                            </div>
+                            
+                            <div className="flex justify-end gap-3 pt-4">
+                                <button 
+                                    onClick={() => setEditCustomNodeModal(null)}
+                                    className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm"
+                                >
+                                    CANCEL
+                                </button>
+                                <button 
+                                    onClick={handleUpdateCustomNode}
+                                    className="px-6 py-2 bg-signal text-void font-bold font-mono text-sm hover:bg-white transition-colors"
+                                >
+                                    UPDATE
+                                </button>
+                            </div>
+                        </div>
+                    </CyberModal>
+                )}
+            </AnimatePresence>
+
+            {/* Export/Import Custom Nodes Modal */}
+            <AnimatePresence>
+                {showExportImportModal && (
+                    <CyberModal 
+                        title="SHARE_CUSTOM_NODES" 
+                        onClose={() => {
+                            setShowExportImportModal(false);
+                            setImportData('');
+                        }}
+                        icon={<Share2 />}
+                    >
+                        <div className="space-y-4">
+                            <div className="text-xs text-gray-400 mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded">
+                                <div className="flex items-start gap-2">
+                                    <Info size={14} className="text-cyan-400 mt-0.5 shrink-0" />
+                                    <div>
+                                        <div className="font-bold text-cyan-400 mb-1">GraphQL Server Storage</div>
+                                        <div>Custom nodes are stored on the Mythic server and synchronized in real-time across all clients. Export for backup or migration purposes.</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Export Section */}
+                            <div className="border-t border-gray-800 pt-4">
+                                <label className="block text-xs font-mono text-gray-500 mb-2 flex items-center gap-2">
+                                    <span>EXPORT_DATA</span>
+                                    <span className="text-[10px] text-gray-600">({customNodes.length} nodes, {customEdges.length} edges)</span>
+                                </label>
+                                <textarea 
+                                    value={exportData}
+                                    readOnly
+                                    rows={8}
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal font-mono text-xs resize-none"
+                                    placeholder="Export data will appear here..."
+                                />
+                                <button 
+                                    onClick={handleCopyExportData}
+                                    className="w-full mt-2 px-4 py-2 bg-purple-500/20 border border-purple-500/50 text-purple-400 hover:bg-purple-500/30 font-mono text-sm transition-colors"
+                                >
+                                    COPY_TO_CLIPBOARD
+                                </button>
+                            </div>
+                            
+                            {/* Import Section */}
+                            <div className="border-t border-gray-800 pt-4">
+                                <label className="block text-xs font-mono text-gray-500 mb-2">IMPORT_DATA</label>
+                                <textarea 
+                                    value={importData}
+                                    onChange={(e) => setImportData(e.target.value)}
+                                    rows={8}
+                                    placeholder="Paste exported data here..."
+                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-xs resize-none"
+                                />
+                                <button 
+                                    onClick={handleImportCustomNodes}
+                                    disabled={!importData.trim()}
+                                    className="w-full mt-2 px-4 py-2 bg-signal/20 border border-signal/50 text-signal hover:bg-signal/30 font-mono text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    IMPORT_NODES
+                                </button>
+                            </div>
+                            
+                            <div className="flex justify-end pt-2">
+                                <button 
+                                    onClick={() => {
+                                        setShowExportImportModal(false);
+                                        setImportData('');
+                                    }}
+                                    className="px-6 py-2 text-gray-400 hover:text-white font-mono text-sm"
+                                >
+                                    CLOSE
+                                </button>
+                            </div>
+                        </div>
+                    </CyberModal>
+                )}
+            </AnimatePresence>
+
             {/* Set Parent Modal */}
             <AnimatePresence>
                 {setParentModal && (
@@ -1360,16 +2340,16 @@ export function CallbackGraph() {
                     >
                         <div className="space-y-4">
                             <div className="text-xs text-gray-400 font-mono mb-2">
-                                Link Callback #{setParentModal.display_id} ({setParentModal.host}) to another callback.
+                                Link {setParentModal.isCustom ? 'Custom Node' : 'Callback'} #{setParentModal.display_id} ({setParentModal.host}) to another node.
                             </div>
 
-                            {/* Destination Callback Selection - Show ALL active callbacks */}
+                            {/* Destination Callback Selection - Show ALL active callbacks and custom nodes */}
                             <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">TARGET_CALLBACK</label>
+                                <label className="block text-xs font-mono text-gray-500 mb-2">TARGET_NODE</label>
                                 <div className="grid gap-2 max-h-48 overflow-y-auto border border-gray-800 p-2 bg-black/30">
                                     {filteredCallbacksForParent.length > 0 ? (
                                         filteredCallbacksForParent.map((callback: any) => {
-                                            const ip = (() => { try { return JSON.parse(callback.ip)[0] } catch(e) { return callback.ip } })();
+                                            const ip = callback.isCustom ? callback.ip : (() => { try { return JSON.parse(callback.ip)[0] } catch(e) { return callback.ip } })();
                                             return (
                                                 <button
                                                     key={callback.id}
@@ -1380,12 +2360,15 @@ export function CallbackGraph() {
                                                             : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:bg-white/5'
                                                     }`}
                                                 >
-                                                    <div className={`w-2 h-2 rounded-full ${callback.integrity_level > 2 ? 'bg-yellow-500' : 'bg-signal'}`} />
+                                                    <div className={`w-2 h-2 rounded-full ${callback.isCustom ? 'bg-cyan-500' : (callback.integrity_level > 2 ? 'bg-yellow-500' : 'bg-signal')}`} />
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-bold">#{callback.display_id}</span>
                                                             <span className="text-gray-500">@</span>
                                                             <span className="truncate">{callback.host}</span>
+                                                            {callback.isCustom && (
+                                                                <span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-1 py-0.5 rounded border border-cyan-500/30">CUSTOM</span>
+                                                            )}
                                                         </div>
                                                         <div className="text-[10px] text-gray-600 flex items-center gap-2">
                                                             <span>{callback.user}</span>
@@ -1400,7 +2383,7 @@ export function CallbackGraph() {
                                                         </div>
                                                     </div>
                                                     <span className="text-[10px] uppercase text-gray-600 border border-gray-700 px-1.5 py-0.5">
-                                                        {callback.payload?.payloadtype?.name}
+                                                        {callback.isCustom ? 'CUSTOM' : callback.payload?.payloadtype?.name}
                                                     </span>
                                                 </button>
                                             );
@@ -1584,27 +2567,36 @@ export function CallbackGraph() {
             <AnimatePresence>
                 {detailsModal && (
                     <CyberModal 
-                        title="CALLBACK_DETAILS" 
+                        title={detailsModal.isCustom ? "CUSTOM_NODE_DETAILS" : "CALLBACK_DETAILS"}
                         onClose={() => setDetailsModal(null)}
                         icon={<Info />}
                     >
                         <div className="space-y-4">
                             {/* Header Info */}
                             <div className="flex items-center gap-4 p-3 bg-black/30 border border-gray-800">
-                                <div className={`p-2 border ${detailsModal.integrity_level > 2 ? 'border-yellow-500 bg-yellow-500/10' : 'border-signal bg-signal/10'}`}>
-                                    <Terminal size={20} className={detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-signal'} />
+                                <div className={`p-2 border ${
+                                    detailsModal.isCustom 
+                                        ? 'border-cyan-500 bg-cyan-500/10' 
+                                        : (detailsModal.integrity_level > 2 ? 'border-yellow-500 bg-yellow-500/10' : 'border-signal bg-signal/10')
+                                }`}>
+                                    <Terminal size={20} className={detailsModal.isCustom ? 'text-cyan-500' : (detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-signal')} />
                                 </div>
                                 <div>
                                     <div className="text-lg font-bold text-white font-mono">
-                                        CALLBACK #{detailsModal.display_id}
+                                        {detailsModal.isCustom ? 'CUSTOM_NODE' : 'CALLBACK'} #{detailsModal.display_id}
                                         {detailsModal.locked && <Lock size={14} className="inline ml-2 text-red-500" />}
                                     </div>
                                     <div className="text-xs text-gray-500">{detailsModal.host}</div>
                                 </div>
-                                {detailsModal.integrity_level > 2 && (
+                                {!detailsModal.isCustom && detailsModal.integrity_level > 2 && (
                                     <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-yellow-500/20 border border-yellow-500/50">
                                         <Shield size={12} className="text-yellow-500" />
                                         <span className="text-xs font-bold text-yellow-500">ADMIN</span>
+                                    </div>
+                                )}
+                                {detailsModal.isCustom && (
+                                    <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-cyan-500/20 border border-cyan-500/50">
+                                        <span className="text-xs font-bold text-cyan-400">CUSTOM</span>
                                     </div>
                                 )}
                             </div>
@@ -1615,18 +2607,22 @@ export function CallbackGraph() {
                                     <div className="text-gray-500">USER</div>
                                     <div className="text-white">{detailsModal.user}</div>
                                 </div>
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">DOMAIN</div>
-                                    <div className="text-white">{detailsModal.domain || 'N/A'}</div>
-                                </div>
+                                {!detailsModal.isCustom && (
+                                    <div className="space-y-1">
+                                        <div className="text-gray-500">DOMAIN</div>
+                                        <div className="text-white">{detailsModal.domain || 'N/A'}</div>
+                                    </div>
+                                )}
                                 <div className="space-y-1">
                                     <div className="text-gray-500">IP_ADDRESS</div>
                                     <div className="text-white">{detailsModal.ip}</div>
                                 </div>
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">PID</div>
-                                    <div className="text-white">{detailsModal.pid}</div>
-                                </div>
+                                {!detailsModal.isCustom && (
+                                    <div className="space-y-1">
+                                        <div className="text-gray-500">PID</div>
+                                        <div className="text-white">{detailsModal.pid}</div>
+                                    </div>
+                                )}
                                 <div className="space-y-1">
                                     <div className="text-gray-500">OS</div>
                                     <div className="text-white">{detailsModal.os}</div>
@@ -1635,20 +2631,24 @@ export function CallbackGraph() {
                                     <div className="text-gray-500">ARCHITECTURE</div>
                                     <div className="text-white">{detailsModal.architecture}</div>
                                 </div>
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">AGENT</div>
-                                    <div className="text-white uppercase">{detailsModal.payloadType}</div>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">INTEGRITY</div>
-                                    <div className={detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-white'}>
-                                        Level {detailsModal.integrity_level}
-                                    </div>
-                                </div>
+                                {!detailsModal.isCustom && (
+                                    <>
+                                        <div className="space-y-1">
+                                            <div className="text-gray-500">AGENT</div>
+                                            <div className="text-white uppercase">{detailsModal.payloadType}</div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="text-gray-500">INTEGRITY</div>
+                                            <div className={detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-white'}>
+                                                Level {detailsModal.integrity_level}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
 
-                            {/* Sleep Info */}
-                            {detailsModal.sleep_info && (
+                            {/* Sleep Info - Only for callbacks */}
+                            {!detailsModal.isCustom && detailsModal.sleep_info && (
                                 <div className="p-3 bg-black/30 border border-gray-800">
                                     <div className="text-xs font-mono text-gray-500 mb-1">SLEEP_INFO</div>
                                     <div className="text-sm font-mono text-signal">{detailsModal.sleep_info}</div>
@@ -1662,6 +2662,19 @@ export function CallbackGraph() {
                                     {detailsModal.description || 'No description set'}
                                 </div>
                             </div>
+                            
+                            {/* Edit button for custom nodes */}
+                            {detailsModal.isCustom && (
+                                <button
+                                    onClick={() => {
+                                        openEditCustomNode(detailsModal);
+                                        setDetailsModal(null);
+                                    }}
+                                    className="w-full px-4 py-2 bg-cyan-500/20 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/30 font-mono text-sm transition-colors"
+                                >
+                                    EDIT_NODE
+                                </button>
+                            )}
 
                             <div className="flex justify-end">
                                 <button 

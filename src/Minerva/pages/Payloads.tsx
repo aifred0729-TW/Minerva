@@ -59,6 +59,7 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Sidebar } from '../components/Sidebar';
 import { cn, b64DecodeUnicode, b64EncodeUnicode } from '../lib/utils';
+import { CyberDropdown } from '../components/CyberDropdown';
 import { snackActions } from '../../Archive/components/utilities/Snackbar';
 import { getSkewedNow, toLocalTime } from '../../Archive/components/utilities/Time';
 import { meState } from '../../cache';
@@ -86,10 +87,16 @@ fragment payloadData on payload {
   auto_generated
   timestamp
   payload_type_semver
+  os
+  creation_time
   payloadtype {
     id
     name
     semver
+  }
+  operator {
+    id
+    username
   }
   payload_build_steps(order_by: {step_number: asc}) {
     step_name
@@ -101,6 +108,23 @@ fragment payloadData on payload {
     step_stdout
     step_stderr
     id
+  }
+  buildparameterinstances {
+    id
+    value
+    buildparameter {
+      id
+      name
+      description
+      parameter_type
+    }
+  }
+  payloadcommands {
+    id
+    command {
+      id
+      cmd
+    }
   }
   tags {
     tagtype {
@@ -114,6 +138,9 @@ fragment payloadData on payload {
     agent_file_id
     filename_text
     id
+    md5
+    sha1
+    size
     tags {
         tagtype {
             name
@@ -374,9 +401,9 @@ const BuildStatusBadge = ({ phase }: { phase: string }) => {
             case 'building':
                 return { 
                     icon: Loader2, 
-                    color: 'text-signal', 
-                    bg: 'bg-signal/10', 
-                    border: 'border-signal/30',
+                    color: 'text-yellow-400', 
+                    bg: 'bg-yellow-400/10', 
+                    border: 'border-yellow-400/30',
                     label: 'BUILDING',
                     animate: true 
                 };
@@ -472,22 +499,29 @@ const TagsDisplay = ({ tags }: { tags: PayloadTag[] }) => {
 };
 
 // Build Progress Steps
-const BuildProgressSteps = ({ steps, isCombat = false }: { steps: PayloadBuildStep[]; isCombat?: boolean }) => {
+const BuildProgressSteps = ({ steps, buildPhase, isCombat = false }: { steps: PayloadBuildStep[]; buildPhase?: string; isCombat?: boolean }) => {
     if (!steps || steps.length === 0) return null;
 
     const completedSteps = steps.filter(s => s.step_success === true || s.step_skip).length;
     const totalSteps = steps.length;
     const progress = (completedSteps / totalSteps) * 100;
-    const hasError = steps.some(s => s.step_success === false && !s.step_skip);
+    const hasStepError = steps.some(s => s.step_success === false && !s.step_skip);
+    const isBuilding = buildPhase === 'building';
+    const isError = buildPhase === 'error' || hasStepError;
+
+    // Color logic: error = red, building = yellow, complete = green
+    const getBarColor = () => {
+        if (isError) return "bg-red-500";
+        if (isBuilding) return "bg-yellow-400";
+        if (progress === 100) return "bg-green-400";
+        return "bg-yellow-400"; // default to yellow for in-progress
+    };
 
     return (
         <div className="flex items-center gap-2 mt-1.5">
             <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
                 <motion.div 
-                    className={cn(
-                        "h-full rounded-full",
-                        hasError ? "bg-red-400" : progress === 100 ? "bg-green-400" : "bg-signal"
-                    )}
+                    className={cn("h-full rounded-full", getBarColor())}
                     initial={{ width: 0 }}
                     animate={{ width: `${progress}%` }}
                     transition={{ duration: getAnimDuration(0.3, isCombat) }}
@@ -601,8 +635,10 @@ const PayloadRow = ({
     isCombat = false
 }: PayloadRowProps) => {
     const [showMenu, setShowMenu] = useState(false);
+    const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const [showDetails, setShowDetails] = useState(false);
-    const menuRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const portalMenuRef = useRef<HTMLDivElement>(null);
     
     // Dialog states
     const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -711,14 +747,28 @@ const PayloadRow = ({
 
     // Close menu when clicking outside
     useEffect(() => {
+        if (!showMenu) return;
+        
         const handleClickOutside = (event: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            const isOutsideButton = buttonRef.current && !buttonRef.current.contains(target);
+            const isOutsidePortal = portalMenuRef.current && !portalMenuRef.current.contains(target);
+            
+            if (isOutsideButton && isOutsidePortal) {
                 setShowMenu(false);
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+        
+        // Delay adding listener to prevent immediate close
+        const timeoutId = setTimeout(() => {
+            document.addEventListener('mousedown', handleClickOutside);
+        }, 0);
+        
+        return () => {
+            clearTimeout(timeoutId);
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showMenu]);
 
     if (payload.deleted && !showDeleted) return null;
 
@@ -739,24 +789,45 @@ const PayloadRow = ({
                 {/* Actions */}
                 <td className="px-3 py-4">
                     <div className="flex items-center gap-1">
-                        <div className="relative" ref={menuRef}>
+                        <div className="relative">
                             <button
-                                onClick={() => setShowMenu(!showMenu)}
+                                ref={buttonRef}
+                                onClick={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    // Calculate position to prevent overflow
+                                    const menuHeight = 450; // Approximate max height
+                                    let top = rect.bottom + 5;
+                                    if (top + menuHeight > window.innerHeight) {
+                                        top = Math.max(10, window.innerHeight - menuHeight - 10);
+                                    }
+                                    setMenuPosition({ 
+                                        top, 
+                                        left: rect.left 
+                                    });
+                                    setShowMenu(!showMenu);
+                                }}
                                 className="p-1.5 rounded hover:bg-signal/10 text-gray-500 hover:text-signal transition-colors"
                             >
                                 <MoreVertical size={16} />
                             </button>
                             
-                            <AnimatePresence>
-                                {showMenu && (
-                                    <motion.div
-                                        initial={{ opacity: 0, scale: 0.95, y: -5 }}
-                                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                                        exit={{ opacity: 0, scale: 0.95, y: -5 }}
-                                        className="absolute left-0 top-full mt-1 w-64 bg-void border border-ghost/30 rounded-lg shadow-xl z-50 py-1 overflow-hidden max-h-[70vh] overflow-y-auto cyber-scrollbar"
-                                    >
-                                        {/* File Operations */}
-                                        <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">File</div>
+                            {showMenu && createPortal(
+                                <motion.div
+                                    ref={portalMenuRef}
+                                    initial={{ opacity: 0, scale: 0.95, y: -5 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: -5 }}
+                                    style={{ 
+                                        position: 'fixed', 
+                                        top: menuPosition.top, 
+                                        left: menuPosition.left,
+                                        zIndex: 99999,
+                                        maxHeight: 'calc(100vh - 100px)'
+                                    }}
+                                    className="w-64 bg-void/95 backdrop-blur-md border border-signal/30 shadow-2xl shadow-signal/10 py-1 overflow-y-auto cyber-scrollbar"
+                                >
+                                    {/* File Operations */}
+                                    <div className="px-3 py-1 text-xs font-mono text-signal/50 uppercase tracking-wider border-b border-signal/10 bg-signal/5">File</div>
                                         
                                         <button
                                             onClick={() => { setShowRenameDialog(true); setShowMenu(false); }}
@@ -774,7 +845,7 @@ const PayloadRow = ({
                                             Edit Description
                                         </button>
                                         
-                                        <div className="border-t border-ghost/20 my-1" />
+                                        <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* View Operations */}
                                         <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">View</div>
@@ -795,7 +866,7 @@ const PayloadRow = ({
                                             Export Payload Config
                                         </button>
                                         
-                                        <div className="border-t border-ghost/20 my-1" />
+                                        <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* Build Operations */}
                                         <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">Build</div>
@@ -824,7 +895,7 @@ const PayloadRow = ({
                                             Trigger New Build
                                         </button>
                                         
-                                        <div className="border-t border-ghost/20 my-1" />
+                                        <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* Callback Settings */}
                                         <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">Callbacks</div>
@@ -845,7 +916,7 @@ const PayloadRow = ({
                                             {payload.callback_allowed ? 'Block New Callbacks' : 'Allow New Callbacks'}
                                         </button>
                                         
-                                        <div className="border-t border-ghost/20 my-1" />
+                                        <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* Generate Operations */}
                                         <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">Generate</div>
@@ -919,10 +990,10 @@ const PayloadRow = ({
                                             Generate Fake Callback
                                         </button>
                                         
-                                        <div className="border-t border-ghost/20 my-1" />
+                                        <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* Danger Zone */}
-                                        <div className="px-3 py-1 text-xs font-mono text-red-400/50 uppercase tracking-wider">Danger</div>
+                                        <div className="px-3 py-1 text-xs font-mono text-red-400/50 uppercase tracking-wider border-b border-red-400/10 bg-red-400/5">Danger</div>
                                         
                                         {payload.deleted ? (
                                             <button
@@ -941,9 +1012,9 @@ const PayloadRow = ({
                                                 Delete Payload from Disk
                                             </button>
                                         )}
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
+                                    </motion.div>,
+                                document.body
+                            )}
                         </div>
                         
                         {payload.build_phase === 'success' && payload.filemetum && (
@@ -1019,7 +1090,7 @@ const PayloadRow = ({
                 <td className="px-4 py-3 cursor-pointer hover:bg-signal/5" onClick={() => setShowDetails(true)}>
                     <div className="flex flex-col">
                         <BuildStatusBadge phase={payload.build_phase} />
-                        <BuildProgressSteps steps={payload.payload_build_steps} />
+                        <BuildProgressSteps steps={payload.payload_build_steps} buildPhase={payload.build_phase} isCombat={isCombat} />
                     </div>
                 </td>
 
@@ -2450,15 +2521,15 @@ const CreatePayloadEmbed: React.FC<{
 
             {/* Step Content */}
             <div className="flex-1 border border-ghost/30 rounded-lg overflow-hidden flex flex-col min-h-0 bg-black/20">
-                <div className="flex-1 overflow-y-auto p-6 cyber-scrollbar">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 cyber-scrollbar">
                     <AnimatePresence mode="wait">
                         {/* Step 0: Select OS and Agent */}
                         {currentStep === 0 && (
                             <motion.div
                                 key="step0"
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
                                 transition={{ duration: getAnimDuration(0.3, isCombat) }}
                                 className="grid grid-cols-1 lg:grid-cols-2 gap-6"
                             >
@@ -2547,9 +2618,9 @@ const CreatePayloadEmbed: React.FC<{
                                         ) : (
                                             <motion.div
                                                 key={`os-${selectedOS}`}
-                                                initial={{ opacity: 0, x: 30 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                exit={{ opacity: 0, x: -30 }}
+                                                initial={{ opacity: 0 }}
+                                                animate={{ opacity: 1 }}
+                                                exit={{ opacity: 0 }}
                                                 transition={{ duration: getAnimDuration(0.3, isCombat) }}
                                                 className="space-y-2 max-h-[400px] overflow-y-auto cyber-scrollbar pr-2"
                                             >
@@ -2693,15 +2764,15 @@ const CreatePayloadEmbed: React.FC<{
                                                                     )} />
                                                                 </button>
                                                             ) : bp.parameter_type === 'ChooseOne' && bp.choices ? (
-                                                                <select
+                                                                <CyberDropdown
                                                                     value={buildParams[bp.name] || ''}
-                                                                    onChange={(e) => setBuildParams({ ...buildParams, [bp.name]: e.target.value })}
-                                                                    className="w-full bg-black/30 border border-gray-700 text-signal p-2 font-mono text-sm focus:border-signal outline-none transition-colors focus:bg-white/5"
-                                                                >
-                                                                    {(typeof bp.choices === 'string' ? JSON.parse(bp.choices) : bp.choices).map((choice: string) => (
-                                                                        <option key={choice} value={choice}>{choice}</option>
-                                                                    ))}
-                                                                </select>
+                                                                    onChange={(val) => setBuildParams({ ...buildParams, [bp.name]: val })}
+                                                                    options={(typeof bp.choices === 'string' ? JSON.parse(bp.choices) : bp.choices).map((choice: string) => ({
+                                                                        label: choice,
+                                                                        value: choice
+                                                                    }))}
+                                                                    size="sm"
+                                                                />
                                                             ) : bp.parameter_type === 'Number' ? (
                                                                 <input
                                                                     type="number"
@@ -2854,18 +2925,15 @@ const CreatePayloadEmbed: React.FC<{
                                             <label className="block text-xs font-mono text-ghost mb-2 uppercase tracking-widest">
                                                 SELECT_C2_PROFILE
                                             </label>
-                                            <select
-                                                className="w-full bg-black/50 border border-ghost/30 text-signal p-3 font-mono text-sm focus:border-signal outline-none transition-colors rounded"
+                                            <CyberDropdown
                                                 value={selectedC2ToAdd}
-                                                onChange={(e) => setSelectedC2ToAdd(e.target.value)}
-                                            >
-                                                <option value="">-- SELECT_PROFILE --</option>
-                                                {selectedPayloadType.payloadtypec2profiles.map(({ c2profile }) => (
-                                                    <option key={c2profile.id} value={c2profile.id}>
-                                                        {c2profile.name} {c2profile.is_p2p ? '(P2P)' : ''} - {c2profile.description}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                onChange={(val) => setSelectedC2ToAdd(val)}
+                                                placeholder="-- SELECT_PROFILE --"
+                                                options={selectedPayloadType.payloadtypec2profiles.map(({ c2profile }) => ({
+                                                    label: `${c2profile.name} ${c2profile.is_p2p ? '(P2P)' : ''} - ${c2profile.description}`,
+                                                    value: String(c2profile.id)
+                                                }))}
+                                            />
                                         </div>
                                         <motion.button 
                                             onClick={handleAddC2Profile}
@@ -3004,15 +3072,15 @@ const CreatePayloadEmbed: React.FC<{
                                                                                 )} />
                                                                             </button>
                                                                         ) : param.parameter_type === 'ChooseOne' && param.choices ? (
-                                                                            <select
+                                                                            <CyberDropdown
                                                                                 value={instance.parameters[param.name] || ''}
-                                                                                onChange={(e) => updateC2InstanceParam(instance.instance_id, param.name, e.target.value)}
-                                                                                className="w-full bg-black/50 border border-ghost/30 text-signal p-2 font-mono text-sm focus:border-signal outline-none rounded"
-                                                                            >
-                                                                                {(typeof param.choices === 'string' ? JSON.parse(param.choices) : param.choices).map((choice: string) => (
-                                                                                    <option key={choice} value={choice}>{choice}</option>
-                                                                                ))}
-                                                                            </select>
+                                                                                onChange={(val) => updateC2InstanceParam(instance.instance_id, param.name, val)}
+                                                                                options={(typeof param.choices === 'string' ? JSON.parse(param.choices) : param.choices).map((choice: string) => ({
+                                                                                    label: choice,
+                                                                                    value: choice
+                                                                                }))}
+                                                                                size="sm"
+                                                                            />
                                                                         ) : param.parameter_type === 'Dictionary' ? (
                                                                             <textarea
                                                                                 value={typeof instance.parameters[param.name] === 'string' 

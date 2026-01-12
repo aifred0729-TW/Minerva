@@ -273,7 +273,7 @@ export function C2StatusCard({ profiles = [] }: { profiles?: any[] }) {
                 <span className="text-gray-400 font-mono mb-1 text-xs">/ {totalCount} RUNNING</span>
             </div>
             
-            <div className="space-y-2 max-h-[120px] overflow-y-auto custom-scrollbar pr-1">
+            <div className="space-y-2 max-h-[120px] overflow-y-auto cyber-scrollbar pr-1">
                 {profiles.map(p => (
                     <div key={p.id} className="flex items-center justify-between text-xs font-mono border-b border-ghost/20 pb-1 last:border-0">
                         <span className={cn(
@@ -343,7 +343,7 @@ export function ActiveOperatorsCard({ operators = [] }: ActiveOperatorsCardProps
         <span className="text-4xl font-bold text-signal font-mono">{operators.length}</span>
         <span className="text-gray-400 font-mono mb-1 text-xs">ONLINE</span>
       </div>
-      <div className="space-y-2 max-h-[100px] overflow-y-auto custom-scrollbar">
+      <div className="space-y-2 max-h-[100px] overflow-y-auto cyber-scrollbar">
         {operators.slice(0, 5).map(op => (
           <div key={op.id} className="flex items-center justify-between text-xs font-mono border-b border-ghost/20 pb-1 last:border-0">
             <span className="text-signal">{op.username}</span>
@@ -369,7 +369,7 @@ export function RecentActivityCard({ tasks = [] }: RecentActivityCardProps) {
 
   return (
     <DashboardCard title="Recent Activity" icon={<Clock size={18} />}>
-      <div className="space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar pr-1">
+      <div className="space-y-2 max-h-[180px] overflow-y-auto cyber-scrollbar pr-1">
         {recentTasks.map(task => (
           <div key={task.id} className="flex items-center gap-2 text-xs font-mono border-b border-ghost/10 pb-1.5 last:border-0">
             <div className={cn(

@@ -441,10 +441,15 @@ const MitreAttack = () => {
     }, [attacks, taskAttacks, commandAttacks]);
 
     return (
-        <div className="flex h-screen bg-void">
+        <div className="flex h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
             <Sidebar />
             
-            <div className="flex-1 flex flex-col min-w-0 ml-16">
+            <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="flex-1 flex flex-col min-w-0 ml-16"
+            >
                 {/* Header */}
                 <div className="h-16 border-b border-ghost/30 flex items-center justify-between px-6 bg-void/90 backdrop-blur-sm">
                     <div className="flex items-center gap-4">
@@ -539,7 +544,7 @@ const MitreAttack = () => {
                                         </div>
 
                                         {/* Techniques */}
-                                        <div className="border-x border-b border-ghost/30 rounded-b-lg bg-black/20 p-2 space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto custom-scrollbar">
+                                        <div className="border-x border-b border-ghost/30 rounded-b-lg bg-black/20 p-2 space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto cyber-scrollbar">
                                             {tacticData.techniques.map((technique) => (
                                                 <TechniqueCell
                                                     key={technique.id}
@@ -576,7 +581,7 @@ const MitreAttack = () => {
                         MITRE ATT&CK Framework
                     </a>
                 </div>
-            </div>
+            </motion.div>
 
             {/* Technique Detail Modal */}
             <AnimatePresence>
@@ -590,7 +595,7 @@ const MitreAttack = () => {
                     />
                 )}
             </AnimatePresence>
-        </div>
+    </div>
     );
 };
 
