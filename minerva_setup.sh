@@ -26,6 +26,184 @@ check_environment() {
     fi
 }
 
+# Get Hasura admin secret
+get_hasura_secret() {
+    if [ -f ".env" ]; then
+        grep -E "^HASURA_SECRET=" .env | cut -d'=' -f2 | tr -d '"' | tr -d "'"
+    else
+        echo "mythic"
+    fi
+}
+
+# Configure Hasura to track agentstorage table
+configure_hasura() {
+    log_step "Configuring Hasura"
+    
+    if ! docker ps | grep -q "mythic_graphql"; then
+        log_error "Hasura not running"
+        return 1
+    fi
+    
+    local HASURA_SECRET=$(get_hasura_secret)
+    local HASURA_URL="http://localhost:8080"
+    
+    # Check if we can reach Hasura from host
+    if ! curl -s --connect-timeout 2 "$HASURA_URL/healthz" > /dev/null 2>&1; then
+        # Try through docker network
+        HASURA_URL="http://mythic_graphql:8080"
+        log_info "Using docker network for Hasura"
+    fi
+    
+    log_info "Tracking agentstorage table..."
+    
+    # Track the table using Hasura metadata API
+    local TRACK_RESULT=$(curl -s -X POST \
+        -H "Content-Type: application/json" \
+        -H "x-hasura-admin-secret: $HASURA_SECRET" \
+        --data '{
+            "type": "pg_track_table",
+            "args": {
+                "source": "default",
+                "table": {
+                    "schema": "public",
+                    "name": "agentstorage"
+                }
+            }
+        }' \
+        "$HASURA_URL/v1/metadata" 2>/dev/null || echo '{"error":"connection failed"}')
+    
+    if echo "$TRACK_RESULT" | grep -q '"message":"success"'; then
+        log_success "agentstorage table tracked"
+    elif echo "$TRACK_RESULT" | grep -q "already tracked"; then
+        log_success "agentstorage already tracked"
+    elif echo "$TRACK_RESULT" | grep -q "connection failed"; then
+        # Try via docker exec
+        log_info "Trying via docker exec..."
+        TRACK_RESULT=$(docker exec mythic_graphql curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-hasura-admin-secret: $HASURA_SECRET" \
+            --data '{
+                "type": "pg_track_table",
+                "args": {
+                    "source": "default",
+                    "table": {
+                        "schema": "public",
+                        "name": "agentstorage"
+                    }
+                }
+            }' \
+            http://localhost:8080/v1/metadata 2>/dev/null || echo '{"error":"failed"}')
+        
+        if echo "$TRACK_RESULT" | grep -q '"message":"success"\|already tracked'; then
+            log_success "agentstorage table configured"
+        else
+            log_warn "Could not auto-track table. Manual setup may be needed."
+            log_info "Response: $TRACK_RESULT"
+        fi
+    else
+        log_warn "Table tracking response: $TRACK_RESULT"
+    fi
+    
+    # Set permissions for all roles
+    log_info "Setting permissions..."
+    
+    for role in "mythic_admin" "operator" "spectator"; do
+        # Select permission
+        curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-hasura-admin-secret: $HASURA_SECRET" \
+            --data "{
+                \"type\": \"pg_create_select_permission\",
+                \"args\": {
+                    \"source\": \"default\",
+                    \"table\": {\"schema\": \"public\", \"name\": \"agentstorage\"},
+                    \"role\": \"$role\",
+                    \"permission\": {
+                        \"columns\": \"*\",
+                        \"filter\": {}
+                    }
+                }
+            }" \
+            "$HASURA_URL/v1/metadata" > /dev/null 2>&1 || true
+        
+        # Insert permission
+        curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-hasura-admin-secret: $HASURA_SECRET" \
+            --data "{
+                \"type\": \"pg_create_insert_permission\",
+                \"args\": {
+                    \"source\": \"default\",
+                    \"table\": {\"schema\": \"public\", \"name\": \"agentstorage\"},
+                    \"role\": \"$role\",
+                    \"permission\": {
+                        \"check\": {},
+                        \"columns\": \"*\"
+                    }
+                }
+            }" \
+            "$HASURA_URL/v1/metadata" > /dev/null 2>&1 || true
+        
+        # Update permission
+        curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-hasura-admin-secret: $HASURA_SECRET" \
+            --data "{
+                \"type\": \"pg_create_update_permission\",
+                \"args\": {
+                    \"source\": \"default\",
+                    \"table\": {\"schema\": \"public\", \"name\": \"agentstorage\"},
+                    \"role\": \"$role\",
+                    \"permission\": {
+                        \"filter\": {},
+                        \"columns\": \"*\"
+                    }
+                }
+            }" \
+            "$HASURA_URL/v1/metadata" > /dev/null 2>&1 || true
+        
+        # Delete permission
+        curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-hasura-admin-secret: $HASURA_SECRET" \
+            --data "{
+                \"type\": \"pg_create_delete_permission\",
+                \"args\": {
+                    \"source\": \"default\",
+                    \"table\": {\"schema\": \"public\", \"name\": \"agentstorage\"},
+                    \"role\": \"$role\",
+                    \"permission\": {
+                        \"filter\": {}
+                    }
+                }
+            }" \
+            "$HASURA_URL/v1/metadata" > /dev/null 2>&1 || true
+    done
+    
+    log_success "Permissions configured for all roles"
+    
+    # Verify by testing a query
+    log_info "Verifying configuration..."
+    local TEST_RESULT=$(curl -s -X POST \
+        -H "Content-Type: application/json" \
+        -H "x-hasura-admin-secret: $HASURA_SECRET" \
+        --data '{"query":"query { agentstorage(limit: 1) { unique_id } }"}' \
+        "$HASURA_URL/v1/graphql" 2>/dev/null || \
+        docker exec mythic_graphql curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-hasura-admin-secret: $HASURA_SECRET" \
+            --data '{"query":"query { agentstorage(limit: 1) { unique_id } }"}' \
+            http://localhost:8080/v1/graphql 2>/dev/null)
+    
+    if echo "$TEST_RESULT" | grep -q '"data"'; then
+        log_success "Hasura configuration verified!"
+        return 0
+    else
+        log_error "Verification failed: $TEST_RESULT"
+        return 1
+    fi
+}
+
 # Check Docker containers
 check_containers() {
     local all_running=true
@@ -184,12 +362,13 @@ restart_container() {
 
 # Print usage
 usage() {
-    echo -e "${BOLD}Minerva Setup Script v2.0${NC}"
+    echo -e "${BOLD}Minerva Setup Script v2.1${NC}"
     echo ""
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
     echo "  setup    - Full setup and verification (default)"
+    echo "  hasura   - Configure Hasura only (track table + permissions)"
     echo "  verify   - Verify installation only"
     echo "  fix      - Apply quick fixes"
     echo "  clean    - Clean database"
@@ -213,7 +392,7 @@ show_status() {
 full_setup() {
     clear
     echo -e "${BOLD}╔══════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║  Minerva Custom Nodes Setup v2.0     ║${NC}"
+    echo -e "${BOLD}║  Minerva Custom Nodes Setup v2.1     ║${NC}"
     echo -e "${BOLD}╚══════════════════════════════════════╝${NC}"
     echo ""
     
@@ -223,6 +402,7 @@ full_setup() {
     check_containers || log_warn "Some containers not running"
     
     verify_installation
+    configure_hasura
     quick_fix
     test_database || true
     restart_container
@@ -241,6 +421,7 @@ full_setup() {
 main() {
     case "${1:-setup}" in
         setup)   full_setup ;;
+        hasura)  check_environment && configure_hasura ;;
         verify)  check_environment && verify_installation ;;
         fix)     check_environment && quick_fix ;;
         clean)   check_environment && clean_database ;;
