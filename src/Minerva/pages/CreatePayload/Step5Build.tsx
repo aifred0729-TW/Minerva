@@ -130,8 +130,30 @@ const processParamValue = async (param: any, contextStr: string) => {
     if (val === undefined || val === null) {
         val = param.default_value;
     }
-    if (val === undefined || val === null) {
-        val = ""; // Fallback to empty string
+    
+    // For array types, ensure we have an array (not undefined/null/string)
+    if (["Array", "ChooseMultiple", "TypedArray", "FileMultiple"].includes(param.parameter_type)) {
+        if (val === undefined || val === null || val === "") {
+            val = [];
+        } else if (!Array.isArray(val)) {
+            // Try to parse if it's a string
+            if (typeof val === 'string') {
+                try {
+                    const parsed = JSON.parse(val);
+                    if (Array.isArray(parsed)) {
+                        val = parsed;
+                    } else {
+                        val = [];
+                    }
+                } catch (e) {
+                    val = [];
+                }
+            } else {
+                val = [];
+            }
+        }
+    } else if (val === undefined || val === null) {
+        val = ""; // Fallback to empty string for non-array types
     }
 
     // File Upload Handling
@@ -203,6 +225,12 @@ const processParamValue = async (param: any, contextStr: string) => {
                 return JSON.stringify(val);
             }
             return String(val);
+        case "Array":
+        case "ChooseMultiple":
+        case "TypedArray":
+            // These should already be arrays from the initialization above
+            // But double-check to be safe
+            return Array.isArray(val) ? val : [];
         default:
             return val;
     }

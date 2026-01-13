@@ -54,6 +54,15 @@ export const CreatePayloadParameter = memo(function CreatePayloadParameter({
             setValue(trackedValue || default_value);
         } else if (parameter_type === "Boolean") {
             setValue(trackedValue);
+        } else if (parameter_type === "ChooseMultiple") {
+            setOptions(choices || []);
+            // Ensure value is array
+            const initValue = trackedValue !== undefined ? trackedValue : default_value;
+            setValue(Array.isArray(initValue) ? initValue : []);
+        } else if (parameter_type === "Array" || parameter_type === "TypedArray") {
+            // Ensure value is array
+            const initValue = trackedValue !== undefined ? trackedValue : default_value;
+            setValue(Array.isArray(initValue) ? initValue : (initValue ? [initValue] : [""]));
         } else {
             setValue(trackedValue !== undefined ? trackedValue : default_value);
         }
@@ -165,6 +174,118 @@ export const CreatePayloadParameter = memo(function CreatePayloadParameter({
                             onChange={(e) => handleChange(e.target.value)}
                             className="flex-1 bg-black/30 border border-gray-700 text-signal p-2 font-mono text-sm focus:border-signal outline-none transition-colors focus:bg-white/5"
                         />
+                    </div>
+                );
+            case "ChooseMultiple":
+                return (
+                    <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap gap-2">
+                            {Array.isArray(value) && value.map((v, idx) => (
+                                <div key={idx} className="px-2 py-1 bg-signal/20 border border-signal/50 text-signal text-xs font-mono flex items-center gap-2">
+                                    <span>{v}</span>
+                                    <button
+                                        onClick={() => handleChange(value.filter((_, i) => i !== idx))}
+                                        className="text-red-400 hover:text-red-300"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                        <select
+                            multiple
+                            value={Array.isArray(value) ? value : []}
+                            onChange={(e) => {
+                                const selected = Array.from(e.target.selectedOptions, option => option.value);
+                                handleChange(selected);
+                            }}
+                            className="w-full bg-black/30 border border-gray-700 text-signal p-2 font-mono text-sm focus:border-signal outline-none transition-colors focus:bg-white/5 min-h-[100px]"
+                        >
+                            {options.map((opt, i) => (
+                                <option key={i} value={opt} className="py-1">{opt}</option>
+                            ))}
+                        </select>
+                        <div className="text-[10px] text-gray-500 font-mono">HOLD_CTRL_TO_SELECT_MULTIPLE</div>
+                    </div>
+                );
+            case "Array":
+                return (
+                    <div className="flex flex-col gap-2">
+                        {Array.isArray(value) && value.map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                                <input
+                                    type="text"
+                                    value={item}
+                                    onChange={(e) => {
+                                        const newArray = [...value];
+                                        newArray[idx] = e.target.value;
+                                        handleChange(newArray);
+                                    }}
+                                    className="flex-1 bg-black/30 border border-gray-700 text-signal p-2 font-mono text-sm focus:border-signal outline-none transition-colors focus:bg-white/5"
+                                    placeholder={`Item ${idx + 1}`}
+                                />
+                                <button
+                                    onClick={() => handleChange(value.filter((_, i) => i !== idx))}
+                                    className="px-2 py-1 border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors font-mono text-xs"
+                                >
+                                    DEL
+                                </button>
+                            </div>
+                        ))}
+                        <button
+                            onClick={() => handleChange([...(Array.isArray(value) ? value : []), ""])}
+                            className="px-3 py-2 border border-signal/50 text-signal hover:bg-signal/10 transition-colors font-mono text-xs"
+                        >
+                            + ADD_ITEM
+                        </button>
+                    </div>
+                );
+            case "TypedArray":
+                return (
+                    <div className="flex flex-col gap-2">
+                        {Array.isArray(value) && value.map((item, idx) => {
+                            const [itemType, itemValue] = Array.isArray(item) ? item : ["string", item];
+                            return (
+                                <div key={idx} className="flex items-center gap-2">
+                                    <select
+                                        value={itemType}
+                                        onChange={(e) => {
+                                            const newArray = [...value];
+                                            newArray[idx] = [e.target.value, itemValue];
+                                            handleChange(newArray);
+                                        }}
+                                        className="w-32 bg-black/30 border border-gray-700 text-signal p-2 font-mono text-xs focus:border-signal outline-none"
+                                    >
+                                        <option value="string">string</option>
+                                        <option value="number">number</option>
+                                        <option value="boolean">boolean</option>
+                                    </select>
+                                    <input
+                                        type="text"
+                                        value={itemValue}
+                                        onChange={(e) => {
+                                            const newArray = [...value];
+                                            newArray[idx] = [itemType, e.target.value];
+                                            handleChange(newArray);
+                                        }}
+                                        className="flex-1 bg-black/30 border border-gray-700 text-signal p-2 font-mono text-sm focus:border-signal outline-none transition-colors focus:bg-white/5"
+                                        placeholder="Value"
+                                    />
+                                    <button
+                                        onClick={() => handleChange(value.filter((_, i) => i !== idx))}
+                                        className="px-2 py-1 border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors font-mono text-xs"
+                                    >
+                                        DEL
+                                    </button>
+                                </div>
+                            );
+                        })}
+                        <button
+                            onClick={() => handleChange([...(Array.isArray(value) ? value : []), ["string", ""]])}
+                            className="px-3 py-2 border border-signal/50 text-signal hover:bg-signal/10 transition-colors font-mono text-xs"
+                        >
+                            + ADD_ITEM
+                        </button>
                     </div>
                 );
             case "Date":
