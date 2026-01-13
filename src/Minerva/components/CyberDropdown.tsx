@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { AnimatePresence, motion } from 'framer-motion';
 
 interface Option {
     label: string;
@@ -103,13 +102,9 @@ export function CyberDropdown({
         lg: 'px-4 py-3 text-base'
     };
 
-    const dropdownMenu = isOpen && (
-        <motion.div
+    const dropdownMenu = (
+        <div
             ref={menuRef}
-            initial={{ opacity: 0, y: -8, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.95 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
             style={{
                 position: 'fixed',
                 top: menuPosition.top,
@@ -117,7 +112,7 @@ export function CyberDropdown({
                 width: menuPosition.width,
                 zIndex: 99999
             }}
-            className="border border-signal bg-void/98 backdrop-blur-xl shadow-[0_0_30px_rgba(0,255,255,0.2),0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden"
+            className="border border-signal bg-void/98 backdrop-blur-xl shadow-[0_0_30px_rgba(0,255,255,0.2),0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150"
         >
             {/* Scanline effect */}
             <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] opacity-20" />
@@ -167,7 +162,7 @@ export function CyberDropdown({
             
             {/* Glowing bottom border */}
             <div className="h-[2px] bg-gradient-to-r from-signal/30 via-signal to-signal/30" />
-        </motion.div>
+        </div>
     );
 
     return (
@@ -232,9 +227,7 @@ export function CyberDropdown({
                 </div>
             </button>
 
-            <AnimatePresence>
-                {isOpen && createPortal(dropdownMenu, document.body)}
-            </AnimatePresence>
+            {isOpen && createPortal(dropdownMenu, document.body)}
         </div>
     );
 }

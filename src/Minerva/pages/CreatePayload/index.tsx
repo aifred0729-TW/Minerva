@@ -125,7 +125,7 @@ const PayloadCreationWizard = () => {
     }
 
     return (
-        <div className="h-full bg-void text-signal font-sans p-6 lg:p-12 flex flex-col overflow-hidden">
+        <div className="h-full bg-void text-signal font-sans p-6 lg:p-12 flex flex-col">
             {/* Header & Stepper */}
             <div className="mb-8 shrink-0">
                 <div className="flex items-center justify-between mb-6">
@@ -167,7 +167,7 @@ const PayloadCreationWizard = () => {
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 border border-ghost/30 bg-black/40 backdrop-blur-sm relative overflow-hidden flex flex-col min-h-0 will-change-transform">
+            <div className="flex-1 border border-ghost/30 bg-black/40 backdrop-blur-sm relative flex flex-col min-h-0">
                 <div className="absolute top-0 right-0 p-2 opacity-20 pointer-events-none">
                     <Disc size={100} className={loadingTypes ? "animate-spin" : ""} />
                 </div>
@@ -362,10 +362,10 @@ export default function CreatePayloadRouter() {
     const { isSidebarCollapsed } = useAppStore();
 
     return (
-        <div className="h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void overflow-hidden flex">
+        <div className="h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex">
             <Sidebar />
             
-            <div className={cn("transition-all duration-300 flex-1 h-full overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+            <div className={cn("transition-all duration-300 flex-1 h-full", isSidebarCollapsed ? "ml-16" : "ml-64")}>
                 <Routes>
                     <Route path="/" element={<PayloadsList />} />
                     <Route path="/new" element={<PayloadCreationWizard />} />
