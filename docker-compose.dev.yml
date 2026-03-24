@@ -1,0 +1,43 @@
+services:
+  # React dev server with hot reload
+  minerva-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: minerva-dev
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./config-overrides.js:/app/config-overrides.js:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./tailwind.config.js:/app/tailwind.config.js:ro
+      - ./postcss.config.js:/app/postcss.config.js:ro
+      - ./.env:/app/.env:ro
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - FAST_REFRESH=true
+      - WDS_POLLING=true
+      - WDS_SOCKET_PATH=ws
+      - WDS_SOCKET_PORT=443
+      - PORT=3000
+      - BROWSER=none
+    restart: unless-stopped
+
+  # Nginx reverse proxy (SSL + API proxy + dev server proxy)
+  minerva:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.nginx
+    container_name: minerva
+    ports:
+      - "443:443"
+    environment:
+      - MYTHIC_ADDRESS=https://host.docker.internal:7443
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./nginx/nginx.dev.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+    depends_on:
+      - minerva-dev
+    restart: unless-stopped

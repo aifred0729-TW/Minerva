@@ -1,0 +1,15 @@
+FROM nginx:alpine
+
+RUN apk add --no-cache openssl
+
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy entrypoint script (handles SSL cert generation + envsubst)
+COPY nginx/docker-entrypoint.sh /docker-entrypoint-minerva.sh
+RUN chmod +x /docker-entrypoint-minerva.sh
+
+EXPOSE 443
+
+ENTRYPOINT ["/docker-entrypoint-minerva.sh"]
+CMD ["nginx", "-g", "daemon off;"]

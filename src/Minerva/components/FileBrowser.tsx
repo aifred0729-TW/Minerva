@@ -1,0 +1,2699 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useQuery, useLazyQuery, useMutation, useSubscription, gql } from '@apollo/client';
+import { GET_FILE_TREE_ROOT, GET_FILE_TREE_FOLDER_WITH_PARENTS, CREATE_TASK_MUTATION, MYTHICTREE_FILE_SUBSCRIPTION, UPDATE_MYTHICTREE_COMMENT, FILEBROWSER_TASK_SUBSCRIPTION, GET_LOADED_COMMANDS_FOR_UI } from '../lib/api';
+import { Folder, File as FileIcon, FolderOpen, Download, Upload, Trash2, RefreshCw, Home, ChevronRight, ChevronLeft, ChevronDown, Monitor, Server, HardDrive, Eye, Image, Link2, Clock, User, FileText, XCircle, Copy, FolderSearch, ArrowLeft, ArrowRight, ArrowUp, MessageSquare, History, Filter, ChevronUp, CheckCircle2, AlertCircle, Edit2, EyeOff, ShieldAlert, Columns, UploadCloud, SlidersHorizontal, ClipboardList, Tag, ZoomIn, ZoomOut } from 'lucide-react';
+import { CyberTable } from './CyberTable';
+import { motion, AnimatePresence } from 'framer-motion';
+import { cn } from '../lib/utils';
+import { snackActions } from '../../components/utilities/Snackbar';
+import { useGetMythicSetting, useSetMythicSetting } from '../../components/MythicComponents/MythicSavedUserSetting';
+
+// Types
+interface FileNodeFilemeta {
+    id: number;
+    agent_file_id: string;
+    filename_text: string;
+}
+
+interface FileNodeTag {
+    id: number;
+    tagtype: {
+        id: number;
+        name: string;
+        color: string;
+    };
+}
+
+interface FileNode {
+    id: number;
+    name_text: string;
+    full_path_text: string;
+    parent_path_text: string;
+    can_have_children: boolean;
+    tree_type: string;
+    deleted: boolean;
+    metadata: any; // JSON string from API, parsed lazily
+    host: string;
+    has_children?: boolean;
+    success?: boolean | null;
+    comment?: string;
+    task_id?: number;
+    tags?: FileNodeTag[];
+    filemeta?: FileNodeFilemeta[];
+    callback?: { id: number; display_id: number };
+}
+
+// Column definitions – drives table column visibility and labels
+const COLUMN_DEFS: Array<{ key: string; label: string; sortable: boolean; width: string; defaultVisible: boolean }> = [
+    { key: 'name_text',   label: 'NAME',     sortable: true,  width: '',      defaultVisible: true  },
+    { key: 'size',        label: 'SIZE',      sortable: true,  width: 'w-20',  defaultVisible: true  },
+    { key: 'modify_time', label: 'MODIFIED',  sortable: true,  width: 'w-36',  defaultVisible: true  },
+    { key: 'comment',     label: 'COMMENT',   sortable: true,  width: 'w-32',  defaultVisible: true  },
+    { key: 'tags',        label: 'TAGS',      sortable: false, width: 'w-24',  defaultVisible: false },
+    { key: 'permissions', label: 'PERMS',     sortable: false, width: 'w-28',  defaultVisible: false },
+];
+
+// Context menu item type (supports nested submenus)
+interface ContextMenuItemDef {
+    action: string;
+    label: string;
+    icon?: React.ReactNode;
+    disabled?: boolean;
+    danger?: boolean;
+    divider?: boolean;
+    children?: ContextMenuItemDef[];
+}
+
+interface FileMeta {
+    id: number;
+    agent_file_id: string;
+    filename_text: string;
+    full_remote_path_text: string;
+    host: string;
+    size: number;
+    complete: boolean;
+    deleted: boolean;
+    is_download_from_agent: boolean;
+    is_screenshot: boolean;
+    is_payload: boolean;
+    md5: string;
+    sha1: string;
+    timestamp: string;
+    comment: string;
+    chunks_received: number;
+    total_chunks: number;
+    operator?: {
+        username: string;
+    };
+    task?: {
+        display_id: number;
+        callback?: {
+            display_id: number;
+        };
+    };
+}
+
+// GraphQL queries for Mythic server files
+const GET_MYTHIC_DOWNLOADS = gql`
+    query GetMythicDownloads {
+        filemeta(
+            where: {
+                is_download_from_agent: { _eq: true },
+                is_screenshot: { _eq: false },
+                deleted: { _eq: false }
+            },
+            order_by: { id: desc },
+            limit: 100
+        ) {
+            id
+            agent_file_id
+            filename_text
+            full_remote_path_text
+            host
+            size
+            complete
+            deleted
+            md5
+            sha1
+            timestamp
+            comment
+            chunks_received
+            total_chunks
+            operator { username }
+            task {
+                display_id
+                callback { display_id }
+            }
+        }
+    }
+`;
+
+const GET_MYTHIC_UPLOADS = gql`
+    query GetMythicUploads {
+        filemeta(
+            where: {
+                is_download_from_agent: { _eq: false },
+                is_screenshot: { _eq: false },
+                is_payload: { _eq: false },
+                deleted: { _eq: false }
+            },
+            order_by: { id: desc },
+            limit: 100
+        ) {
+            id
+            agent_file_id
+            filename_text
+            full_remote_path_text
+            host
+            size
+            complete
+            deleted
+            md5
+            sha1
+            timestamp
+            comment
+            chunks_received
+            total_chunks
+            operator { username }
+            task {
+                display_id
+                callback { display_id }
+            }
+        }
+    }
+`;
+
+const GET_MYTHIC_SCREENSHOTS = gql`
+    query GetMythicScreenshots {
+        filemeta(
+            where: {
+                is_screenshot: { _eq: true },
+                deleted: { _eq: false }
+            },
+            order_by: { id: desc },
+            limit: 50
+        ) {
+            id
+            agent_file_id
+            filename_text
+            host
+            size
+            complete
+            timestamp
+            task {
+                display_id
+                callback { display_id }
+            }
+        }
+    }
+`;
+
+// Helper: Format bytes to human readable
+const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+// Helper: Base64 decode for filenames (handles UTF-8)
+const b64DecodeUnicode = (str: string): string => {
+    if (!str) return '';
+    try {
+        const decoded = window.atob(str);
+        try {
+            const bytes = new Uint8Array(decoded.length);
+            for (let i = 0; i < decoded.length; i++) {
+                bytes[i] = decoded.charCodeAt(i);
+            }
+            return new TextDecoder('utf-8').decode(bytes);
+        } catch {
+            return decoded;
+        }
+    } catch {
+        return str;
+    }
+};
+
+// Helper to deduplicate nodes by full_path_text
+// This handles the case where multiple callbacks on the same host create duplicate entries
+const deduplicateNodes = (nodes: FileNode[]): FileNode[] => {
+    if (!nodes || nodes.length === 0) return [];
+    const seen = new Map<string, FileNode>();
+    nodes.forEach(node => {
+        // Use full_path_text as unique key
+        // Keep the first (or latest based on id) entry
+        const key = node.full_path_text;
+        if (!seen.has(key)) {
+            seen.set(key, node);
+        }
+    });
+    return Array.from(seen.values());
+};
+
+// Helper to parse metadata
+const getMetadata = (node: FileNode) => {
+    try {
+        if (typeof node.metadata === 'string') return JSON.parse(node.metadata);
+        return node.metadata || {};
+    } catch {
+        return {};
+    }
+}
+
+// Compute all ancestor paths of a given full_path_text (mirrors OldReactUI's getAllParentNodes)
+const getAllParentPaths = (fullPath: string): string[] => {
+    if (!fullPath) return [];
+    const paths: string[] = [fullPath];
+    const isWindows = fullPath.includes('\\');
+    const sep = isWindows ? '\\' : '/';
+    const parts = fullPath.split(sep);
+    if (!isWindows) paths.push('/');
+    for (let i = 1; i < parts.length; i++) {
+        const segment = parts.slice(0, i).join(sep);
+        if (segment && !paths.includes(segment)) paths.push(segment);
+    }
+    return paths;
+};
+
+// Deduplicate an array by id field
+const deduplicateById = <T extends { id: number }>(arr: T[]): T[] => {
+    const seen = new Set<number>();
+    return arr.filter(item => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+    });
+};
+
+// ============================================
+// Context Menu
+// ============================================
+interface ContextMenuState {
+    x: number;
+    y: number;
+    isDir: boolean;
+    path: string;
+    name: string;
+    items: ContextMenuItemDef[];
+}
+
+// Submenu item with hover-activated nested panel
+const ContextSubmenuItem = ({ item, menu, onAction, onClose }: {
+    item: ContextMenuItemDef;
+    menu: ContextMenuState;
+    onAction: (action: string, path: string, name: string) => void;
+    onClose: () => void;
+}) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+            <button className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-white hover:bg-signal/20 hover:text-signal transition-colors text-xs">
+                <div className="flex items-center gap-2">
+                    <span className="text-signal/70">{item.icon}</span>
+                    {item.label}
+                </div>
+                <ChevronRight size={10} className="text-gray-500 shrink-0" />
+            </button>
+            {open && (
+                <div className="absolute left-full top-0 z-[10000] bg-black/95 border border-signal/40 rounded shadow-xl min-w-[170px] py-1 font-mono text-xs">
+                    {(item.children || []).map(child =>
+                        child.divider ? (
+                            <div key={child.action} className="border-t border-white/10 my-0.5" />
+                        ) : (
+                            <button
+                                key={child.action}
+                                disabled={child.disabled}
+                                className={cn(
+                                    'w-full flex items-center gap-2 px-3 py-1.5 text-white hover:bg-signal/20 hover:text-signal transition-colors disabled:opacity-30 disabled:cursor-not-allowed',
+                                    child.danger && 'hover:bg-red-500/20 hover:text-red-400'
+                                )}
+                                onClick={() => { if (!child.disabled) { onAction(child.action, menu.path, menu.name); onClose(); } }}
+                            >
+                                <span className={cn('text-signal/70', child.danger && 'text-red-500/70')}>{child.icon}</span>
+                                {child.label}
+                            </button>
+                        )
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ContextMenu = ({ menu, items, onAction, onClose }: {
+    menu: ContextMenuState;
+    items: ContextMenuItemDef[];
+    onAction: (action: string, path: string, name: string) => void;
+    onClose: () => void;
+}) => {
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [onClose]);
+
+    return (
+        <div
+            ref={ref}
+            className="fixed z-[9999] bg-black/95 border border-signal/40 rounded shadow-xl min-w-[180px] py-1 font-mono text-xs"
+            style={{ top: menu.y, left: menu.x }}
+            onContextMenu={(e) => e.preventDefault()}
+        >
+            <div className="px-3 py-1.5 border-b border-white/10 text-gray-500 truncate max-w-[220px]" title={menu.path}>
+                {menu.isDir ? '📁' : '📄'} {menu.name}
+            </div>
+            {items.map((item) =>
+                item.divider ? (
+                    <div key={item.action} className="border-t border-white/10 my-0.5" />
+                ) : item.children?.length ? (
+                    <ContextSubmenuItem key={item.action} item={item} menu={menu} onAction={onAction} onClose={onClose} />
+                ) : (
+                    <button
+                        key={item.action}
+                        disabled={item.disabled}
+                        className={cn(
+                            'w-full flex items-center gap-2 px-3 py-1.5 text-white hover:bg-signal/20 hover:text-signal transition-colors disabled:opacity-30 disabled:cursor-not-allowed',
+                            item.danger && 'hover:bg-red-500/20 hover:text-red-400'
+                        )}
+                        onClick={() => { if (!item.disabled) { onAction(item.action, menu.path, menu.name); onClose(); } }}
+                    >
+                        <span className={cn('text-signal/70', item.danger && 'text-red-500/70')}>{item.icon}</span>
+                        {item.label}
+                    </button>
+                )
+            )}
+        </div>
+    );
+};
+
+// ============================================
+// Tree Node Component  (cache-driven, no per-node queries)
+// ============================================
+interface FileTreeNodeProps {
+    fullPath: string;
+    level: number;
+    treeRootData: Record<string, FileNode>;
+    treeAdjMtx: Record<string, string[]>;
+    selectedPath: string;
+    showDeletedFiles: boolean;
+    onSelect: (node: FileNode) => void;
+    onFetchFolder: (node: FileNode) => void;
+    onFileContextMenu: (node: FileNode, e: React.MouseEvent) => void;
+}
+
+const FileTreeNode = ({
+    fullPath, level, treeRootData, treeAdjMtx, selectedPath,
+    showDeletedFiles, onSelect, onFetchFolder, onFileContextMenu
+}: FileTreeNodeProps) => {
+    const [expanded, setExpanded] = useState(false);
+    const node = treeRootData[fullPath];
+    if (!node) return null;
+    if (node.deleted && !showDeletedFiles) return null;
+
+    const isSelected = fullPath === selectedPath;
+    const childPaths = treeAdjMtx[fullPath] || [];
+    const dirChildPaths = childPaths.filter(p => treeRootData[p]?.can_have_children);
+    const hasContent = node.has_children || childPaths.length > 0;
+    const filemeta = node.filemeta || [];
+    const tags = node.tags || [];
+
+    const handleExpand = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!expanded && childPaths.length === 0) {
+            // First expand — trigger lazy fetch
+            onFetchFolder(node);
+        }
+        setExpanded(v => !v);
+    };
+
+    return (
+        <div>
+            <div
+                className={cn(
+                    "flex items-center gap-1 py-1 cursor-pointer hover:bg-white/5 transition-colors select-none text-xs group",
+                    isSelected && "bg-signal/20 text-signal",
+                    node.deleted && "opacity-40 line-through"
+                )}
+                style={{ paddingLeft: `${level * 12 + 4}px`, paddingRight: '4px' }}
+                onClick={() => onSelect(node)}
+                onContextMenu={(e) => { e.preventDefault(); onFileContextMenu(node, e); }}
+            >
+                {/* Expand chevron */}
+                {node.can_have_children ? (
+                    <span onClick={handleExpand} className="p-0.5 hover:text-signal shrink-0">
+                        {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                    </span>
+                ) : (
+                    <span className="w-[18px] shrink-0" />
+                )}
+
+                {/* Icon */}
+                {node.can_have_children ? (
+                    expanded
+                        ? <FolderOpen size={13} className={hasContent ? 'text-yellow-500 shrink-0' : 'text-red-500/70 shrink-0'} />
+                        : <Folder size={13} className={hasContent ? 'text-yellow-500 shrink-0' : 'text-red-500/70 shrink-0'} />
+                ) : (
+                    <FileIcon size={13} className="text-blue-400 shrink-0" />
+                )}
+
+                {/* Name */}
+                <span className="ml-1 flex-1 truncate">{node.name_text || (level === 0 ? 'ROOT' : '')}</span>
+
+                {/* Indicators */}
+                <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                    {/* Tag dots */}
+                    {tags.slice(0, 3).map(t => (
+                        <span
+                            key={t.id}
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ background: t.tagtype.color || '#888' }}
+                            title={t.tagtype.name}
+                        />
+                    ))}
+                    {/* filemeta (download available) badge */}
+                    {filemeta.length > 0 && (
+                        <span className="text-[8px] px-0.5 py-0 bg-blue-500/20 text-blue-400 rounded font-mono">
+                            {filemeta.length}⬇
+                        </span>
+                    )}
+                    {/* success indicator */}
+                    {node.success === true && <CheckCircle2 size={9} className="text-green-500" />}
+                    {node.success === false && <AlertCircle size={9} className="text-red-500" />}
+                </div>
+            </div>
+
+            {/* Children */}
+            {expanded && (
+                <div className="border-l border-white/10">
+                    {childPaths.length === 0 ? (
+                        <div className="pl-6 py-1 text-[9px] text-gray-600 font-mono">EMPTY</div>
+                    ) : (
+                        dirChildPaths.map(childPath => (
+                            <FileTreeNode
+                                key={childPath}
+                                fullPath={childPath}
+                                level={level + 1}
+                                treeRootData={treeRootData}
+                                treeAdjMtx={treeAdjMtx}
+                                selectedPath={selectedPath}
+                                showDeletedFiles={showDeletedFiles}
+                                onSelect={onSelect}
+                                onFetchFolder={onFetchFolder}
+                                onFileContextMenu={onFileContextMenu}
+                            />
+                        ))
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ============================================
+// Comment Edit Modal
+// ============================================
+const CommentEditModal = ({
+    node, onClose, onSave
+}: {
+    node: FileNode;
+    onClose: () => void;
+    onSave: (nodeId: number, comment: string) => void;
+}) => {
+    const [value, setValue] = useState(node.comment || '');
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-void border border-signal/30 rounded-lg p-4 w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-2 mb-3">
+                    <MessageSquare size={14} className="text-signal" />
+                    <span className="font-mono text-xs text-white">EDIT COMMENT</span>
+                </div>
+                <div className="text-[10px] text-gray-500 mb-2 font-mono truncate">{node.name_text}</div>
+                <textarea
+                    autoFocus
+                    value={value}
+                    onChange={e => setValue(e.target.value)}
+                    className="w-full bg-black/60 border border-white/20 rounded px-2 py-1.5 text-xs text-white font-mono resize-none h-20 focus:outline-none focus:border-signal/50"
+                    placeholder="Add a comment..."
+                />
+                <div className="flex gap-2 mt-3 justify-end">
+                    <button onClick={onClose} className="px-3 py-1.5 text-xs font-mono text-gray-400 hover:text-white border border-white/10 hover:border-white/30 rounded transition-colors">CANCEL</button>
+                    <button
+                        onClick={() => { onSave(node.id, value); onClose(); }}
+                        className="px-3 py-1.5 text-xs font-mono bg-signal text-void font-bold hover:bg-white transition-colors rounded"
+                    >SAVE</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================
+// Download History Modal
+// ============================================
+const DownloadHistoryModal = ({
+    node, onClose
+}: {
+    node: FileNode;
+    onClose: () => void;
+}) => {
+    const filemeta = node.filemeta || [];
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-void border border-signal/30 rounded-lg p-4 w-[500px] max-h-[70vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <History size={14} className="text-signal" />
+                        <span className="font-mono text-xs text-white">DOWNLOAD HISTORY</span>
+                    </div>
+                    <button onClick={onClose} className="p-1 hover:bg-white/10 rounded"><XCircle size={16} className="text-gray-400" /></button>
+                </div>
+                <div className="text-[10px] text-gray-500 mb-3 font-mono">{node.full_path_text}</div>
+                <div className="flex-1 overflow-auto">
+                    {filemeta.length === 0 ? (
+                        <div className="text-center py-8 text-gray-600 font-mono text-xs">NO_DOWNLOAD_HISTORY</div>
+                    ) : (
+                        <div className="divide-y divide-white/5">
+                            {filemeta.map(f => (
+                                <div key={f.id} className="flex items-center gap-3 py-2 px-1 hover:bg-white/5 group">
+                                    <Download size={12} className="text-blue-400 shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-xs text-white font-mono truncate">{b64DecodeUnicode(f.filename_text)}</div>
+                                        <div className="text-[9px] text-gray-500 font-mono">{f.agent_file_id}</div>
+                                    </div>
+                                    <a
+                                        href={`/direct/download/${f.agent_file_id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-blue-400 transition-opacity"
+                                        title="Download file"
+                                    >
+                                        <Download size={12} />
+                                    </a>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+export const FileBrowser = ({ host, callbackId }: { host: string, callbackId: number }) => {
+    // Tab state: 'callback' for target machine files, 'mythic' for C2 server files
+    const [activeTab, setActiveTab] = useState<'callback' | 'mythic'>('callback');
+    const [mythicSubTab, setMythicSubTab] = useState<'downloads' | 'uploads' | 'screenshots'>('downloads');
+
+    return (
+        <div className="flex flex-col h-full border border-ghost/30 bg-void rounded overflow-hidden">
+            {/* Tab Headers */}
+            <div className="flex border-b border-ghost/30 bg-black/30">
+                <button
+                    onClick={() => setActiveTab('callback')}
+                    className={cn(
+                        "flex items-center gap-2 px-4 py-2 text-xs font-mono transition-colors border-b-2",
+                        activeTab === 'callback' 
+                            ? "text-signal border-signal bg-white/5" 
+                            : "text-gray-400 border-transparent hover:text-white hover:bg-white/5"
+                    )}
+                >
+                    <Monitor size={14} />
+                    CALLBACK_FILES
+                </button>
+                <button
+                    onClick={() => setActiveTab('mythic')}
+                    className={cn(
+                        "flex items-center gap-2 px-4 py-2 text-xs font-mono transition-colors border-b-2",
+                        activeTab === 'mythic' 
+                            ? "text-signal border-signal bg-white/5" 
+                            : "text-gray-400 border-transparent hover:text-white hover:bg-white/5"
+                    )}
+                >
+                    <Server size={14} />
+                    MYTHIC_C2_FILES
+                </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-hidden">
+                {activeTab === 'callback' ? (
+                    <CallbackFileBrowser host={host} callbackId={callbackId} />
+                ) : (
+                    <MythicServerFiles subTab={mythicSubTab} setSubTab={setMythicSubTab} />
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ============================================
+// Callback File Browser (Target Machine Files)
+// ============================================
+const CallbackFileBrowser = ({ host, callbackId }: { host: string, callbackId: number }) => {
+    const [createTask] = useMutation(CREATE_TASK_MUTATION);
+    const [updateCommentMutation] = useMutation(UPDATE_MYTHICTREE_COMMENT);
+    const fromNow = useRef<string>(new Date().toISOString());
+
+    // ── Loaded commands cache (for dynamic action labels) ────────────
+    // key = callback_id (number or string), value = array of loadedcommand objects
+    const loadedCommandsRef = useRef<Record<number, Array<{ id: number; command: { id: number; cmd: string; supported_ui_features: string[] } }>>>({});
+    const loadingCommandsRef = useRef<boolean>(false);
+    const [getLoadedCommandsForUI] = useLazyQuery(GET_LOADED_COMMANDS_FOR_UI, {
+        fetchPolicy: 'no-cache',
+        onCompleted: (data) => {
+            if (data.loadedcommands?.length > 0) {
+                const cbId: number = data.loadedcommands[0].callback_id;
+                loadedCommandsRef.current[cbId] = data.loadedcommands;
+            }
+            loadingCommandsRef.current = false;
+        },
+        onError: () => { loadingCommandsRef.current = false; },
+    });
+    // Eagerly fetch commands for this callback on mount
+    useEffect(() => {
+        if (!loadedCommandsRef.current[callbackId]) {
+            loadingCommandsRef.current = true;
+            getLoadedCommandsForUI({ variables: { callback_id: callbackId } });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [callbackId]);
+
+    const getLoadedCommandForUIFeature = useCallback((cbId: number, uifeature: string) => {
+        const cmds = loadedCommandsRef.current[cbId] || [];
+        return cmds.find(c => c.command.supported_ui_features.includes(uifeature));
+    }, []);
+
+    // ── In-memory tree store ──────────────────────────────────
+    // treeRootDataRef: full_path_text → FileNode (never cleared, accumulates)
+    const treeRootDataRef = useRef<Record<string, FileNode>>({});
+    // treeAdjMtx: parent_path_text → [child full_path_text, ...]  (state for re-renders)
+    const [treeAdjMtx, setTreeAdjMtx] = useState<Record<string, string[]>>({});
+
+    // ── Navigation ────────────────────────────────────────────
+    const [selectedNode, setSelectedNode] = useState<FileNode | null>(null);
+    const [currentPath, setCurrentPath] = useState<string>('');
+    const navHistoryRef = useRef<(FileNode | null)[]>([null]);  // null = root
+    const [historyIndex, setHistoryIndex] = useState<number>(0);
+
+    // ── UI Feature toggles ────────────────────────────────────
+    const [showDeletedFiles, setShowDeletedFiles] = useState(false);
+    const [autoLsEmptyDirs, setAutoLsEmptyDirs] = useState<boolean>(() => {
+        try { return localStorage.getItem('minerva_fb_auto_ls') === 'true'; } catch { return false; }
+    });
+    const autoLsSetting = useGetMythicSetting({setting_name:'autoTaskLsOnEmptyDirectories', default_value: false});
+    const [setMythicSettingFn] = useSetMythicSetting() as any;
+    useEffect(() => { setAutoLsEmptyDirs(!!autoLsSetting); }, [autoLsSetting]);
+    const handleToggleAutoLs = () => {
+        const next = !autoLsEmptyDirs;
+        setAutoLsEmptyDirs(next);
+        setMythicSettingFn({setting_name:'autoTaskLsOnEmptyDirectories', value: next});
+        try { localStorage.setItem('minerva_fb_auto_ls', String(next)); } catch {}
+    };
+
+    // ── Table state ───────────────────────────────────────────
+    const [sortKey, setSortKey] = useState<string | null>(null);
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+    const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+    const [filterText, setFilterText] = useState('');
+    const [showFilter, setShowFilter] = useState(false);
+
+    // ── Column visibility (persisted) ─────────────────────────
+    const [visibleCols, setVisibleCols] = useState<string[]>(() => {
+        try {
+            const s = localStorage.getItem('minerva_fb_columns');
+            if (s) return JSON.parse(s);
+        } catch {}
+        return COLUMN_DEFS.filter(c => c.defaultVisible).map(c => c.key);
+    });
+    const handleSetVisibleCols = (cols: string[]) => {
+        setVisibleCols(cols);
+        try { localStorage.setItem('minerva_fb_columns', JSON.stringify(cols)); } catch {}
+    };
+    const [showColDialog, setShowColDialog] = useState(false);
+
+    // ── Per-column filters (persisted) ────────────────────────
+    const [colFilters, setColFilters] = useState<Record<string, string>>(() => {
+        try {
+            const s = localStorage.getItem('minerva_fb_col_filters');
+            if (s) return JSON.parse(s);
+        } catch {}
+        return {};
+    });
+    const setColFilter = (key: string, value: string) => {
+        const next = { ...colFilters };
+        if (value) next[key] = value; else delete next[key];
+        setColFilters(next);
+        try { localStorage.setItem('minerva_fb_col_filters', JSON.stringify(next)); } catch {}
+    };
+    const [filteringColKey, setFilteringColKey] = useState<string | null>(null);
+    const [filterColInput, setFilterColInput] = useState('');
+
+    // ── Upload dialog ─────────────────────────────────────────
+    const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+    const [uploadDestPath, setUploadDestPath] = useState('');
+    const [uploadFile, setUploadFile] = useState<File | null>(null);
+    const [uploading, setUploading] = useState(false);
+    const uploadInputRef = useRef<HTMLInputElement>(null);
+
+    // ── Editable path bar ─────────────────────────────────────
+    const [pathInputValue, setPathInputValue] = useState('/');
+    useEffect(() => { setPathInputValue(currentPath || '/'); }, [currentPath]);
+
+    // ── Modals ────────────────────────────────────────────────
+    const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+    const [editingComment, setEditingComment] = useState<FileNode | null>(null);
+    const [downloadHistoryNode, setDownloadHistoryNode] = useState<FileNode | null>(null);
+
+    // ── Loading state ─────────────────────────────────────────
+    const [folderLoading, setFolderLoading] = useState(false);
+    const rootQueriedRef = useRef(false);
+
+    // ────────────────────────────────────────────────────────────
+    // MERGE HELPERS
+    // ────────────────────────────────────────────────────────────
+    const mergeNode = useCallback((node: FileNode) => {
+        const key = node.full_path_text;
+        const existing = treeRootDataRef.current[key];
+        if (!existing) {
+            treeRootDataRef.current[key] = { ...node };
+        } else {
+            treeRootDataRef.current[key] = {
+                ...existing,
+                ...node,
+                deleted: node.deleted,
+                has_children: node.has_children || existing.has_children,
+                success: node.success !== null ? node.success : existing.success,
+                comment: node.comment !== undefined ? node.comment : existing.comment,
+                filemeta: deduplicateById([
+                    ...(existing.filemeta || []),
+                    ...(node.filemeta || [])
+                ]),
+                tags: deduplicateById([
+                    ...(existing.tags || []),
+                    ...(node.tags || [])
+                ]),
+            };
+        }
+    }, []);
+
+    const mergeIntoAdjMtx = useCallback((nodes: FileNode[]) => {
+        setTreeAdjMtx(prev => {
+            const next = { ...prev };
+            nodes.forEach(node => {
+                const parent = node.parent_path_text;
+                if (!next[parent]) next[parent] = [];
+                if (!next[parent].includes(node.full_path_text)) {
+                    next[parent] = [...next[parent], node.full_path_text];
+                }
+            });
+            return next;
+        });
+    }, []);
+
+    // ────────────────────────────────────────────────────────────
+    // ROOT QUERY — loads all root-level entries once
+    // ────────────────────────────────────────────────────────────
+    const { loading: rootLoading } = useQuery(GET_FILE_TREE_ROOT, {
+        variables: { host },
+        onCompleted: (data) => {
+            const nodes: FileNode[] = data.mythictree || [];
+            nodes.forEach(mergeNode);
+            mergeIntoAdjMtx(nodes);
+            rootQueriedRef.current = true;
+        },
+        fetchPolicy: 'no-cache',
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // FOLDER LAZY QUERY — includes parents + self for full context
+    // ────────────────────────────────────────────────────────────
+    const [getFolderData] = useLazyQuery(GET_FILE_TREE_FOLDER_WITH_PARENTS, {
+        fetchPolicy: 'no-cache',
+        onCompleted: (data) => {
+            const allNodes: FileNode[] = [
+                ...(data.parents || []),
+                ...(data.children || []),
+                ...(data.self || []),
+            ];
+            allNodes.forEach(mergeNode);
+            mergeIntoAdjMtx(allNodes);
+            setFolderLoading(false);
+
+            // Update selected node with fresh server data
+            if (data.self?.length > 0 && selectedNode) {
+                const fresh = data.self[0];
+                const merged = treeRootDataRef.current[fresh.full_path_text];
+                if (merged) setSelectedNode({ ...merged });
+            }
+
+            // Auto-ls: if the folder is empty and option is enabled
+            if (autoLsEmptyDirs && selectedNode && selectedNode.full_path_text !== '') {
+                const children = data.children || [];
+                if (children.length === 0 && data.self?.[0]?.success === null) {
+                    doTask('ls', selectedNode.full_path_text, selectedNode.name_text, true);
+                }
+            }
+        },
+        onError: () => setFolderLoading(false),
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // TASK STATUS SUBSCRIPTION — surface file_browser task errors
+    // ────────────────────────────────────────────────────────────
+    const taskSubFromNow = useRef<string>(new Date().toISOString());
+    useSubscription(FILEBROWSER_TASK_SUBSCRIPTION, {
+        variables: { now: taskSubFromNow.current, callback_id: callbackId },
+        onData: ({ data: subData }) => {
+            const tasks: Array<{ id: number; display_id: number; status: string; command_name: string; opsec_pre_blocked: boolean; opsec_post_blocked: boolean }> =
+                subData.data?.task_stream || [];
+            tasks.forEach(t => {
+                if (t.opsec_pre_blocked || t.opsec_post_blocked) {
+                    snackActions.warning(`OPSEC block on '${t.command_name}' (task #${t.display_id})`);
+                } else if (t.status === 'error') {
+                    snackActions.error(`'${t.command_name}' failed (task #${t.display_id})`);
+                }
+            });
+        },
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // REAL-TIME SUBSCRIPTION
+    // ────────────────────────────────────────────────────────────
+    useSubscription(MYTHICTREE_FILE_SUBSCRIPTION, {
+        variables: { now: fromNow.current, host },
+        onData: ({ data: subData }) => {
+            const nodes: FileNode[] = subData.data?.mythictree_stream || [];
+            if (nodes.length === 0) return;
+            nodes.forEach(mergeNode);
+            mergeIntoAdjMtx(nodes);
+            // Refresh selected node if it was updated
+            if (selectedNode) {
+                const updated = nodes.find(n => n.full_path_text === selectedNode.full_path_text);
+                if (updated) {
+                    const merged = treeRootDataRef.current[selectedNode.full_path_text];
+                    if (merged) setSelectedNode({ ...merged });
+                }
+            }
+        },
+    });
+
+    // ────────────────────────────────────────────────────────────
+    // NAVIGATION
+    // ────────────────────────────────────────────────────────────
+    const fetchFolder = useCallback((node: FileNode) => {
+        setFolderLoading(true);
+        const parents = getAllParentPaths(node.full_path_text);
+        getFolderData({ variables: { parent_path_text: node.full_path_text, host, parents } });
+    }, [getFolderData, host]);
+
+    const navigateTo = useCallback((node: FileNode | null) => {
+        const newIndex = historyIndex + 1;
+        navHistoryRef.current = [...navHistoryRef.current.slice(0, newIndex), node];
+        setHistoryIndex(newIndex);
+        setSelectedNode(node);
+        setCurrentPath(node?.full_path_text || '');
+        setSelectedRows(new Set());
+        if (node) fetchFolder(node);
+    }, [historyIndex, fetchFolder]);
+
+    const handleBack = () => {
+        if (historyIndex <= 0) return;
+        const newIdx = historyIndex - 1;
+        const node = navHistoryRef.current[newIdx];
+        setHistoryIndex(newIdx);
+        setSelectedNode(node);
+        setCurrentPath(node?.full_path_text || '');
+        setSelectedRows(new Set());
+        if (node) fetchFolder(node);
+    };
+
+    const handleForward = () => {
+        if (historyIndex >= navHistoryRef.current.length - 1) return;
+        const newIdx = historyIndex + 1;
+        const node = navHistoryRef.current[newIdx];
+        setHistoryIndex(newIdx);
+        setSelectedNode(node);
+        setCurrentPath(node?.full_path_text || '');
+        setSelectedRows(new Set());
+        if (node) fetchFolder(node);
+    };
+
+    const handleGoHome = () => navigateTo(null);
+
+    const handleMoveUp = () => {
+        if (!selectedNode) return;
+        const parent = selectedNode.parent_path_text;
+        if (parent === undefined || parent === selectedNode.full_path_text) return;
+        const parentNode = treeRootDataRef.current[parent];
+        if (parentNode) {
+            navigateTo(parentNode);
+        } else {
+            const isWin = parent.includes('\\');
+            const sep = isWin ? '\\' : '/';
+            const grandParent = parent.split(sep).slice(0, -1).join(sep) || '';
+            const syntheticParent: FileNode = {
+                id: -1,
+                name_text: parent.split(sep).pop() || parent,
+                full_path_text: parent,
+                parent_path_text: grandParent,
+                can_have_children: true,
+                tree_type: 'file',
+                deleted: false,
+                metadata: {},
+                host,
+            };
+            navigateTo(syntheticParent);
+        }
+    };
+
+    const handleNavigateToPath = (path: string) => {
+        const normalized = path.replace(/[\/\\]+$/, '') || '/';
+        if (normalized === '/' || normalized === '') { handleGoHome(); return; }
+        const cached = treeRootDataRef.current[normalized];
+        if (cached) {
+            navigateTo(cached);
+        } else {
+            // Synthesise a dir node, let fetchFolder populate it from the server
+            const isWin = normalized.includes('\\');
+            const sep = isWin ? '\\' : '/';
+            const parts = normalized.split(sep);
+            const synthetic: FileNode = {
+                id: -1,
+                name_text: parts[parts.length - 1] || normalized,
+                full_path_text: normalized,
+                parent_path_text: parts.slice(0, -1).join(sep) || '',
+                can_have_children: true,
+                tree_type: 'file',
+                deleted: false,
+                metadata: {},
+                host,
+            };
+            navigateTo(synthetic);
+        }
+    };
+
+    // ────────────────────────────────────────────────────────────
+    // TASK HELPERS
+    // ────────────────────────────────────────────────────────────
+    const doTask = useCallback((command: string, path: string, name: string, _isDir: boolean, cbId?: number) => {
+        const targetCb = cbId ?? callbackId;
+        createTask({ variables: { callback_id: targetCb, command, params: path } })
+            .then(() => snackActions.info(`Tasked '${command} ${name}'`))
+            .catch((e: any) => snackActions.error(`${command} failed: ${e.message}`));
+    }, [callbackId, createTask]);
+
+    const handleRefresh = () => {
+        if (selectedNode) {
+            fetchFolder(selectedNode);
+            doTask('ls', selectedNode.full_path_text || '.', selectedNode.name_text, true);
+        }
+    };
+
+    // ────────────────────────────────────────────────────────────
+    // UPLOAD HANDLER
+    // ────────────────────────────────────────────────────────────
+    const handleUploadSubmit = async () => {
+        if (!uploadFile) { snackActions.warning('Select a file first'); return; }
+        setUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', uploadFile);
+            formData.append('name', uploadFile.name);
+            const resp = await fetch('/api/v1.4/files/', { method: 'POST', body: formData });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const json = await resp.json();
+            const agentFileId: string = json.agent_file_id || json.id;
+            // Task the upload command
+            const uploadCmd = getLoadedCommandForUIFeature(callbackId, 'file_browser:upload');
+            const cmd = uploadCmd?.command?.cmd || 'upload';
+            const path = uploadDestPath || (selectedNode?.full_path_text ?? '.');
+            await createTask({ variables: {
+                callback_id: callbackId,
+                command: cmd,
+                params: JSON.stringify({ remote_path: path, file_id: agentFileId })
+            }});
+            snackActions.success(`Upload tasked: ${uploadFile.name} → ${path}`);
+            setUploadDialogOpen(false);
+            setUploadFile(null);
+            setUploadDestPath('');
+        } catch (e: any) {
+            snackActions.error(`Upload failed: ${e.message}`);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    // ────────────────────────────────────────────────────────────
+    // CONTEXT MENU ITEM BUILDER
+    // ────────────────────────────────────────────────────────────
+    const buildContextMenuItems = useCallback((node: FileNode | null, isDir: boolean): ContextMenuItemDef[] => {
+        if (!node) return [];
+        const lsCmd    = getLoadedCommandForUIFeature(callbackId, 'file_browser:list');
+        const dlCmd    = getLoadedCommandForUIFeature(callbackId, isDir ? 'file_browser:download_folder' : 'file_browser:download');
+        const rmCmd    = getLoadedCommandForUIFeature(callbackId, isDir ? 'file_browser:remove_folder' : 'file_browser:remove');
+        const upCmd    = getLoadedCommandForUIFeature(callbackId, 'file_browser:upload');
+
+        const meta = getMetadata(node);
+        const items: ContextMenuItemDef[] = [
+            // Copy sub-menu
+            {
+                action: 'copy_menu', label: 'Copy to clipboard', icon: <ClipboardList size={13} />,
+                children: [
+                    { action: 'copy_name',     label: `Name`,          icon: <Copy size={11} /> },
+                    { action: 'copy',          label: `Full path`,     icon: <Copy size={11} /> },
+                    { action: 'copy_metadata', label: `Metadata JSON`, icon: <Copy size={11} /> },
+                ]
+            },
+            { action: 'div0', label: '', divider: true },
+        ];
+
+        if (isDir) {
+            items.push(
+                { action: 'ls',        label: lsCmd ? `List (${lsCmd.command.cmd})` : 'List (unsupported)',              icon: <FolderSearch size={13} />, disabled: !lsCmd },
+                { action: 'upload',    label: upCmd ? `Upload here (${upCmd.command.cmd})` : 'Upload here',              icon: <Upload size={13} /> },
+                { action: 'edit_comment', label: 'Edit comment', icon: <MessageSquare size={13} /> },
+                { action: 'div1', label: '', divider: true },
+                { action: 'rm_folder', label: rmCmd ? `Remove folder (${rmCmd.command.cmd})` : 'Remove folder (unsupported)', icon: <Trash2 size={13} />, danger: true, disabled: !rmCmd },
+            );
+        } else {
+            items.push(
+                { action: 'cat',              label: 'View / cat',                                                              icon: <Eye size={13} /> },
+                { action: 'download',         label: dlCmd ? `Download (${dlCmd.command.cmd})` : 'Download (unsupported)',  icon: <Download size={13} />, disabled: !dlCmd },
+                { action: 'download_history', label: 'Download history',                                                       icon: <History size={13} /> },
+                { action: 'edit_comment',     label: 'Edit comment',                                                           icon: <MessageSquare size={13} /> },
+                { action: 'div1', label: '', divider: true },
+                { action: 'rm',               label: rmCmd ? `Remove (${rmCmd.command.cmd})` : 'Remove (unsupported)',     icon: <Trash2 size={13} />, danger: true, disabled: !rmCmd },
+            );
+        }
+
+        // Original callback sub-menu (node collected by a different callback)
+        if (node.callback && node.callback.id !== callbackId) {
+            const origId = node.callback.id;
+            const origDisplay = node.callback.display_id;
+            // Fetch commands for the original callback if not cached
+            if (!loadedCommandsRef.current[origId]) {
+                getLoadedCommandsForUI({ variables: { callback_id: origId } });
+            }
+            const origLs  = getLoadedCommandForUIFeature(origId, 'file_browser:list');
+            const origDl  = getLoadedCommandForUIFeature(origId, isDir ? 'file_browser:download_folder' : 'file_browser:download');
+            const origRm  = getLoadedCommandForUIFeature(origId, isDir ? 'file_browser:remove_folder' : 'file_browser:remove');
+            items.push(
+                { action: 'div2', label: '', divider: true },
+                {
+                    action: `orig_menu:${origId}`,
+                    label: `Original Callback #${origDisplay}`,
+                    icon: <Monitor size={13} />,
+                    children: [
+                        { action: `orig_ls:${origId}`,   label: origLs ? `List (${origLs.command.cmd})`     : 'List (unsupported)',     icon: <FolderSearch size={11} />, disabled: !origLs },
+                        { action: `orig_dl:${origId}`,   label: origDl ? `Download (${origDl.command.cmd})` : 'Download (unsupported)', icon: <Download size={11} />,     disabled: !origDl },
+                        { action: `orig_rm:${origId}`,   label: origRm ? `Remove (${origRm.command.cmd})`   : 'Remove (unsupported)',   icon: <Trash2 size={11} />,       disabled: !origRm, danger: true },
+                    ]
+                }
+            );
+        }
+
+        return items;
+    }, [callbackId, getLoadedCommandForUIFeature, getLoadedCommandsForUI]);
+
+    const handleFileAction = useCallback((action: string, path: string, name: string, isDir: boolean) => {
+        // Handle orig_* actions (task on the original callback)
+        if (action.startsWith('orig_ls:') || action.startsWith('orig_dl:') || action.startsWith('orig_rm:')) {
+            const [type, cbIdStr] = action.split(':');
+            const targetCbId = parseInt(cbIdStr, 10);
+            if (type === 'orig_ls')  doTask('ls',       path, name, true,  targetCbId);
+            if (type === 'orig_dl')  doTask('download', path, name, false, targetCbId);
+            if (type === 'orig_rm')  doTask('rm',       path, name, isDir, targetCbId);
+            return;
+        }
+        if (action === 'ls') {
+            doTask('ls', path, name, true);
+        } else if (action === 'download') {
+            doTask('download', path, name, false);
+        } else if (action === 'cat') {
+            doTask('cat', path, name, false);
+        } else if (action === 'upload') {
+            setUploadDestPath(path);
+            setUploadDialogOpen(true);
+        } else if (action === 'copy') {
+            navigator.clipboard.writeText(path);
+            snackActions.success('Path copied');
+        } else if (action === 'copy_name') {
+            const node = treeRootDataRef.current[path];
+            navigator.clipboard.writeText(node?.name_text || name);
+            snackActions.success('Name copied');
+        } else if (action === 'copy_metadata') {
+            const node = treeRootDataRef.current[path];
+            const meta = node ? getMetadata(node) : {};
+            navigator.clipboard.writeText(JSON.stringify(meta, null, 2));
+            snackActions.success('Metadata JSON copied');
+        } else if (action === 'edit_comment') {
+            const node = treeRootDataRef.current[path];
+            if (node) setEditingComment(node);
+        } else if (action === 'download_history') {
+            const node = treeRootDataRef.current[path];
+            if (node) setDownloadHistoryNode(node);
+        } else if (action === 'rm') {
+            doTask('rm', path, name, false);
+        } else if (action === 'rm_folder') {
+            doTask('rm', path, name, true);
+        }
+    }, [doTask]);
+
+    const handleSaveComment = useCallback((nodeId: number, comment: string) => {
+        updateCommentMutation({ variables: { id: nodeId, comment } })
+            .then(() => {
+                // update local cache
+                const node = Object.values(treeRootDataRef.current).find(n => n.id === nodeId);
+                if (node) {
+                    treeRootDataRef.current[node.full_path_text] = { ...node, comment };
+                    // Force re-render by touching adjMtx
+                    setTreeAdjMtx(prev => ({ ...prev }));
+                }
+                snackActions.success('Comment saved');
+            })
+            .catch((e: any) => snackActions.error('Failed to save comment: ' + e.message));
+    }, [updateCommentMutation]);
+
+    // Bulk download via task for selected file rows
+    const handleBulkDownload = () => {
+        let count = 0;
+        selectedRows.forEach(path => {
+            const node = treeRootDataRef.current[path];
+            if (node && !node.can_have_children) {
+                doTask('download', path, node.name_text, false);
+                count++;
+            }
+        });
+        snackActions.info(`Tasked download for ${count} file(s)`);
+        setSelectedRows(new Set());
+    };
+
+    // Bulk list — task ls on all selected directories
+    const handleBulkList = () => {
+        let count = 0;
+        selectedRows.forEach(path => {
+            const node = treeRootDataRef.current[path];
+            if (node && node.can_have_children) {
+                doTask('ls', path, node.name_text, true);
+                count++;
+            }
+        });
+        if (count === 0) snackActions.warning('No directories selected');
+        else snackActions.info(`Tasked ls for ${count} director${count === 1 ? 'y' : 'ies'}`);
+        setSelectedRows(new Set());
+    };
+
+    // Bulk remove — task rm on all selected files
+    const handleBulkRemove = () => {
+        let count = 0;
+        selectedRows.forEach(path => {
+            const node = treeRootDataRef.current[path];
+            if (node) {
+                doTask('rm', path, node.name_text, node.can_have_children);
+                count++;
+            }
+        });
+        if (count === 0) snackActions.warning('Nothing selected to remove');
+        else snackActions.warning(`Tasked rm for ${count} item(s)`);
+        setSelectedRows(new Set());
+    };
+
+    // ────────────────────────────────────────────────────────────
+    // TABLE DATA COMPUTATION
+    // ────────────────────────────────────────────────────────────
+    const tableData: FileNode[] = React.useMemo(() => {
+        const parentKey = selectedNode ? selectedNode.full_path_text : '';
+        const childPaths = treeAdjMtx[parentKey] || [];
+        let nodes = childPaths
+            .map(p => treeRootDataRef.current[p])
+            .filter((n): n is FileNode => !!n);
+
+        // Filter deleted
+        if (!showDeletedFiles) nodes = nodes.filter(n => !n.deleted);
+
+        // Filter text (global)
+        if (filterText) {
+            const q = filterText.toLowerCase();
+            nodes = nodes.filter(n =>
+                n.name_text?.toLowerCase().includes(q) ||
+                n.full_path_text?.toLowerCase().includes(q) ||
+                n.comment?.toLowerCase().includes(q)
+            );
+        }
+
+        // Per-column filters
+        Object.entries(colFilters).forEach(([key, val]) => {
+            if (!val) return;
+            const q = val.toLowerCase();
+            nodes = nodes.filter(n => {
+                if (key === 'size' || key === 'modify_time') {
+                    return String(getMetadata(n)[key] ?? '').toLowerCase().includes(q);
+                }
+                if (key === 'tags') {
+                    return (n.tags || []).some(t => t.tagtype.name.toLowerCase().includes(q));
+                }
+                return String((n as any)[key] ?? '').toLowerCase().includes(q);
+            });
+        });
+
+        // Sort
+        if (sortKey) {
+            nodes = [...nodes].sort((a, b) => {
+                let aVal: any;
+                let bVal: any;
+                if (sortKey === 'size' || sortKey === 'modify_time') {
+                    aVal = getMetadata(a)[sortKey] ?? '';
+                    bVal = getMetadata(b)[sortKey] ?? '';
+                } else {
+                    aVal = (a as any)[sortKey] ?? '';
+                    bVal = (b as any)[sortKey] ?? '';
+                }
+                const cmp = String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
+                return sortDir === 'asc' ? cmp : -cmp;
+            });
+        } else {
+            // Default: dirs first, then files
+            nodes = [...nodes].sort((a, b) => {
+                if (a.can_have_children !== b.can_have_children) return a.can_have_children ? -1 : 1;
+                return a.name_text.localeCompare(b.name_text);
+            });
+        }
+        return nodes;
+    }, [treeAdjMtx, selectedNode, showDeletedFiles, filterText, colFilters, sortKey, sortDir]);
+
+    const isLoading = rootLoading || folderLoading;
+
+    // ────────────────────────────────────────────────────────────
+    // SORT TOGGLE
+    // ────────────────────────────────────────────────────────────
+    const toggleSort = (key: string) => {
+        if (sortKey === key) {
+            if (sortDir === 'asc') setSortDir('desc');
+            else { setSortKey(null); setSortDir('asc'); }
+        } else {
+            setSortKey(key);
+            setSortDir('asc');
+        }
+    };
+
+    // Sort header icon
+    const SortIcon = ({ k }: { k: string }) => {
+        if (sortKey !== k) return <ChevronRight size={10} className="opacity-20" />;
+        return sortDir === 'asc'
+            ? <ChevronUp size={10} className="text-signal" />
+            : <ChevronDown size={10} className="text-signal" />;
+    };
+
+    // ────────────────────────────────────────────────────────────
+    // ROOT PATHS for tree sidebar
+    // ────────────────────────────────────────────────────────────
+    const rootPaths = treeAdjMtx[''] || [];
+
+    // ────────────────────────────────────────────────────────────
+    // DISPLAY FORMAT (mirrors OldReactUI's getDisplayFormat)
+    // determines what to show in the table area when there's no data
+    // ────────────────────────────────────────────────────────────
+    const getDisplayFormat = (): 'normal' | 'fetchLocal' | 'fetchRemote' | 'showTask' => {
+        if (!selectedNode) return 'normal';
+        if (tableData.length > 0 || selectedNode.success === true) return 'normal';
+        if (selectedNode.success === false) return 'showTask';
+        if (selectedNode.has_children && selectedNode.success === null) return 'fetchLocal';
+        return 'fetchRemote';
+    };
+    const displayFormat = getDisplayFormat();
+
+    // Visible columns array (from COLUMN_DEFS filtered by state + always include actions)
+    const activeCols = COLUMN_DEFS.filter(c => visibleCols.includes(c.key));
+
+    // ────────────────────────────────────────────────────────────
+    // RENDER
+    // ────────────────────────────────────────────────────────────
+    return (
+        <div className="flex h-full overflow-hidden">
+            {/* Context menu */}
+            {ctxMenu && (
+                <ContextMenu
+                    menu={ctxMenu}
+                    items={ctxMenu.items}
+                    onAction={(action, path, name) => handleFileAction(action, path, name, ctxMenu.isDir)}
+                    onClose={() => setCtxMenu(null)}
+                />
+            )}
+
+            {/* Comment edit modal */}
+            {editingComment && (
+                <CommentEditModal
+                    node={editingComment}
+                    onClose={() => setEditingComment(null)}
+                    onSave={handleSaveComment}
+                />
+            )}
+
+            {/* Download history modal */}
+            {downloadHistoryNode && (
+                <DownloadHistoryModal
+                    node={downloadHistoryNode}
+                    onClose={() => setDownloadHistoryNode(null)}
+                />
+            )}
+
+            {/* ── Upload dialog ─────────────────────────────── */}
+            {uploadDialogOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-[#0f1117] border border-white/10 rounded-lg w-96 p-5 font-mono shadow-xl">
+                        <div className="flex items-center justify-between mb-4">
+                            <span className="text-xs text-signal font-mono uppercase tracking-widest">Upload File</span>
+                            <button onClick={() => setUploadDialogOpen(false)} className="text-gray-500 hover:text-white"><XCircle size={14} /></button>
+                        </div>
+
+                        <label className="block text-[10px] text-gray-400 mb-1">Destination path</label>
+                        <input
+                            type="text"
+                            value={uploadDestPath}
+                            onChange={e => setUploadDestPath(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-signal/60 mb-3"
+                            placeholder="./path/on/remote"
+                        />
+
+                        <label className="block text-[10px] text-gray-400 mb-1">File</label>
+                        <input
+                            ref={uploadInputRef}
+                            type="file"
+                            className="hidden"
+                            onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                        />
+                        <div
+                            className="w-full border border-dashed border-white/20 rounded px-3 py-4 flex flex-col items-center gap-2 cursor-pointer hover:border-signal/40 transition-colors mb-4"
+                            onClick={() => uploadInputRef.current?.click()}
+                        >
+                            <UploadCloud size={20} className="text-gray-500" />
+                            {uploadFile ? (
+                                <span className="text-xs text-signal">{uploadFile.name} ({formatBytes(uploadFile.size)})</span>
+                            ) : (
+                                <span className="text-[10px] text-gray-500">Click to select a file</span>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={() => setUploadDialogOpen(false)}
+                                className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-white/10 rounded transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleUploadSubmit}
+                                disabled={!uploadFile || uploading}
+                                className="px-3 py-1.5 text-xs text-black bg-signal hover:bg-signal/80 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                            >
+                                {uploading ? <RefreshCw size={11} className="animate-spin" /> : <UploadCloud size={11} />}
+                                {uploading ? 'Uploading…' : 'Upload'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Column config dialog ──────────────────────── */}
+            {showColDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-[#0f1117] border border-white/10 rounded-lg w-72 p-5 font-mono shadow-xl">
+                        <div className="flex items-center justify-between mb-4">
+                            <span className="text-xs text-signal font-mono uppercase tracking-widest flex items-center gap-1.5">
+                                <Columns size={12} /> Visible Columns
+                            </span>
+                            <button onClick={() => setShowColDialog(false)} className="text-gray-500 hover:text-white"><XCircle size={14} /></button>
+                        </div>
+                        <div className="space-y-1.5">
+                            {COLUMN_DEFS.map(col => (
+                                <label key={col.key} className="flex items-center gap-2 cursor-pointer group">
+                                    <input
+                                        type="checkbox"
+                                        checked={visibleCols.includes(col.key)}
+                                        onChange={e => {
+                                            const next = e.target.checked
+                                                ? [...visibleCols, col.key]
+                                                : visibleCols.filter(k => k !== col.key);
+                                            handleSetVisibleCols(next);
+                                        }}
+                                        className="rounded bg-black/40 border-white/20"
+                                    />
+                                    <span className="text-[11px] text-gray-300 group-hover:text-white transition-colors">{col.label}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <div className="mt-4 pt-3 border-t border-white/10 flex justify-between items-center">
+                            <button
+                                onClick={() => handleSetVisibleCols(COLUMN_DEFS.filter(c => c.defaultVisible).map(c => c.key))}
+                                className="text-[10px] text-gray-500 hover:text-white transition-colors"
+                            >
+                                Reset defaults
+                            </button>
+                            <button
+                                onClick={() => setShowColDialog(false)}
+                                className="px-3 py-1 text-xs text-black bg-signal hover:bg-signal/80 rounded transition-colors"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Per-column filter dialog ──────────────────── */}
+            {filteringColKey && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-[#0f1117] border border-white/10 rounded-lg w-72 p-5 font-mono shadow-xl">
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs text-signal font-mono uppercase tracking-widest flex items-center gap-1.5">
+                                <SlidersHorizontal size={11} /> Filter: {COLUMN_DEFS.find(c => c.key === filteringColKey)?.label || filteringColKey}
+                            </span>
+                            <button onClick={() => setFilteringColKey(null)} className="text-gray-500 hover:text-white"><XCircle size={14} /></button>
+                        </div>
+                        <input
+                            autoFocus
+                            type="text"
+                            value={filterColInput}
+                            onChange={e => setFilterColInput(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') { setColFilter(filteringColKey, filterColInput); setFilteringColKey(null); }
+                                if (e.key === 'Escape') setFilteringColKey(null);
+                            }}
+                            placeholder="Filter value… (Enter to apply)"
+                            className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-signal/60 mb-4"
+                        />
+                        <div className="flex justify-between">
+                            <button
+                                onClick={() => { setColFilter(filteringColKey, ''); setFilteringColKey(null); }}
+                                className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
+                            >
+                                Clear filter
+                            </button>
+                            <div className="flex gap-2">
+                                <button onClick={() => setFilteringColKey(null)} className="px-3 py-1 text-xs text-gray-400 border border-white/10 rounded hover:text-white transition-colors">Cancel</button>
+                                <button
+                                    onClick={() => { setColFilter(filteringColKey, filterColInput); setFilteringColKey(null); }}
+                                    className="px-3 py-1 text-xs text-black bg-signal hover:bg-signal/80 rounded transition-colors"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Sidebar Tree ───────────────────────────────── */}
+            <div className="w-60 border-r border-ghost/30 bg-black/20 flex flex-col">
+                {/* Host header */}
+                <div className="px-3 py-2 border-b border-ghost/30 font-mono text-[10px] flex items-center gap-2 text-gray-400 shrink-0">
+                    <HardDrive size={11} className="text-signal shrink-0" />
+                    <span className="truncate flex-1" title={host}>{host}</span>
+                    {/* Show deleted toggle */}
+                    <button
+                        onClick={() => setShowDeletedFiles(v => !v)}
+                        className={cn(
+                            'p-0.5 rounded transition-colors',
+                            showDeletedFiles ? 'text-yellow-400' : 'text-gray-600 hover:text-gray-400'
+                        )}
+                        title={showDeletedFiles ? 'Hide deleted files' : 'Show deleted files'}
+                    >
+                        <EyeOff size={11} />
+                    </button>
+                </div>
+
+                {/* Tree */}
+                <div className="flex-1 overflow-auto p-1">
+                    {rootLoading && rootPaths.length === 0 ? (
+                        <div className="text-center p-4 text-[10px] text-gray-500 animate-pulse">LOADING_TREE...</div>
+                    ) : rootPaths.length === 0 ? (
+                        <div className="text-center p-6 text-gray-600">
+                            <Folder size={24} className="mx-auto mb-2 opacity-20" />
+                            <p className="text-[10px] font-mono">NO_FILE_DATA</p>
+                            <p className="text-[9px] text-gray-700 mt-1">Run 'ls' to browse</p>
+                        </div>
+                    ) : (
+                        rootPaths.map(rp => (
+                            <FileTreeNode
+                                key={rp}
+                                fullPath={rp}
+                                level={0}
+                                treeRootData={treeRootDataRef.current}
+                                treeAdjMtx={treeAdjMtx}
+                                selectedPath={currentPath}
+                                showDeletedFiles={showDeletedFiles}
+                                onSelect={navigateTo}
+                                onFetchFolder={fetchFolder}
+                                onFileContextMenu={(node, e) => {
+                                    e.preventDefault();
+                                    setCtxMenu({ x: e.clientX, y: e.clientY, isDir: node.can_have_children, path: node.full_path_text, name: node.name_text, items: buildContextMenuItems(node, node.can_have_children) });
+                                }}
+                            />
+                        ))
+                    )}
+                </div>
+            </div>
+
+            {/* ── Main Content ───────────────────────────────── */}
+            <div className="flex-1 flex flex-col bg-black/10 overflow-hidden">
+
+                {/* Toolbar */}
+                <div className="shrink-0 border-b border-ghost/30 bg-white/5 flex items-center gap-1 px-2 py-1.5">
+                    {/* Back */}
+                    <button
+                        onClick={handleBack}
+                        disabled={historyIndex <= 0}
+                        className="p-1 hover:bg-white/10 rounded transition-colors text-gray-400 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed"
+                        title="Back"
+                    >
+                        <ArrowLeft size={13} />
+                    </button>
+                    {/* Forward */}
+                    <button
+                        onClick={handleForward}
+                        disabled={historyIndex >= navHistoryRef.current.length - 1}
+                        className="p-1 hover:bg-white/10 rounded transition-colors text-gray-400 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed"
+                        title="Forward"
+                    >
+                        <ArrowRight size={13} />
+                    </button>
+                    {/* Home */}
+                    <button
+                        onClick={handleGoHome}
+                        className="p-1 hover:bg-white/10 rounded transition-colors text-gray-400 hover:text-white"
+                        title="Root"
+                    >
+                        <Home size={13} />
+                    </button>
+
+                    {/* Move Up Directory */}
+                    <button
+                        onClick={handleMoveUp}
+                        disabled={!selectedNode || !selectedNode.parent_path_text}
+                        className="p-1 hover:bg-white/10 rounded transition-colors text-gray-400 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed"
+                        title="Parent directory"
+                    >
+                        <ArrowUp size={13} />
+                    </button>
+
+                    {/* Path bar — editable, press Enter to navigate */}
+                    <input
+                        type="text"
+                        value={pathInputValue}
+                        onChange={e => setPathInputValue(e.target.value)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') handleNavigateToPath(pathInputValue);
+                            if (e.key === 'Escape') setPathInputValue(currentPath || '/');
+                        }}
+                        onBlur={() => setPathInputValue(currentPath || '/')}
+                        className="flex-1 font-mono text-[10px] px-2 py-1 bg-black/30 rounded text-gray-300 mx-1 focus:outline-none focus:ring-1 focus:ring-signal/50 border border-transparent hover:border-white/10 focus:border-signal/50 transition-colors"
+                        title="Type a path and press Enter to navigate"
+                        spellCheck={false}
+                    />
+
+                    {/* Filter toggle */}
+                    <button
+                        onClick={() => setShowFilter(v => !v)}
+                        className={cn(
+                            'p-1 rounded transition-colors',
+                            showFilter ? 'text-signal bg-signal/10' : 'text-gray-400 hover:text-white hover:bg-white/10'
+                        )}
+                        title="Filter"
+                    >
+                        <Filter size={13} />
+                    </button>
+
+                    {/* Auto-LS toggle */}
+                    <button
+                        onClick={handleToggleAutoLs}
+                        className={cn(
+                            'p-1 rounded transition-colors text-[9px] font-mono',
+                            autoLsEmptyDirs ? 'text-yellow-400 bg-yellow-500/10' : 'text-gray-500 hover:text-white hover:bg-white/10'
+                        )}
+                        title={autoLsEmptyDirs ? 'Auto-ls ON' : 'Auto-ls OFF'}
+                    >
+                        AUTO
+                    </button>
+
+                    {/* Upload file */}
+                    <button
+                        onClick={() => { setUploadDestPath(selectedNode?.full_path_text || '.'); setUploadDialogOpen(true); }}
+                        className="p-1 hover:bg-white/10 rounded text-green-400 hover:text-white transition-colors"
+                        title="Upload file to this directory"
+                    >
+                        <UploadCloud size={13} />
+                    </button>
+
+                    {/* Column config */}
+                    <button
+                        onClick={() => setShowColDialog(true)}
+                        className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                        title="Configure visible columns"
+                    >
+                        <Columns size={13} />
+                    </button>
+
+                    {/* Bulk actions — shown when rows are selected */}
+                    {selectedRows.size > 0 && (
+                        <div className="flex items-center gap-0.5">
+                            <span className="font-mono text-[9px] text-gray-500 px-1">{selectedRows.size}✓</span>
+                            <button
+                                onClick={handleBulkDownload}
+                                className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono border border-blue-500/40 text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+                                title="Download all selected files"
+                            >
+                                <Download size={11} />
+                                DL
+                            </button>
+                            <button
+                                onClick={handleBulkList}
+                                className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono border border-green-500/40 text-green-400 hover:bg-green-500/10 rounded transition-colors"
+                                title="List all selected directories"
+                            >
+                                <FolderSearch size={11} />
+                                LS
+                            </button>
+                            <button
+                                onClick={handleBulkRemove}
+                                className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono border border-red-500/40 text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                                title="Remove all selected items"
+                            >
+                                <Trash2 size={11} />
+                                RM
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Refresh */}
+                    <button
+                        onClick={handleRefresh}
+                        className="p-1 hover:bg-white/10 rounded transition-colors text-signal hover:text-white"
+                        title="Refresh & LS"
+                    >
+                        <RefreshCw size={13} className={folderLoading ? 'animate-spin' : ''} />
+                    </button>
+                </div>
+
+                {/* Filter bar (collapsible) */}
+                {showFilter && (
+                    <div className="shrink-0 border-b border-ghost/20 bg-black/20 px-3 py-1.5 flex items-center gap-2">
+                        <Filter size={11} className="text-gray-500 shrink-0" />
+                        <input
+                            autoFocus
+                            type="text"
+                            value={filterText}
+                            onChange={e => setFilterText(e.target.value)}
+                            placeholder="Filter by name, path, or comment..."
+                            className="flex-1 bg-transparent text-[11px] font-mono text-white placeholder-gray-600 focus:outline-none"
+                        />
+                        {filterText && (
+                            <button onClick={() => setFilterText('')} className="text-gray-500 hover:text-white">
+                                <XCircle size={11} />
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {/* Partial data warning — shown when node was listed but success is unknown */}
+                {selectedNode?.success === null && tableData.length > 0 && (
+                    <div className="shrink-0 border-b border-yellow-500/30 bg-yellow-500/5 px-3 py-1 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-yellow-400">
+                            <ShieldAlert size={11} className="shrink-0" />
+                            <span>PARTIAL_DATA — cached results only. Task 'ls' for a complete listing.</span>
+                        </div>
+                        <button
+                            onClick={handleRefresh}
+                            className="text-[10px] font-mono text-yellow-400 hover:text-white flex items-center gap-1 shrink-0 hover:underline"
+                        >
+                            <RefreshCw size={10} />
+                            Refresh
+                        </button>
+                    </div>
+                )}
+
+                {/* File Table */}
+                <div className="flex-1 overflow-auto">
+                    {isLoading && tableData.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-gray-600 font-mono text-xs animate-pulse">
+                            LOADING...
+                        </div>
+                    ) : tableData.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-600 px-6 text-center">
+                            {displayFormat === 'showTask' ? (
+                                <>
+                                    <AlertCircle size={28} className="opacity-40 text-red-400" />
+                                    <span className="font-mono text-xs text-red-400">TASK_FAILED</span>
+                                    <span className="font-mono text-[10px] text-gray-500">The last ls task returned an error. Retry below.</span>
+                                </>
+                            ) : displayFormat === 'fetchLocal' ? (
+                                <>
+                                    <Folder size={28} className="opacity-40 text-blue-400" />
+                                    <span className="font-mono text-xs text-blue-300">CACHED_DATA_AVAILABLE</span>
+                                    <span className="font-mono text-[10px] text-gray-500">Click the folder in the tree to load data from the local database.</span>
+                                </>
+                            ) : displayFormat === 'fetchRemote' ? (
+                                <>
+                                    <Folder size={28} className="opacity-30" />
+                                    <span className="font-mono text-xs">NO_DATA</span>
+                                    <span className="font-mono text-[10px] text-gray-500">No listing data available. Task 'ls' to fetch from the remote host.</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Folder size={28} className="opacity-20" />
+                                    <span className="font-mono text-xs">NO_FILE_DATA</span>
+                                </>
+                            )}
+                            <button
+                                onClick={() => {
+                                    if (selectedNode) doTask('ls', selectedNode.full_path_text || '.', selectedNode.name_text, true);
+                                    else doTask('ls', '.', '.', true);
+                                }}
+                                className="text-[10px] font-mono text-signal hover:underline"
+                            >
+                                Execute 'ls' here
+                            </button>
+                        </div>
+                    ) : (
+                        <table className="w-full text-xs">
+                            <thead className="bg-black/40 sticky top-0 z-10">
+                                <tr className="font-mono text-[10px] text-gray-500 select-none">
+                                    <th className="w-6 p-1.5 text-left">
+                                        <input
+                                            type="checkbox"
+                                            className="rounded bg-black/40 border-white/20 cursor-pointer"
+                                            checked={selectedRows.size > 0 && selectedRows.size === tableData.filter(n => !n.can_have_children).length}
+                                            onChange={e => {
+                                                if (e.target.checked) {
+                                                    setSelectedRows(new Set(tableData.filter(n => !n.can_have_children).map(n => n.full_path_text)));
+                                                } else {
+                                                    setSelectedRows(new Set());
+                                                }
+                                            }}
+                                        />
+                                    </th>
+                                    {activeCols.map(col => (
+                                        <th
+                                            key={col.key}
+                                            className={cn(
+                                                'p-1.5 text-left select-none',
+                                                col.sortable ? 'cursor-pointer hover:text-white' : '',
+                                                col.width,
+                                                colFilters[col.key] ? 'text-signal' : ''
+                                            )}
+                                            onClick={() => col.sortable ? toggleSort(col.key) : undefined}
+                                            onContextMenu={e => {
+                                                e.preventDefault();
+                                                setFilteringColKey(col.key);
+                                                setFilterColInput(colFilters[col.key] || '');
+                                            }}
+                                            title={colFilters[col.key] ? `Filter: "${colFilters[col.key]}" (right-click to edit)` : 'Right-click to filter this column'}
+                                        >
+                                            <span className="flex items-center gap-0.5">
+                                                {col.label}
+                                                {colFilters[col.key] && <SlidersHorizontal size={8} className="text-signal" />}
+                                                {col.sortable && <SortIcon k={col.key} />}
+                                            </span>
+                                        </th>
+                                    ))}
+                                    <th className="p-1.5 text-left w-28" />
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                                {tableData.map(item => {
+                                    const meta = getMetadata(item);
+                                    const isSelected = selectedRows.has(item.full_path_text);
+                                    const hasDownloads = (item.filemeta?.length || 0) > 0;
+                                    return (
+                                        <tr
+                                            key={item.full_path_text}
+                                            className={cn(
+                                                "hover:bg-white/5 group cursor-pointer transition-colors",
+                                                isSelected && "bg-signal/10",
+                                                item.deleted && "opacity-40"
+                                            )}
+                                            onClick={(e) => {
+                                                if (e.ctrlKey || e.metaKey) {
+                                                    // Multi-select toggle
+                                                    setSelectedRows(prev => {
+                                                        const next = new Set(prev);
+                                                        next.has(item.full_path_text) ? next.delete(item.full_path_text) : next.add(item.full_path_text);
+                                                        return next;
+                                                    });
+                                                } else {
+                                                    if (item.can_have_children) {
+                                                        navigateTo(item);
+                                                    } else {
+                                                        handleFileAction('cat', item.full_path_text, item.name_text, false);
+                                                    }
+                                                }
+                                            }}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                setCtxMenu({ x: e.clientX, y: e.clientY, isDir: item.can_have_children, path: item.full_path_text, name: item.name_text, items: buildContextMenuItems(item, item.can_have_children) });
+                                            }}
+                                        >
+                                            {/* Checkbox */}
+                                            <td className="p-1.5" onClick={e => e.stopPropagation()}>
+                                                {!item.can_have_children && (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={e => {
+                                                            setSelectedRows(prev => {
+                                                                const next = new Set(prev);
+                                                                e.target.checked ? next.add(item.full_path_text) : next.delete(item.full_path_text);
+                                                                return next;
+                                                            });
+                                                        }}
+                                                        className="rounded bg-black/40 border-white/20"
+                                                    />
+                                                )}
+                                            </td>
+
+                                            {/* Name — always visible */}
+                                            <td className="p-1.5">
+                                                <div className="flex items-center gap-1.5">
+                                                    {item.can_have_children
+                                                        ? <Folder size={13} className={item.has_children ? 'text-yellow-500' : 'text-red-500/60'} />
+                                                        : <FileIcon size={13} className="text-blue-400" />}
+                                                    <span className={cn('truncate max-w-[200px]', item.deleted && 'line-through text-gray-500')}>
+                                                        {item.name_text}
+                                                    </span>
+                                                    {item.success === true && <CheckCircle2 size={10} className="text-green-500 shrink-0" />}
+                                                    {item.success === false && <AlertCircle size={10} className="text-red-500 shrink-0" />}
+                                                </div>
+                                            </td>
+
+                                            {/* Size */}
+                                            {activeCols.some(c => c.key === 'size') && (
+                                                <td className="p-1.5 font-mono text-[10px] text-gray-400">
+                                                    {meta.size ? formatBytes(Number(meta.size)) : '—'}
+                                                </td>
+                                            )}
+
+                                            {/* Modified */}
+                                            {activeCols.some(c => c.key === 'modify_time') && (
+                                                <td className="p-1.5 font-mono text-[10px] text-gray-400 truncate max-w-[140px]">
+                                                    {meta.modify_time || '—'}
+                                                </td>
+                                            )}
+
+                                            {/* Comment */}
+                                            {activeCols.some(c => c.key === 'comment') && (
+                                                <td className="p-1.5 max-w-[130px]">
+                                                    {item.comment ? (
+                                                        <span className="text-[10px] text-gray-400 italic truncate block" title={item.comment}>
+                                                            {item.comment}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[9px] text-gray-700 italic">—</span>
+                                                    )}
+                                                </td>
+                                            )}
+
+                                            {/* Tags */}
+                                            {activeCols.some(c => c.key === 'tags') && (
+                                            <td className="p-1.5">
+                                                <div className="flex flex-wrap gap-0.5">
+                                                    {(item.tags || []).slice(0, 3).map(t => (
+                                                        <span
+                                                            key={t.id}
+                                                            className="text-[8px] px-1 py-0.5 rounded font-mono"
+                                                            style={{ background: `${t.tagtype.color}30`, color: t.tagtype.color, border: `1px solid ${t.tagtype.color}50` }}
+                                                            title={t.tagtype.name}
+                                                        >
+                                                            {t.tagtype.name}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            )}
+
+                                            {/* Permissions */}
+                                            {activeCols.some(c => c.key === 'permissions') && (
+                                                <td className="p-1.5 font-mono text-[10px] text-gray-400">
+                                                    {meta.permissions ? (
+                                                        <span title={JSON.stringify(meta.permissions, null, 2)} className="cursor-help">
+                                                            {typeof meta.permissions === 'object'
+                                                                ? (meta.permissions as any).octal || JSON.stringify(meta.permissions).slice(0, 12)
+                                                                : String(meta.permissions).slice(0, 12)}
+                                                        </span>
+                                                    ) : '—'}
+                                                </td>
+                                            )}
+
+                                            {/* Actions */}
+                                            <td className="p-1.5">
+                                                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {/* Download (task) */}
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleFileAction('download', item.full_path_text, item.name_text, false); }}
+                                                        className="p-1 hover:bg-white/10 rounded text-blue-400 hover:text-white transition-colors"
+                                                        title="Task download"
+                                                    >
+                                                        <Download size={12} />
+                                                    </button>
+
+                                                    {/* Download history (filemeta) */}
+                                                    {hasDownloads && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setDownloadHistoryNode(item); }}
+                                                            className="p-1 hover:bg-white/10 rounded text-blue-300 hover:text-white transition-colors relative"
+                                                            title={`${item.filemeta!.length} download(s) in history`}
+                                                        >
+                                                            <History size={12} />
+                                                            <span className="absolute -top-0.5 -right-0.5 text-[7px] leading-none bg-blue-500 text-white rounded-full w-3 h-3 flex items-center justify-center">
+                                                                {item.filemeta!.length}
+                                                            </span>
+                                                        </button>
+                                                    )}
+
+                                                    {/* Copy path */}
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(item.full_path_text); snackActions.success('Copied'); }}
+                                                        className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                                                        title="Copy path"
+                                                    >
+                                                        <Copy size={12} />
+                                                    </button>
+
+                                                    {/* Edit comment */}
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); setEditingComment(item); }}
+                                                        className="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                                                        title="Edit comment"
+                                                    >
+                                                        <Edit2 size={12} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================
+// Mythic C2 Server Files
+// ============================================
+const MythicServerFiles = ({ 
+    subTab, 
+    setSubTab 
+}: { 
+    subTab: 'downloads' | 'uploads' | 'screenshots', 
+    setSubTab: (tab: 'downloads' | 'uploads' | 'screenshots') => void 
+}) => {
+    const [previewFile, setPreviewFile] = useState<FileMeta | null>(null);
+    
+    const { data: downloadsData, loading: downloadsLoading, refetch: refetchDownloads } = useQuery(GET_MYTHIC_DOWNLOADS, {
+        skip: subTab !== 'downloads',
+        pollInterval: 15000
+    });
+
+    const { data: uploadsData, loading: uploadsLoading, refetch: refetchUploads } = useQuery(GET_MYTHIC_UPLOADS, {
+        skip: subTab !== 'uploads',
+        pollInterval: 15000
+    });
+
+    const { data: screenshotsData, loading: screenshotsLoading, refetch: refetchScreenshots } = useQuery(GET_MYTHIC_SCREENSHOTS, {
+        skip: subTab !== 'screenshots',
+        pollInterval: 15000
+    });
+
+    const handleRefresh = () => {
+        if (subTab === 'downloads') refetchDownloads();
+        else if (subTab === 'uploads') refetchUploads();
+        else refetchScreenshots();
+    };
+
+    const getCurrentData = () => {
+        if (subTab === 'downloads') return { data: downloadsData?.filemeta || [], loading: downloadsLoading };
+        if (subTab === 'uploads') return { data: uploadsData?.filemeta || [], loading: uploadsLoading };
+        return { data: screenshotsData?.filemeta || [], loading: screenshotsLoading };
+    };
+
+    const { data: files, loading } = getCurrentData();
+
+    return (
+        <div className="flex flex-col h-full relative">
+            {/* Sub-tabs */}
+            <div className="flex items-center border-b border-ghost/30 bg-black/20 px-2">
+                <button
+                    onClick={() => setSubTab('downloads')}
+                    className={cn(
+                        "flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono transition-colors",
+                        subTab === 'downloads' ? "text-blue-400 border-b border-blue-400" : "text-gray-500 hover:text-white"
+                    )}
+                >
+                    <Download size={12} />
+                    DOWNLOADS
+                </button>
+                <button
+                    onClick={() => setSubTab('uploads')}
+                    className={cn(
+                        "flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono transition-colors",
+                        subTab === 'uploads' ? "text-green-400 border-b border-green-400" : "text-gray-500 hover:text-white"
+                    )}
+                >
+                    <Upload size={12} />
+                    UPLOADS
+                </button>
+                <button
+                    onClick={() => setSubTab('screenshots')}
+                    className={cn(
+                        "flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono transition-colors",
+                        subTab === 'screenshots' ? "text-purple-400 border-b border-purple-400" : "text-gray-500 hover:text-white"
+                    )}
+                >
+                    <Image size={12} />
+                    SCREENSHOTS
+                </button>
+
+                <div className="flex-1" />
+                <button
+                    onClick={handleRefresh}
+                    className="p-1.5 hover:bg-white/10 rounded transition-colors text-gray-400 hover:text-white"
+                    title="Refresh"
+                >
+                    <RefreshCw size={12} />
+                </button>
+            </div>
+
+            {/* File List */}
+            <div className="flex-1 overflow-auto">
+                {loading ? (
+                    <div className="flex items-center justify-center h-full text-gray-500 font-mono text-xs">
+                        LOADING_FILES...
+                    </div>
+                ) : files.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-600 font-mono text-xs">
+                        <FileText size={32} className="mb-2 opacity-30" />
+                        <span>NO_{subTab.toUpperCase()}_FOUND</span>
+                    </div>
+                ) : subTab === 'screenshots' ? (
+                    <ScreenshotGrid files={files} onPreview={setPreviewFile} />
+                ) : subTab === 'uploads' ? (
+                    <UploadsView files={files} onPreview={setPreviewFile} />
+                ) : (
+                    <FileMetaList files={files} type={subTab} onPreview={setPreviewFile} />
+                )}
+            </div>
+
+            {/* Preview Modal */}
+            <AnimatePresence>
+                {previewFile && (
+                    <FilePreviewModal 
+                        file={previewFile} 
+                        onClose={() => setPreviewFile(null)}
+                        allFiles={subTab === 'screenshots' ? files : undefined}
+                        onNavigate={subTab === 'screenshots' ? setPreviewFile : undefined}
+                    />
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
+// File list for downloads/uploads
+const FileMetaList = ({ files, type, onPreview }: { files: FileMeta[], type: 'downloads' | 'uploads', onPreview: (file: FileMeta) => void }) => {
+    const handleDownloadFile = (file: FileMeta) => {
+        if (file.agent_file_id) {
+            window.open(`/direct/download/${file.agent_file_id}`, '_blank');
+        }
+    };
+
+    return (
+        <div className="divide-y divide-white/5">
+            {files.map((file) => (
+                <div
+                    key={file.id}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors group"
+                >
+                    <div className={cn(
+                        "p-2 rounded",
+                        type === 'downloads' ? "bg-blue-500/10 text-blue-400" : "bg-green-500/10 text-green-400"
+                    )}>
+                        {type === 'downloads' ? <Download size={14} /> : <Upload size={14} />}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-white truncate" title={b64DecodeUnicode(file.filename_text)}>
+                                {b64DecodeUnicode(file.filename_text) || 'unnamed'}
+                            </span>
+                            {!file.complete && (
+                                <span className="text-[9px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">
+                                    {Math.round((file.chunks_received / file.total_chunks) * 100)}%
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-gray-500 mt-0.5">
+                            {file.host && (
+                                <span className="flex items-center gap-1">
+                                    <Monitor size={10} />
+                                    {file.host}
+                                </span>
+                            )}
+                            <span className="flex items-center gap-1">
+                                <HardDrive size={10} />
+                                {formatBytes(file.size)}
+                            </span>
+                            {file.task && (
+                                <span className="flex items-center gap-1">
+                                    <Link2 size={10} />
+                                    Task #{file.task.display_id}
+                                </span>
+                            )}
+                            <span className="flex items-center gap-1">
+                                <Clock size={10} />
+                                {new Date(file.timestamp).toLocaleString()}
+                            </span>
+                        </div>
+                        {file.full_remote_path_text && (
+                            <div className="text-[9px] text-gray-600 truncate mt-0.5" title={b64DecodeUnicode(file.full_remote_path_text)}>
+                                {b64DecodeUnicode(file.full_remote_path_text)}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {file.complete && (
+                            <button
+                                onClick={() => handleDownloadFile(file)}
+                                className="p-1.5 hover:bg-white/10 rounded text-blue-400 hover:text-white"
+                                title="Download from Mythic"
+                            >
+                                <Download size={14} />
+                            </button>
+                        )}
+                        <button
+                            onClick={() => onPreview(file)}
+                            className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white"
+                            title="View Details"
+                        >
+                            <Eye size={14} />
+                        </button>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// ── Uploads view: table with host-grouped sections ───────────────────────
+const UploadsView = ({ files, onPreview }: { files: FileMeta[]; onPreview: (f: FileMeta) => void }) => {
+    const [expandedHosts, setExpandedHosts] = useState<Set<string>>(() => new Set(['__staged__']));
+    const [selected, setSelected] = useState<Set<number>>(() => new Set());
+    const [sortKey, setSortKey] = useState<'timestamp' | 'filename_text' | 'size'>('timestamp');
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+    const handleDownload = (file: FileMeta) => {
+        if (file.agent_file_id) window.open(`/direct/download/${file.agent_file_id}`, '_blank');
+    };
+    const toggleHost = (h: string) => setExpandedHosts(prev => {
+        const next = new Set(prev);
+        next.has(h) ? next.delete(h) : next.add(h);
+        return next;
+    });
+    const toggleSort = (k: typeof sortKey) => {
+        if (k === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        else { setSortKey(k); setSortDir('desc'); }
+    };
+    const sortFiles = (arr: FileMeta[]) => arr.slice().sort((a, b) => {
+        let va: string | number = '';
+        let vb: string | number = '';
+        if (sortKey === 'timestamp')     { va = a.timestamp; vb = b.timestamp; }
+        else if (sortKey === 'size')     { va = a.size; vb = b.size; }
+        else if (sortKey === 'filename_text') { va = b64DecodeUnicode(a.filename_text).toLowerCase(); vb = b64DecodeUnicode(b.filename_text).toLowerCase(); }
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const toggleSelectFile = (id: number) => setSelected(prev => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+    });
+    const toggleSelectGroup = (groupFiles: FileMeta[]) => {
+        const ids = groupFiles.map(f => f.id);
+        const allSelected = ids.every(id => selected.has(id));
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (allSelected) ids.forEach(id => next.delete(id));
+            else ids.forEach(id => next.add(id));
+            return next;
+        });
+    };
+
+    const staged   = files.filter(f => !f.host);
+    const deployed = files.filter(f => !!f.host);
+    const byHost = deployed.reduce<Record<string, FileMeta[]>>((acc, f) => {
+        (acc[f.host] ??= []).push(f);
+        return acc;
+    }, {});
+    const sortedHosts = Object.keys(byHost).sort((a, b) => a.localeCompare(b));
+
+    const SortIcon = ({ k }: { k: typeof sortKey }) =>
+        sortKey === k ? (sortDir === 'asc' ? <ChevronUp size={9} /> : <ChevronDown size={9} />) : null;
+
+    const FileRow = ({ file }: { file: FileMeta }) => {
+        const isSelected = selected.has(file.id);
+        const remotePath = file.full_remote_path_text ? b64DecodeUnicode(file.full_remote_path_text) : null;
+        const filename   = b64DecodeUnicode(file.filename_text) || 'unnamed';
+        const pct = file.total_chunks > 0 ? Math.round((file.chunks_received / file.total_chunks) * 100) : 0;
+        return (
+            <tr className={cn("group hover:bg-white/5 transition-colors", isSelected && "bg-signal/5")}>
+                {/* Checkbox */}
+                <td className="pl-3 pr-1 py-2 w-7" onClick={e => e.stopPropagation()}>
+                    <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelectFile(file.id)}
+                        className="rounded bg-black/40 border-white/20 cursor-pointer"
+                    />
+                </td>
+                {/* Filename + remote path */}
+                <td className="px-2 py-2 max-w-0">
+                    <div className="flex items-start gap-1.5">
+                        <FileText size={13} className="text-green-400 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                            <div className="font-mono text-xs text-white truncate" title={filename}>{filename}</div>
+                            {remotePath && (
+                                <div className="text-[9px] text-gray-600 font-mono truncate mt-0.5" title={remotePath}>
+                                    {remotePath}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </td>
+                {/* Host */}
+                <td className="px-2 py-2 w-32">
+                    {file.host ? (
+                        <span className="text-[10px] font-mono text-signal/80">{file.host}</span>
+                    ) : (
+                        <span className="text-[10px] text-gray-600">—</span>
+                    )}
+                </td>
+                {/* Size */}
+                <td className="px-2 py-2 w-24 font-mono text-[10px] text-gray-400 whitespace-nowrap">
+                    {formatBytes(file.size)}
+                </td>
+                {/* Status */}
+                <td className="px-2 py-2 w-24">
+                    {file.complete ? (
+                        <span className="flex items-center gap-1 text-[10px] text-green-400">
+                            <CheckCircle2 size={10} /> Complete
+                        </span>
+                    ) : (
+                        <span className="flex items-center gap-1 text-[10px] text-yellow-400">
+                            <RefreshCw size={9} className="animate-spin" />
+                            {pct}%
+                        </span>
+                    )}
+                </td>
+                {/* Time */}
+                <td className="px-2 py-2 w-28 font-mono text-[10px] text-gray-500 whitespace-nowrap">
+                    {(() => {
+                        const d = new Date(file.timestamp);
+                        const diff = Date.now() - d.getTime();
+                        const mins = Math.floor(diff / 60000);
+                        const hrs  = Math.floor(diff / 3600000);
+                        const days = Math.floor(diff / 86400000);
+                        if (mins < 60)  return `${mins}m ago`;
+                        if (hrs < 24)   return `${hrs}h ago`;
+                        return `${days}d ago`;
+                    })()}
+                </td>
+                {/* Actions */}
+                <td className="pr-2 py-2 w-24">
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {file.complete && (
+                            <button
+                                onClick={() => handleDownload(file)}
+                                className="p-1.5 hover:bg-white/10 rounded text-blue-400 hover:text-white"
+                                title="Download from Mythic server"
+                            >
+                                <Download size={13} />
+                            </button>
+                        )}
+                        <button
+                            onClick={() => onPreview(file)}
+                            className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white"
+                            title="View details"
+                        >
+                            <Eye size={13} />
+                        </button>
+                        <button
+                            onClick={() => { navigator.clipboard.writeText(file.agent_file_id); snackActions.success('Copied'); }}
+                            className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white"
+                            title="Copy file ID"
+                        >
+                            <Copy size={13} />
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        );
+    };
+
+    const GroupHeader = ({ groupKey, label, icon, groupFiles, accent }: {
+        groupKey: string; label: string; icon: React.ReactNode;
+        groupFiles: FileMeta[]; accent: string;
+    }) => {
+        const isOpen = expandedHosts.has(groupKey);
+        const allSel = groupFiles.length > 0 && groupFiles.every(f => selected.has(f.id));
+        const latest = groupFiles.reduce((t, f) => f.timestamp > t ? f.timestamp : t, '');
+        return (
+            <tr
+                className="bg-black/40 cursor-pointer hover:bg-white/5 transition-colors select-none"
+                onClick={() => toggleHost(groupKey)}
+            >
+                <td className="pl-3 pr-1 py-1.5" onClick={e => e.stopPropagation()}>
+                    <input
+                        type="checkbox"
+                        checked={allSel}
+                        onChange={() => toggleSelectGroup(groupFiles)}
+                        className="rounded bg-black/40 border-white/20 cursor-pointer"
+                    />
+                </td>
+                <td colSpan={5} className="px-2 py-1.5">
+                    <div className="flex items-center gap-2">
+                        {isOpen ? <ChevronDown size={10} className="text-gray-500 shrink-0" /> : <ChevronRight size={10} className="text-gray-500 shrink-0" />}
+                        <span className={cn("shrink-0", accent)}>{icon}</span>
+                        <span className={cn("text-[10px] font-mono uppercase tracking-widest", accent)}>{label}</span>
+                        <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-mono ml-1", accent === 'text-green-400' ? 'bg-green-500/15 text-green-400' : 'bg-gray-600/25 text-gray-400')}>
+                            {groupFiles.length}
+                        </span>
+                        {latest && (
+                            <span className="text-[9px] font-mono text-gray-600 ml-auto pr-1">
+                                {new Date(latest).toLocaleDateString()}
+                            </span>
+                        )}
+                    </div>
+                </td>
+                <td />
+            </tr>
+        );
+    };
+
+    if (files.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-gray-600 font-mono text-xs">
+                <Upload size={28} className="mb-2 opacity-20" />
+                <span>NO_UPLOADS_FOUND</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* Bulk toolbar */}
+            {selected.size > 0 && (
+                <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-white/10 bg-signal/5 font-mono">
+                    <span className="text-[10px] text-signal">{selected.size} selected</span>
+                    <button
+                        onClick={() => {
+                            files.filter(f => selected.has(f.id) && f.complete)
+                                .forEach(f => window.open(`/direct/download/${f.agent_file_id}`, '_blank'));
+                        }}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] border border-blue-500/40 text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+                    >
+                        <Download size={10} /> Download all
+                    </button>
+                    <button
+                        onClick={() => setSelected(new Set())}
+                        className="ml-auto text-[10px] text-gray-500 hover:text-white transition-colors"
+                    >
+                        Clear
+                    </button>
+                </div>
+            )}
+
+            <div className="flex-1 overflow-auto">
+                <table className="w-full text-xs border-collapse">
+                    {/* Sticky header */}
+                    <thead className="sticky top-0 z-10 bg-black/80 backdrop-blur-sm">
+                        <tr className="font-mono text-[10px] text-gray-500 border-b border-white/10 select-none">
+                            <th className="pl-3 pr-1 py-2 w-7">
+                                <input
+                                    type="checkbox"
+                                    checked={files.length > 0 && files.every(f => selected.has(f.id))}
+                                    onChange={() => {
+                                        if (files.every(f => selected.has(f.id))) setSelected(new Set());
+                                        else setSelected(new Set(files.map(f => f.id)));
+                                    }}
+                                    className="rounded bg-black/40 border-white/20 cursor-pointer"
+                                />
+                            </th>
+                            <th className="px-2 py-2 text-left cursor-pointer hover:text-white" onClick={() => toggleSort('filename_text')}>
+                                <span className="flex items-center gap-1">FILENAME <SortIcon k="filename_text" /></span>
+                            </th>
+                            <th className="px-2 py-2 text-left w-32">HOST</th>
+                            <th className="px-2 py-2 text-left w-24 cursor-pointer hover:text-white" onClick={() => toggleSort('size')}>
+                                <span className="flex items-center gap-1">SIZE <SortIcon k="size" /></span>
+                            </th>
+                            <th className="px-2 py-2 text-left w-24">STATUS</th>
+                            <th className="px-2 py-2 text-left w-28 cursor-pointer hover:text-white" onClick={() => toggleSort('timestamp')}>
+                                <span className="flex items-center gap-1">TIME <SortIcon k="timestamp" /></span>
+                            </th>
+                            <th className="pr-2 py-2 text-left w-24">ACTIONS</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                        {/* ── Staged (server only) ─────────────────── */}
+                        {staged.length > 0 && (
+                            <>
+                                <GroupHeader
+                                    groupKey="__staged__"
+                                    label="Staged — Server Only"
+                                    icon={<Server size={10} />}
+                                    groupFiles={staged}
+                                    accent="text-gray-400"
+                                />
+                                {expandedHosts.has('__staged__') &&
+                                    sortFiles(staged).map(f => <FileRow key={f.id} file={f} />)}
+                            </>
+                        )}
+
+                        {/* ── Per-host sections ────────────────────── */}
+                        {sortedHosts.map(host => (
+                            <React.Fragment key={host}>
+                                <GroupHeader
+                                    groupKey={host}
+                                    label={host}
+                                    icon={<Monitor size={10} />}
+                                    groupFiles={byHost[host]}
+                                    accent="text-green-400"
+                                />
+                                {expandedHosts.has(host) &&
+                                    sortFiles(byHost[host]).map(f => <FileRow key={f.id} file={f} />)}
+                            </React.Fragment>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// Screenshot grid
+const ScreenshotGrid = ({ files, onPreview }: { files: FileMeta[], onPreview: (file: FileMeta) => void }) => {
+    return (
+        <div className="grid grid-cols-3 gap-2 p-2">
+            {files.map((file) => (
+                <div
+                    key={file.id}
+                    onClick={() => onPreview(file)}
+                    className="relative aspect-video bg-black/40 rounded border border-ghost/30 overflow-hidden group cursor-pointer hover:border-purple-500/50 transition-colors"
+                >
+                    <img
+                        src={`/direct/download/${file.agent_file_id}`}
+                        alt={b64DecodeUnicode(file.filename_text)}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Eye size={24} className="text-white" />
+                    </div>
+                    <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-black/80 text-[9px] font-mono">
+                        <div className="flex items-center gap-1 text-gray-400 truncate">
+                            <Monitor size={10} />
+                            {file.host}
+                        </div>
+                        <div className="text-gray-500 truncate">
+                            {new Date(file.timestamp).toLocaleString()}
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// File Preview Modal
+const FilePreviewModal = ({ file, onClose, allFiles, onNavigate }: { file: FileMeta, onClose: () => void, allFiles?: FileMeta[], onNavigate?: (file: FileMeta) => void }) => {
+    const [zoom, setZoom] = useState(false);
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+        snackActions.success('Copied to clipboard');
+    };
+
+    const isScreenshot = file.is_screenshot;
+    const currentIdx = allFiles ? allFiles.findIndex(f => f.id === file.id) : -1;
+    const canPrev = currentIdx > 0;
+    const canNext = allFiles ? currentIdx < allFiles.length - 1 : false;
+    const handlePrev = () => { if (canPrev && allFiles && onNavigate) onNavigate(allFiles[currentIdx - 1]); setZoom(false); };
+    const handleNext = () => { if (canNext && allFiles && onNavigate) onNavigate(allFiles[currentIdx + 1]); setZoom(false); };
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-8"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-void border border-white/20 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-auto"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <FileText size={20} className="text-signal" />
+                        <div>
+                            <h3 className="font-mono text-sm text-white">{b64DecodeUnicode(file.filename_text) || 'Unnamed File'}</h3>
+                            <p className="text-[10px] text-gray-500">{file.agent_file_id}</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-1 hover:bg-white/10 rounded">
+                        <XCircle size={20} className="text-gray-400" />
+                    </button>
+                </div>
+
+                {/* Screenshot Preview with stepper */}
+                {isScreenshot && (
+                    <div className="relative bg-black/40">
+                        <div className={cn("p-4 flex items-start justify-center", zoom ? "overflow-auto" : "")}>
+                            <img 
+                                src={`/direct/download/${file.agent_file_id}`}
+                                alt={b64DecodeUnicode(file.filename_text)}
+                                className={cn(
+                                    "rounded border border-white/10 transition-all",
+                                    zoom ? "max-w-none cursor-zoom-out" : "max-w-full cursor-zoom-in"
+                                )}
+                                onClick={() => setZoom(z => !z)}
+                            />
+                        </div>
+                        {/* Stepper navigation */}
+                        {allFiles && allFiles.length > 1 && (
+                            <div className="flex items-center justify-between px-4 py-2 border-t border-white/5 bg-black/60">
+                                <button
+                                    onClick={handlePrev}
+                                    disabled={!canPrev}
+                                    className={cn("flex items-center gap-1 px-3 py-1 text-xs font-mono rounded border transition-colors", canPrev ? "border-signal/30 text-signal hover:bg-signal/10" : "border-gray-800 text-gray-700 cursor-not-allowed")}
+                                >
+                                    <ChevronLeft size={14} /> PREV
+                                </button>
+                                <span className="text-[10px] font-mono text-gray-500">
+                                    {currentIdx + 1} / {allFiles.length}
+                                </span>
+                                <button
+                                    onClick={handleNext}
+                                    disabled={!canNext}
+                                    className={cn("flex items-center gap-1 px-3 py-1 text-xs font-mono rounded border transition-colors", canNext ? "border-signal/30 text-signal hover:bg-signal/10" : "border-gray-800 text-gray-700 cursor-not-allowed")}
+                                >
+                                    NEXT <ChevronRight size={14} />
+                                </button>
+                            </div>
+                        )}
+                        {/* Zoom toggle */}
+                        <button
+                            onClick={() => setZoom(z => !z)}
+                            className="absolute top-2 right-2 p-1.5 bg-black/70 border border-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                            title={zoom ? "Zoom out" : "Zoom in"}
+                        >
+                            {zoom ? <ZoomOut size={14} /> : <ZoomIn size={14} />}
+                        </button>
+                    </div>
+                )}
+
+                {/* Details */}
+                <div className="p-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <label className="text-gray-500 text-[10px]">HOST</label>
+                            <p className="text-white font-mono">{file.host || '-'}</p>
+                        </div>
+                        <div>
+                            <label className="text-gray-500 text-[10px]">SIZE</label>
+                            <p className="text-white font-mono">{formatBytes(file.size)}</p>
+                        </div>
+                        <div>
+                            <label className="text-gray-500 text-[10px]">TIMESTAMP</label>
+                            <p className="text-white font-mono">{new Date(file.timestamp).toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <label className="text-gray-500 text-[10px]">STATUS</label>
+                            <p className={file.complete ? "text-green-400" : "text-yellow-400"}>
+                                {file.complete ? 'Complete' : `${file.chunks_received}/${file.total_chunks} chunks`}
+                            </p>
+                        </div>
+                        {file.md5 && (
+                            <div className="col-span-2">
+                                <label className="text-gray-500 text-[10px]">MD5</label>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-white font-mono text-[10px] break-all">{file.md5}</p>
+                                    <button onClick={() => copyToClipboard(file.md5)} className="p-1 hover:bg-white/10 rounded">
+                                        <Copy size={10} className="text-gray-400" />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {file.sha1 && (
+                            <div className="col-span-2">
+                                <label className="text-gray-500 text-[10px]">SHA1</label>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-white font-mono text-[10px] break-all">{file.sha1}</p>
+                                    <button onClick={() => copyToClipboard(file.sha1)} className="p-1 hover:bg-white/10 rounded">
+                                        <Copy size={10} className="text-gray-400" />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {file.full_remote_path_text && (
+                            <div className="col-span-2">
+                                <label className="text-gray-500 text-[10px]">REMOTE PATH</label>
+                                <p className="text-white font-mono text-[10px] break-all">{b64DecodeUnicode(file.full_remote_path_text)}</p>
+                            </div>
+                        )}
+                        {file.comment && (
+                            <div className="col-span-2">
+                                <label className="text-gray-500 text-[10px]">COMMENT</label>
+                                <p className="text-gray-300 text-sm">{file.comment}</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-2 pt-4 border-t border-white/10">
+                        {file.complete && (
+                            <a
+                                href={`/direct/download/${file.agent_file_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-500/30 transition-colors"
+                            >
+                                <Download size={14} />
+                                Download
+                            </a>
+                        )}
+                        <button
+                            onClick={() => copyToClipboard(file.agent_file_id)}
+                            className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white border border-white/20 rounded text-xs hover:bg-white/20 transition-colors"
+                        >
+                            <Copy size={14} />
+                            Copy File ID
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+};

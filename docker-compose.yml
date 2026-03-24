@@ -1,0 +1,13 @@
+services:
+  minerva:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.prod
+    container_name: minerva
+    ports:
+      - "443:443"
+    environment:
+      - MYTHIC_ADDRESS=https://host.docker.internal:7443
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

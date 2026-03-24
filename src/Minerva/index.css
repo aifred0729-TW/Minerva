@@ -1,0 +1,534 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-signal: 255 255 255;
+    --color-accent: 34 197 94;
+    --color-void: 0 0 0;
+    --color-ghost: 153 153 153;
+    --color-machine: 51 51 51;
+  }
+
+  /* ── Light theme overrides ─────────────────────────────────────────── */
+  :root.minerva-light {
+    --color-void: 240 240 245;
+    --color-ghost: 90 90 100;
+    --color-machine: 225 225 230;
+    --color-signal: 30 30 40;
+    --color-accent: 22 163 74;
+  }
+
+  body {
+    @apply bg-void font-sans;
+    color: rgb(var(--color-signal));
+  }
+}
+
+/* Dynamic signal color - will be updated by JavaScript */
+.text-signal {
+  color: rgb(var(--color-signal)) !important;
+}
+
+.bg-signal {
+  background-color: rgb(var(--color-signal)) !important;
+}
+
+.border-signal {
+  border-color: rgb(var(--color-signal)) !important;
+}
+
+/* With opacity variants */
+.text-signal\/80 {
+  color: rgb(var(--color-signal) / 0.8) !important;
+}
+
+.bg-signal\/10 {
+  background-color: rgb(var(--color-signal) / 0.1) !important;
+}
+
+.bg-signal\/20 {
+  background-color: rgb(var(--color-signal) / 0.2) !important;
+}
+
+.bg-signal\/30 {
+  background-color: rgb(var(--color-signal) / 0.3) !important;
+}
+
+.border-signal\/20 {
+  border-color: rgb(var(--color-signal) / 0.2) !important;
+}
+
+.border-signal\/30 {
+  border-color: rgb(var(--color-signal) / 0.3) !important;
+}
+
+.border-signal\/40 {
+  border-color: rgb(var(--color-signal) / 0.4) !important;
+}
+
+.border-signal\/50 {
+  border-color: rgb(var(--color-signal) / 0.5) !important;
+}
+
+.selection\:bg-signal::selection {
+  background-color: rgb(var(--color-signal)) !important;
+}
+
+/* Accent color */
+.text-accent {
+  color: rgb(var(--color-accent)) !important;
+}
+
+.bg-accent {
+  background-color: rgb(var(--color-accent)) !important;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #000; 
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #333; 
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* Cyberpunk 2077 Advanced Minimal Scrollbar - Applied Globally */
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.4) 0%, rgba(0, 255, 255, 0.2) 100%);
+  border: none;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.7) 0%, rgba(0, 255, 255, 0.4) 100%);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+*::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.9) 0%, rgba(0, 255, 255, 0.6) 100%);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox global scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 255, 255, 0.4) transparent;
+}
+
+/* cyber-scrollbar class for explicit use */
+.cyber-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.cyber-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+.cyber-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.4) 0%, rgba(0, 255, 255, 0.2) 100%);
+  border: none;
+  position: relative;
+}
+.cyber-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.7) 0%, rgba(0, 255, 255, 0.4) 100%);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+.cyber-scrollbar::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, rgba(0, 255, 255, 0.9) 0%, rgba(0, 255, 255, 0.6) 100%);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
+}
+.cyber-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox scrollbar support */
+.cyber-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 255, 255, 0.4) transparent;
+}
+
+/* Glitch Animation */
+.glitch-text {
+  position: relative;
+}
+.glitch-text::before,
+.glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+.glitch-text::before {
+  left: 2px;
+  text-shadow: -1px 0 red;
+  clip: rect(24px, 550px, 90px, 0);
+  animation: glitch-anim-2 3s infinite linear alternate-reverse;
+}
+.glitch-text::after {
+  left: -2px;
+  text-shadow: -1px 0 blue;
+  clip: rect(85px, 550px, 140px, 0);
+  animation: glitch-anim-1 2.5s infinite linear alternate-reverse;
+}
+
+@keyframes glitch-anim-1 {
+  0% { clip: rect(20px, 9999px, 15px, 0); }
+  20% { clip: rect(60px, 9999px, 70px, 0); }
+  40% { clip: rect(30px, 9999px, 10px, 0); }
+  60% { clip: rect(80px, 9999px, 90px, 0); }
+  80% { clip: rect(10px, 9999px, 40px, 0); }
+  100% { clip: rect(50px, 9999px, 60px, 0); }
+}
+@keyframes glitch-anim-2 {
+  0% { clip: rect(60px, 9999px, 70px, 0); }
+  20% { clip: rect(10px, 9999px, 40px, 0); }
+  40% { clip: rect(80px, 9999px, 90px, 0); }
+  60% { clip: rect(30px, 9999px, 10px, 0); }
+  80% { clip: rect(50px, 9999px, 60px, 0); }
+  100% { clip: rect(20px, 9999px, 15px, 0); }
+}
+
+/* ═══════════════════════════════════════════════════
+   MINERVA NOTIFICATION HUD · top-right
+═══════════════════════════════════════════════════ */
+
+/* Container */
+.Toastify__toast-container--top-right {
+  top: 20px !important;
+  right: 20px !important;
+  width: 360px !important;
+  z-index: 99999 !important;
+  padding: 0 !important;
+}
+
+/* ── Base toast ── */
+.cyber-toast {
+  --ct-rgb:  255, 255, 255;
+  --ct-glow: 0.06;
+  background: rgba(5, 7, 12, 0.97) !important;
+  backdrop-filter: blur(24px) saturate(160%) !important;
+  border: 1px solid rgba(var(--ct-rgb), 0.10) !important;
+  border-top: 2px solid rgba(var(--ct-rgb), 0.70) !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  min-height: auto !important;
+  margin-bottom: 8px !important;
+  box-shadow:
+    0 2px 0 rgba(var(--ct-rgb), 0.04) inset,
+    0 12px 40px rgba(0, 0, 0, 0.85),
+    0 0 24px rgba(var(--ct-rgb), var(--ct-glow)) !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  position: relative !important;
+  overflow: hidden !important;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%) !important;
+  cursor: pointer !important;
+  transition: box-shadow 0.2s ease !important;
+}
+
+.cyber-toast:hover {
+  box-shadow:
+    0 2px 0 rgba(var(--ct-rgb), 0.06) inset,
+    0 12px 40px rgba(0, 0, 0, 0.9),
+    0 0 36px rgba(var(--ct-rgb), calc(var(--ct-glow) * 2)) !important;
+}
+
+/* Cut-corner accent */
+.cyber-toast::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -1px;
+  width: 16px;
+  height: 16px;
+  background: rgba(var(--ct-rgb), 0.6);
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Toastify internal reset ── 
+   Kill every default padding/margin toastify injects so only
+   our .cyber-toast-body controls spacing.
+*/
+.cyber-toast.Toastify__toast {
+  padding: 0 !important;
+  min-height: 72px !important;
+}
+.cyber-toast .Toastify__toast-body {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  align-items: stretch !important;
+  flex: 1 1 auto !important;
+}
+.cyber-toast .Toastify__toast-icon {
+  display: none !important;
+}
+
+/* ── Our body padding — generous whitespace on all sides ── */
+.cyber-toast-body {
+  padding: 16px 22px 18px !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 1 !important;
+  width: 100% !important;
+}
+
+/* Type label — JetBrains Mono, spaced-out caps */
+.cyber-toast-label {
+  display: block;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: rgba(var(--ct-rgb), 0.85);
+  margin-bottom: 10px;
+  padding-top: 10px;
+  padding-left: 10px;
+  line-height: 1;
+}
+
+/* Message — Inter medium, large enough to read clearly */
+.cyber-toast-message {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.15px;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.6;
+  word-break: break-word;
+  padding-left: 10px;
+  padding-bottom: 10px;
+  padding-right: 10px;
+}
+
+/* Progress bar */
+.Toastify__progress-bar-theme--dark {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+.Toastify__progress-bar {
+  height: 2px !important;
+  opacity: 1 !important;
+}
+
+/* ── SUCCESS — green #22c55e ── */
+.Toastify__toast--success.cyber-toast {
+  --ct-rgb:  34, 197, 94;
+  --ct-glow: 0.10;
+}
+.Toastify__toast--success .Toastify__progress-bar {
+  background: #22c55e !important;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7) !important;
+}
+
+/* ── ERROR — red #ef4444 ── */
+.Toastify__toast--error.cyber-toast {
+  --ct-rgb:  239, 68, 68;
+  --ct-glow: 0.10;
+}
+.Toastify__toast--error .Toastify__progress-bar {
+  background: #ef4444 !important;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.7) !important;
+}
+
+/* ── WARNING — amber #f59e0b ── */
+.Toastify__toast--warning.cyber-toast {
+  --ct-rgb:  245, 158, 11;
+  --ct-glow: 0.10;
+}
+.Toastify__toast--warning .Toastify__progress-bar {
+  background: #f59e0b !important;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.7) !important;
+}
+
+/* ── INFO — cyan #22d3ee ── */
+.Toastify__toast--info.cyber-toast {
+  --ct-rgb:  34, 211, 238;
+  --ct-glow: 0.10;
+}
+.Toastify__toast--info .Toastify__progress-bar {
+  background: #22d3ee !important;
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.7) !important;
+}
+
+/* ═══════════════════════════════════════════════════
+   MINERVA · Task Browser animations
+═══════════════════════════════════════════════════ */
+
+@keyframes mv-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes mv-fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mv-slide-in-right {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes mv-slide-in-left {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes mv-scale-in {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+@keyframes mv-dot-ring {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  70%  { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.mv-fade-in {
+  animation: mv-fade-in 180ms ease both;
+}
+.mv-fade-in-up {
+  animation: mv-fade-in-up 220ms ease both;
+}
+.mv-slide-in-right {
+  animation: mv-slide-in-right 220ms cubic-bezier(.22,.68,0,1.2) both;
+}
+.mv-slide-in-left {
+  animation: mv-slide-in-left 180ms ease both;
+}
+.mv-tab-active-bar {
+  transform-origin: left;
+  animation: mv-scale-in 180ms ease both;
+}
+.mv-dot-ring {
+  animation: mv-dot-ring 1.4s cubic-bezier(0,0,.2,1) infinite;
+}
+
+/* ═══════════════════════════════════════════════════
+   MINERVA LIGHT MODE · overrides
+   Applied when :root.minerva-light is set
+═══════════════════════════════════════════════════ */
+
+/* ── Text: white → dark ── */
+.minerva-light .text-white { color: #1a1a2e !important; }
+.minerva-light .text-gray-100 { color: #2a2a3e !important; }
+.minerva-light .text-gray-200 { color: #333350 !important; }
+.minerva-light .text-gray-300 { color: #444466 !important; }
+.minerva-light .text-gray-400 { color: #555577 !important; }
+.minerva-light .text-gray-500 { color: #666688 !important; }
+.minerva-light .text-gray-600 { color: #777799 !important; }
+.minerva-light .hover\:text-white:hover { color: #1a1a2e !important; }
+.minerva-light .hover\:text-gray-300:hover { color: #444466 !important; }
+.minerva-light .group:hover .group-hover\:text-white { color: #1a1a2e !important; }
+
+/* ── Backgrounds: white overlays → black overlays ── */
+.minerva-light .bg-white\/3  { background-color: rgba(0, 0, 0, 0.03) !important; }
+.minerva-light .bg-white\/5  { background-color: rgba(0, 0, 0, 0.04) !important; }
+.minerva-light .bg-white\/8  { background-color: rgba(0, 0, 0, 0.06) !important; }
+.minerva-light .bg-white\/10 { background-color: rgba(0, 0, 0, 0.07) !important; }
+.minerva-light .bg-white\/15 { background-color: rgba(0, 0, 0, 0.10) !important; }
+.minerva-light .bg-white\/20 { background-color: rgba(0, 0, 0, 0.12) !important; }
+.minerva-light .hover\:bg-white\/5:hover  { background-color: rgba(0, 0, 0, 0.05) !important; }
+.minerva-light .hover\:bg-white\/10:hover { background-color: rgba(0, 0, 0, 0.08) !important; }
+.minerva-light .hover\:bg-white\/15:hover { background-color: rgba(0, 0, 0, 0.10) !important; }
+
+/* ── Backgrounds: dark grays → light grays ── */
+.minerva-light .bg-black    { background-color: #f0f0f5 !important; }
+.minerva-light .bg-black\/20 { background-color: rgba(0, 0, 0, 0.04) !important; }
+.minerva-light .bg-black\/30 { background-color: rgba(0, 0, 0, 0.06) !important; }
+.minerva-light .bg-black\/40 { background-color: rgba(0, 0, 0, 0.08) !important; }
+.minerva-light .bg-black\/50 { background-color: rgba(0, 0, 0, 0.10) !important; }
+.minerva-light .bg-gray-700 { background-color: #d0d0d8 !important; }
+.minerva-light .bg-gray-800 { background-color: #dcdce5 !important; }
+.minerva-light .bg-gray-800\/50 { background-color: rgba(220, 220, 229, 0.5) !important; }
+.minerva-light .bg-gray-900 { background-color: #e8e8f0 !important; }
+.minerva-light .bg-gray-900\/50 { background-color: rgba(232, 232, 240, 0.5) !important; }
+.minerva-light .bg-gray-900\/60 { background-color: rgba(232, 232, 240, 0.6) !important; }
+.minerva-light .bg-gray-900\/70 { background-color: rgba(232, 232, 240, 0.7) !important; }
+.minerva-light .bg-gray-900\/80 { background-color: rgba(232, 232, 240, 0.8) !important; }
+.minerva-light .bg-gray-900\/90 { background-color: rgba(232, 232, 240, 0.9) !important; }
+.minerva-light .bg-gray-900\/95 { background-color: rgba(232, 232, 240, 0.95) !important; }
+.minerva-light .hover\:bg-gray-800:hover { background-color: #d8d8e2 !important; }
+
+/* ── Borders: white/ghost overlays → dark overlays ── */
+.minerva-light .border-white\/5  { border-color: rgba(0, 0, 0, 0.06) !important; }
+.minerva-light .border-white\/8  { border-color: rgba(0, 0, 0, 0.08) !important; }
+.minerva-light .border-white\/10 { border-color: rgba(0, 0, 0, 0.10) !important; }
+.minerva-light .border-white\/15 { border-color: rgba(0, 0, 0, 0.12) !important; }
+.minerva-light .border-white\/20 { border-color: rgba(0, 0, 0, 0.15) !important; }
+.minerva-light .hover\:border-white\/20:hover { border-color: rgba(0, 0, 0, 0.20) !important; }
+.minerva-light .hover\:border-white\/30:hover { border-color: rgba(0, 0, 0, 0.25) !important; }
+.minerva-light .border-gray-600 { border-color: #bbb !important; }
+.minerva-light .border-gray-700 { border-color: #ccc !important; }
+.minerva-light .border-gray-700\/50 { border-color: rgba(200, 200, 210, 0.5) !important; }
+.minerva-light .border-gray-800 { border-color: #ddd !important; }
+.minerva-light .hover\:border-gray-500:hover { border-color: #aaa !important; }
+.minerva-light .hover\:border-gray-600:hover { border-color: #bbb !important; }
+
+/* ── Divide ── */
+.minerva-light .divide-white\/5 > :not([hidden]) ~ :not([hidden])  { border-color: rgba(0, 0, 0, 0.06) !important; }
+.minerva-light .divide-white\/10 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(0, 0, 0, 0.10) !important; }
+
+/* ── Placeholder ── */
+.minerva-light .placeholder-gray-600::placeholder { color: #999 !important; }
+.minerva-light .placeholder-gray-500::placeholder { color: #888 !important; }
+
+/* ── Ring ── */
+.minerva-light .ring-white\/10 { --tw-ring-color: rgba(0, 0, 0, 0.10) !important; }
+.minerva-light .ring-white\/20 { --tw-ring-color: rgba(0, 0, 0, 0.15) !important; }
+
+/* ── Shadow tuning ── */
+.minerva-light .shadow-lg  { box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08) !important; }
+.minerva-light .shadow-xl  { box-shadow: 0 8px 25px rgba(0, 0, 0, 0.10) !important; }
+.minerva-light .shadow-2xl { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12) !important; }
+
+/* ── Toast override in light mode ── */
+.minerva-light .cyber-toast {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-color: rgba(0, 0, 0, 0.10) !important;
+  border-top-color: rgba(var(--ct-rgb), 0.70) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15), 0 0 24px rgba(var(--ct-rgb), var(--ct-glow)) !important;
+}
+.minerva-light .cyber-toast-message { color: rgba(30, 30, 50, 0.92) !important; }
+.minerva-light .cyber-toast-label { color: rgba(var(--ct-rgb), 0.85) !important; }
+
+/* ── Scrollbar light mode ── */
+.minerva-light *::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid rgba(0, 0, 0, 0.05);
+}
+.minerva-light *::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(100, 100, 120, 0.4) 0%, rgba(100, 100, 120, 0.2) 100%);
+}
+.minerva-light *::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(80, 80, 100, 0.6) 0%, rgba(80, 80, 100, 0.35) 100%);
+  box-shadow: none;
+}
+.minerva-light * {
+  scrollbar-color: rgba(100, 100, 120, 0.4) transparent;
+}

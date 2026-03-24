@@ -1,0 +1,109 @@
+worker_processes auto;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout 65;
+
+    # Increase buffer sizes for large headers (JWTs)
+    proxy_buffer_size 16k;
+    proxy_buffers 4 16k;
+    large_client_header_buffers 4 16k;
+
+    # Increase max body size for file uploads
+    client_max_body_size 50m;
+
+    server {
+        listen 443 ssl;
+
+        ssl_certificate     /etc/nginx/ssl/minerva.crt;
+        ssl_certificate_key /etc/nginx/ssl/minerva.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+
+        # Root redirect to Minerva login
+        location = / {
+            return 302 /new/login;
+        }
+
+        # Dev server proxy — hot reload
+        location /new/ {
+            proxy_pass http://minerva-dev:3000/new/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+
+        # WebSocket for hot reload (webpack dev server)
+        location /ws {
+            proxy_pass http://minerva-dev:3000/ws;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+
+        # GraphQL - HTTP and WebSocket
+        location /graphql/ {
+            proxy_pass ${MYTHIC_ADDRESS}/graphql/;
+            proxy_ssl_verify off;
+
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+        }
+
+        # Auth endpoint
+        location /auth {
+            proxy_pass ${MYTHIC_ADDRESS}/auth;
+            proxy_ssl_verify off;
+
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Token refresh endpoint
+        location /refresh {
+            proxy_pass ${MYTHIC_ADDRESS}/refresh;
+            proxy_ssl_verify off;
+
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Direct download endpoint
+        location /direct/ {
+            proxy_pass ${MYTHIC_ADDRESS}/direct/;
+            proxy_ssl_verify off;
+
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
