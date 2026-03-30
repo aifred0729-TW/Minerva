@@ -58,6 +58,7 @@ export const BattleMode: React.FC = () => {
       currentSignalRef.current = [...normalSignal];
       currentAccentRef.current = [...normalAccent];
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme]);
 
   // Color transition effect
@@ -137,6 +138,7 @@ export const BattleMode: React.FC = () => {
       document.body.classList.remove('combat-mode', 'recon-mode');
       setColors(normalSignal, normalAccent);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

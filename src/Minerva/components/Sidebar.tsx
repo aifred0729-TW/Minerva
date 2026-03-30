@@ -40,15 +40,20 @@ import { useOperationMode } from '../context/BattleModeContext';
 import { playEnter } from '../lib/soundEffects';
 import { useTheme } from '../context/ThemeContext';
 import { NotificationBell } from './EventNotifications';
-import { useGetMythicSetting } from '../../components/MythicComponents/MythicSavedUserSetting';
+import { useGetMythicSetting } from './MythicSavedUserSetting';
 import { DEFAULT_SIDEBAR_SHORTCUTS } from '../pages/Settings';
+import { UserAvatar } from './UserAvatar';
+import { useReactiveVar } from '@apollo/client';
+import { meState } from '../lib/state';
 
 // Sidebar now uses global store for collapsed state
 export function Sidebar() {
     const location = useLocation();
-    const { startLogout, isSidebarCollapsed, setSidebarCollapsed, alertCount } = useAppStore();
+    const { startLogout, isSidebarCollapsed, setSidebarCollapsed, __alertCount } = useAppStore();
     const { mode, toggleCombat, toggleRecon } = useOperationMode();
     const { theme, toggleTheme } = useTheme();
+    const me = useReactiveVar(meState);
+    const username = (me as any)?.user?.username || 'OPERATOR';
 
     const menuItems = [
         { icon: <LayoutDashboard size={20} />, label: "DASHBOARD", path: "/dashboard", primary: true },
@@ -98,6 +103,7 @@ export function Sidebar() {
             if (!shortcutSet.has(key)) ordered.push(item);
         }
         return ordered;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sideShortcuts]);
 
     const isCombat = mode === 'combat';
@@ -281,9 +287,7 @@ export function Sidebar() {
             {/* User / Footer */}
             <div className="p-4 border-t border-ghost/30 bg-black/20 overflow-hidden">
                 <div className={cn("flex items-center gap-3 transition-all duration-300", isCollapsed ? "justify-center" : "")}>
-                    <div className="w-8 h-8 rounded bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
-                        <Settings size={16} className="text-gray-400" />
-                    </div>
+                    <UserAvatar username={username} size={32} editable />
                     <AnimatePresence>
                         {!isCollapsed && (
                             <>
@@ -293,7 +297,7 @@ export function Sidebar() {
                                     exit={{ opacity: 0, width: 0 }}
                                     className="flex-1 overflow-hidden whitespace-nowrap"
                                 >
-                                    <div className="text-xs font-mono text-gray-300 truncate">OPERATOR</div>
+                                    <div className="text-xs font-mono text-gray-300 truncate">{username}</div>
                                     <div className="text-[10px] text-green-500 flex items-center gap-1">
                                         <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shrink-0"></span>
                                         ONLINE

@@ -51,4 +51,77 @@ export const GET_DYNAMIC_QUERY_PARAMS = gql`
   }
 `;
 
+// ─── Tags Page Queries & Mutations ────────────────
+
+export const GET_TAGTYPES = gql`
+query getOperationTags {
+  tagtype(order_by: {name: asc}) {
+    id
+    color
+    description
+    name
+    tags_aggregate {
+      aggregate {
+        count
+      }
+    }
+  }
+}
+`;
+
+export const CREATE_TAGTYPE = gql`
+mutation createTagtype($name: String!, $description: String!, $color: String!) {
+  createTagtype(name: $name, description: $description, color: $color) {
+    status
+    error
+    id
+    name
+    description
+    color
+  }
+}
+`;
+
+export const UPDATE_TAGTYPE = gql`
+mutation updateTagtype($id: Int!, $name: String!, $description: String!, $color: String!) {
+  updateTagtype(id: $id, name: $name, description: $description, color: $color) {
+    status
+    error
+    id
+    name
+    description
+    color
+  }
+}
+`;
+
+export const DELETE_TAGTYPE = gql`
+mutation tagtypeDeleteMutation($id: Int!) {
+  deleteTagtype(id: $id) {
+      status
+      error
+      tagtype_id
+  }
+}
+`;
+
+export const EXPORT_TAGTYPES = gql`
+query getAllTagTypes {
+    tagtype(order_by: {name: asc}) {
+        color
+        description
+        name
+    }
+}
+`;
+
+export const IMPORT_TAGTYPES = gql`
+mutation importMultipleTagtypes($tagtypes: String!) {
+    importTagtypes(tagtypes: $tagtypes) {
+        status
+        error
+    }
+}
+`;
+
 // ─── Callback Context Subscription (Tasking context badges) ────

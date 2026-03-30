@@ -6,35 +6,21 @@ import { useNavigate } from 'react-router-dom';
 import AceEditor from 'react-ace';
 import 'ace-builds/src-noconflict/mode-json';
 import 'ace-builds/src-noconflict/theme-monokai';
-import { UploadTaskFile } from '../../../components/MythicComponents/MythicFileUpload';
+import { UploadTaskFile } from '../../components/MythicFileUpload';
 import {
     Package, ChevronRight, ChevronLeft, Check, Box, Loader, AlertCircle,
     X, Pencil, RotateCcw, ChevronDown, ChevronUp, CheckCircle, XCircle,
     Minus, RefreshCw, Upload, Copy, Info, Plus, Trash2, Hash, Calendar, FileText,
 } from 'lucide-react';
-import { Sidebar } from '../../components/Sidebar';
-import { cn, b64DecodeUnicode } from '../../lib/utils';
-import { toLocalTime } from '../../../components/utilities/Time';
-import { useAppStore } from '../../store';
-import { snackActions } from '../../../components/utilities/Snackbar';
-import { meState } from '../../../cache';
-import { useReactiveVar } from '@apollo/client';
 
-// ============================================================
-// hide_conditions operand constants (mirrors OldReactUI)
-// ============================================================
-const HC_EQ  = 'eq';
-const HC_NEQ = 'neq';
-const HC_IN  = 'in';
-const HC_NIN = 'nin';
-const HC_LT  = 'lt';
-const HC_GT  = 'gt';
-const HC_LTE = 'lte';
-const HC_GTE = 'gte';
-const HC_SW  = 'sw';
-const HC_EW  = 'ew';
-const HC_CO  = 'co';
-const HC_NCO = 'nco';
+import { cn, b64DecodeUnicode } from '../../lib/utils';
+import { toLocalTime } from '../../lib/time';
+import { useAppStore } from '../../store';
+import { snackActions } from '../../lib/snackbar';
+import { meState } from '../../lib/state';
+import { useReactiveVar } from '@apollo/client';
+import type { BuildParam, PayloadType, MiniStep, Payload, BuildStepFull, ExistingWrapper } from './createWrapper.types';
+import { decodeFilename, shouldHideParam, groupBuildParams, formatParamValue } from './createWrapper.utils';
 
 // ============================================================
 // GraphQL
@@ -127,174 +113,7 @@ subscription SubscribePayloadBuild($uuid: String!, $fromNow: timestamp!) {
 }
 `;
 
-// ============================================================
-// Interfaces
-// ============================================================
-interface HideCondition {
-    name: string;
-    operand: string;
-    value?: string;
-    choices?: string[];
-}
-
-interface BuildParam {
-    id: number;
-    name: string;
-    description: string;
-    parameter_type: string;
-    default_value: any;
-    required: boolean;
-    choices: string[];
-    group_name?: string;
-    verifier_regex?: string;
-    randomize?: boolean;
-    format_string?: string;
-    supported_os?: string[] | null;
-    ui_position?: number;
-    hide_conditions?: HideCondition[] | null;
-}
-
-interface PayloadType {
-    id: number;
-    name: string;
-    supported_os: string[];
-    note: string;
-    author: string;
-    semver: string;
-    container_running: boolean;
-    file_extension: string;
-    buildparameters: BuildParam[];
-    wrap_these_payload_types: Array<{ wrapped: { id: number; name: string } }>;
-}
-
-interface MiniStep {
-    step_number: number;
-    step_name: string;
-    step_success: boolean | null;
-    step_skip: boolean;
-}
-
-interface Payload {
-    id: number;
-    uuid: string;
-    description: string;
-    build_phase: string;
-    creation_time: string;
-    payloadtype: { id: number; name: string; supported_os: string[] };
-    filemetum: { filename_text: string; agent_file_id: string };
-    c2profileparametersinstances: Array<{ c2profile: { name: string } }>;
-    buildparameterinstances: Array<{ build_parameter_id: number; value: string }>;
-    payload_build_steps?: MiniStep[];
-}
-
-interface BuildStepFull extends MiniStep {
-    step_stdout: string;
-    step_stderr: string;
-}
-
-interface ExistingWrapper {
-    id: number;
-    uuid: string;
-    description: string;
-    payloadtype: { id: number; name: string };
-    filemetum?: { filename_text: string };
-    buildparameterinstances: Array<{ build_parameter_id: number; value: string }>;
-}
-
-// ============================================================
-// Helpers
-// ============================================================
-
-/** Decodes base64 filename safely */
-const decodeFilename = (b64: string | undefined): string => {
-    if (!b64) return '';
-    try { return b64DecodeUnicode(b64); } catch { return b64; }
-};
-
-/**
- * Evaluates whether a param should be hidden given current parameter values and selected OS.
- */
-function shouldHideParam(
-    param: BuildParam,
-    allParams: BuildParam[],
-    values: Record<string, any>,
-    selectedOS: string
-): boolean {
-    // Per-param OS filter (Item 2)
-    if ((param.supported_os?.length ?? 0) > 0 && selectedOS) {
-        if (!param.supported_os!.includes(selectedOS)) return true;
-    }
-    // hide_conditions evaluation (Item 1)
-    for (const cond of (param.hide_conditions ?? [])) {
-        const targetParam = allParams.find(p => p.name === cond.name);
-        if (!targetParam) continue;
-        const targetVal = String(values[cond.name] ?? targetParam.default_value ?? '');
-        let hide = false;
-        switch (cond.operand) {
-            case HC_EQ:  hide = targetVal === String(cond.value ?? ''); break;
-            case HC_NEQ: hide = targetVal !== String(cond.value ?? ''); break;
-            case HC_IN:  hide = (cond.choices ?? []).includes(targetVal); break;
-            case HC_NIN: hide = !(cond.choices ?? []).includes(targetVal); break;
-            case HC_LT:  try { hide = parseInt(targetVal) < parseInt(cond.value ?? '0'); } catch{} break;
-            case HC_GT:  try { hide = parseInt(targetVal) > parseInt(cond.value ?? '0'); } catch{} break;
-            case HC_LTE: try { hide = parseInt(targetVal) <= parseInt(cond.value ?? '0'); } catch{} break;
-            case HC_GTE: try { hide = parseInt(targetVal) >= parseInt(cond.value ?? '0'); } catch{} break;
-            case HC_SW:  hide = targetVal.startsWith(cond.value ?? ''); break;
-            case HC_EW:  hide = targetVal.endsWith(cond.value ?? ''); break;
-            case HC_CO:  hide = targetVal.includes(cond.value ?? ''); break;
-            case HC_NCO: hide = !targetVal.includes(cond.value ?? ''); break;
-        }
-        if (hide) return true;
-    }
-    return false;
-}
-
-/**
- * Groups *visible* build params by group_name.
- * Applies supported_os + hide_conditions filtering (Items 1 & 2).
- */
-function groupBuildParams(
-    params: BuildParam[],
-    values: Record<string, any> = {},
-    selectedOS: string = ''
-): Array<{ group: string; params: BuildParam[] }> {
-    const map: Record<string, BuildParam[]> = {};
-    for (const p of params) {
-        if (shouldHideParam(p, params, values, selectedOS)) continue;
-        const g = p.group_name || 'Configuration';
-        if (!map[g]) map[g] = [];
-        map[g].push(p);
-    }
-    return Object.entries(map).map(([group, params]) => ({ group, params }));
-}
-
-/** Formats a param value for display in the summary card. */
-function formatParamValue(param: BuildParam, val: any): string {
-    if (val === undefined || val === null || val === '') return '—';
-    if (val instanceof File) return val.name;
-    if (param.parameter_type === 'Boolean') return String(val) === 'true' || val === true ? 'Enabled' : 'Disabled';
-    if (param.parameter_type === 'Array' || param.parameter_type === 'ChooseMultiple') {
-        if (!Array.isArray(val) || val.length === 0) return '—';
-        return val.join(', ');
-    }
-    if (param.parameter_type === 'FileMultiple') {
-        if (!Array.isArray(val) || val.length === 0) return '—';
-        return val.map((v: any) => v instanceof File ? v.name : String(v)).join(', ');
-    }
-    if (param.parameter_type === 'TypedArray') {
-        if (!Array.isArray(val) || val.length === 0) return '—';
-        return val.map((v: any) => Array.isArray(v) ? v[1] : String(v)).join(', ');
-    }
-    if (param.parameter_type === 'MapArray') {
-        if (!Array.isArray(val) || val.length === 0) return '—';
-        return val.map((v: any) => `${v[0]}:[${(v[1] || []).join(',')}]`).join(' | ');
-    }
-    if (param.parameter_type === 'Dictionary') {
-        if (!Array.isArray(val) || val.length === 0) return '—';
-        return val.map((v: any) => `${v.name}=${v.value}`).join(', ');
-    }
-    return String(val);
-}
+// Types and helpers extracted to ./createWrapper.types.ts and ./createWrapper.utils.ts
 
 // ============================================================
 // AgentIcon — /agent_icons/{name}.svg with Package fallback
@@ -1044,8 +863,8 @@ const Step2SelectPayload: React.FC<{
 const Step3Configure: React.FC<{
     wrapperType: PayloadType | null;
     selectedOS: string;
-    parameters: Record<string, any>;
-    setParameters: (params: Record<string, any>) => void;
+    parameters: Record<string, unknown>;
+    setParameters: (params: Record<string, unknown>) => void;
     description: string;
     setDescription: (d: string) => void;
     filename: string;
@@ -1053,6 +872,7 @@ const Step3Configure: React.FC<{
     onEditWrapper: () => void;
     onEditPayload: () => void;
 }> = ({ wrapperType, selectedOS, parameters, setParameters, description, setDescription, filename, setFilename, onEditWrapper, onEditPayload }) => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const buildParams = wrapperType?.buildparameters || [];
     // Items 1+2: apply hide_conditions + supported_os filtering with live values
     const paramGroups = useMemo(
@@ -1575,7 +1395,7 @@ const Step3Configure: React.FC<{
 const Step4Build: React.FC<{
     wrapperType: PayloadType | null;
     wrappedPayload: Payload | null;
-    parameters: Record<string, any>;
+    parameters: Record<string, unknown>;
     description: string;
     filename: string;
     selectedOS: string;
@@ -1637,6 +1457,7 @@ const Step4Build: React.FC<{
         setShowPayloadConfig(v => !v);
     };
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const buildParams = wrapperType?.buildparameters || [];
     // Summary also applies hide_conditions + OS filter (Item 1+2)
     const paramGroups = useMemo(
@@ -1851,7 +1672,7 @@ export function CreateWrapperWizard({
     const [currentStep, setCurrentStep] = useState(0);
     const [selectedWrapper, setSelectedWrapper] = useState<PayloadType | null>(null);
     const [selectedPayload, setSelectedPayload] = useState<Payload | null>(null);
-    const [buildParameters, setBuildParameters] = useState<Record<string, any>>({});
+    const [buildParameters, setBuildParameters] = useState<Record<string, unknown>>({});
     const [description, setDescription] = useState('');
     const [filename, setFilename] = useState('');
     const [building, setBuilding] = useState(false);
@@ -2067,7 +1888,7 @@ export function CreateWrapperWizard({
             setBuildParameters({});
         }
         setSelectedWrapper(matchingType);
-        const newParams: Record<string, any> = {};
+        const newParams: Record<string, unknown> = {};
         for (const bpi of existing.buildparameterinstances) {
             const bp = matchingType.buildparameters.find(p => p.id === bpi.build_parameter_id);
             if (bp) newParams[bp.name] = bpi.value;
@@ -2172,7 +1993,6 @@ export function CreateWrapperWizard({
         }
         return (
             <div className="min-h-screen bg-void text-signal">
-                <Sidebar />
                 <div className={cn("transition-all duration-300 p-6 flex items-center justify-center", isSidebarCollapsed ? "ml-16" : "ml-64")}>
                     <div className="text-center">
                         <AlertCircle size={48} className="mx-auto mb-4 text-alert" />
@@ -2272,7 +2092,6 @@ export function CreateWrapperWizard({
     // Full-page mode with Sidebar
     return (
         <div className="min-h-screen bg-void text-signal">
-            <Sidebar />
             <div className={cn("transition-all duration-300 p-6", isSidebarCollapsed ? "ml-16" : "ml-64")}>
                 {/* Header */}
                 <header className="flex justify-between items-center mb-8">

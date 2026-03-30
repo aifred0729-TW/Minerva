@@ -5,15 +5,14 @@ import { Radio, Power, RefreshCw, Settings, Trash2, RotateCcw, Eye, EyeOff, Serv
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import { C2DetailsModal } from '../components/C2DetailsModal';
-import { Sidebar } from '../components/Sidebar';
+
 import { useAppStore } from '../store';
+import type { StatusGroup } from '../types/c2profiles';
 
 /* ═══════════════════════════════════════════════════════
    Status Column Board — Mission Control Layout
    Three vertical lanes showing profile status at a glance
 ═══════════════════════════════════════════════════════ */
-
-type StatusGroup = 'active' | 'degraded' | 'offline';
 
 const LANE_CONFIG: Record<StatusGroup, {
     label: string; sub: string;
@@ -46,7 +45,7 @@ interface TileProps {
     isProcessing: boolean;
     onToggle: (id: number, running: boolean) => void;
     onDelete: (id: number, deleted: boolean) => void;
-    onOpenModal: (p: any) => void;
+    onOpenModal: (p: Record<string, unknown>) => void;
 }
 
 function ProfileTile({ profile, group, isProcessing, onToggle, onDelete, onOpenModal }: TileProps) {
@@ -192,7 +191,7 @@ function StatusLane({ group, profiles, processingId, onToggle, onDelete, onOpenM
     processingId: number | null;
     onToggle: (id: number, running: boolean) => void;
     onDelete: (id: number, deleted: boolean) => void;
-    onOpenModal: (p: any) => void;
+    onOpenModal: (p: Record<string, unknown>) => void;
 }) {
     const cfg = LANE_CONFIG[group];
 
@@ -222,7 +221,7 @@ function StatusLane({ group, profiles, processingId, onToggle, onDelete, onOpenM
             {/* Lane Body */}
             <div className="flex-1 overflow-y-auto cyber-scrollbar p-2 space-y-1.5">
                 <AnimatePresence mode="popLayout">
-                    {profiles.map((p: any) => (
+                    {profiles.map((p: Record<string, unknown>) => (
                         <ProfileTile
                             key={p.id}
                             profile={p}
@@ -251,7 +250,7 @@ export default function C2Profiles() {
     const { isSidebarCollapsed } = useAppStore();
     const { data, loading } = useSubscription(SUB_C2_PROFILES);
 
-    const [modalProfile, setModalProfile] = useState<any>(null);
+    const [modalProfile, setModalProfile] = useState<unknown>(null);
     const [processingId, setProcessingId] = useState<number | null>(null);
     const [showDeleted, setShowDeleted] = useState(false);
 
@@ -280,7 +279,7 @@ export default function C2Profiles() {
         const degraded: any[] = [];
         const offline: any[] = [];
 
-        allProfiles.forEach((p: any) => {
+        allProfiles.forEach((p: Record<string, unknown>) => {
             if (p.deleted && !showDeleted) return;
             if (p.deleted) { offline.push(p); return; }
             if (p.running && p.container_running) { active.push(p); }
@@ -292,7 +291,7 @@ export default function C2Profiles() {
     }, [allProfiles, showDeleted]);
 
     const stats = useMemo(() => {
-        const a = allProfiles.filter((p: any) => !p.deleted);
+        const a = allProfiles.filter((p: Record<string, unknown>) => !p.deleted);
         return {
             total: a.length,
             deleted: allProfiles.length - a.length,
@@ -301,8 +300,6 @@ export default function C2Profiles() {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-
             <div className={cn(
                 "transition-all duration-300 p-6 lg:p-12 h-screen flex flex-col overflow-hidden",
                 isSidebarCollapsed ? "ml-16" : "ml-64"

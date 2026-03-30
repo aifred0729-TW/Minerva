@@ -16,42 +16,16 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useSubscription } from '@apollo/client';
-import { Sidebar } from '../components/Sidebar';
+
 import { cn } from '../lib/utils';
 import {
     Network, Server, Globe, Terminal, User,
     Wifi, WifiOff, Activity, RefreshCw, List, Lock,
 } from 'lucide-react';
-import { snackActions } from '../../components/utilities/Snackbar';
+import { snackActions } from '../lib/snackbar';
 import { useAppStore } from '../store';
 import { CALLBACKPORT_STREAM } from '../lib/api';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface CallbackPort {
-    id: number;
-    deleted: boolean;
-    port_type: 'socks' | 'rpfwd' | 'interactive';
-    local_port: number;
-    remote_port: number;
-    remote_ip: string;
-    bytes_received: number;
-    bytes_sent: number;
-    username: string;
-    password: string;
-    updated_at: string;
-    task?: { display_id: number };
-    callback: {
-        id: number;
-        display_id: number;
-        host: string;
-        ip: string;
-        user: string;
-        description: string;
-        domain: string;
-        active: boolean;
-        last_checkin: string;
-    };
-}
+import type { CallbackPort } from '../types/tunnels';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const fmtBytes = (n: number): string => {
@@ -75,7 +49,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 // ─── Custom Node: MYTHIC center ───────────────────────────────────────────────
-const MythicNode = ({ data }: any) => (
+const MythicNode = ({ data }: { data: Record<string, unknown> }) => (
     <div className="flex flex-col items-center px-5 py-3 border-2 border-signal bg-black font-mono min-w-[130px] shadow-[0_0_20px_rgba(74,222,128,0.15)]">
         <Handle type="target" position={Position.Top}    className="!opacity-0" />
         <Handle type="source" position={Position.Bottom} className="!opacity-0" />
@@ -95,7 +69,7 @@ const MythicNode = ({ data }: any) => (
 );
 
 // ─── Custom Node: Agent/Callback ───────────────────────────────────────────────
-const AgentNode = ({ data }: any) => (
+const AgentNode = ({ data }: { data: Record<string, unknown> }) => (
     <div className={cn(
         'flex flex-col items-center px-3 py-2.5 border font-mono min-w-[120px] transition-all',
         data.active
@@ -139,7 +113,7 @@ const AgentNode = ({ data }: any) => (
 );
 
 // ─── Custom Node: Client / Operator ─────────────────────────────────────────
-const ClientNode = ({ data }: any) => {
+const ClientNode = ({ data }: { data: Record<string, unknown> }) => {
     const color = TYPE_COLOR[data.portType] || '#94a3b8';
     const label = data.portType === 'socks'
         ? 'CLIENT'
@@ -183,7 +157,7 @@ const ClientNode = ({ data }: any) => {
 };
 
 // ─── Custom Node: Internet / Shell target ────────────────────────────────────
-const TargetNode = ({ data }: any) => (
+const TargetNode = ({ data }: { data: Record<string, unknown> }) => (
     <div className="flex flex-col items-center px-3 py-2 border border-gray-700/40 bg-black/40 font-mono min-w-[90px]">
         <Handle type="target" position={Position.Top}  className="!opacity-0" />
         <Handle type="source" position={Position.Top}  className="!opacity-0" />
@@ -548,7 +522,7 @@ export default function TunnelMap() {
     // Live subscription (same as Tunnels.tsx)
     useSubscription(CALLBACKPORT_STREAM, {
         fetchPolicy: 'no-cache',
-        onData: ({ data }: any) => {
+        onData: ({ data }: { data: Record<string, unknown> }) => {
             const incoming: CallbackPort[] = data?.data?.callbackport_stream || [];
             if (!incoming.length) return;
             setPorts(prev => {
@@ -585,8 +559,6 @@ export default function TunnelMap() {
                 .react-flow__renderer { background: transparent !important; }
                 .react-flow__background { background: #050505 !important; }
             `}</style>
-
-            <Sidebar />
 
             <main
                 className={cn(

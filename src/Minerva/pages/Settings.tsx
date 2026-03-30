@@ -8,17 +8,16 @@ import {
     Volume2, Music2, Play, Pause, Disc3, GripVertical, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { Sidebar } from '../components/Sidebar';
 import { useAppStore } from '../store';
 import { 
     GET_GLOBAL_SETTINGS, UPDATE_GLOBAL_SETTINGS,
     GET_OPERATOR_SECRETS, UPDATE_OPERATOR_SECRETS,
     GET_API_TOKENS, CREATE_API_TOKEN, DELETE_API_TOKEN, TOGGLE_API_TOKEN_ACTIVE,
 } from '../lib/api';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { cn } from '../lib/utils';
-import { useGetMythicSetting, useSetMythicSetting } from '../../components/MythicComponents/MythicSavedUserSetting';
-import { operatorSettingDefaults, meState, mePreferences } from '../../cache';
+import { snackActions } from '../lib/snackbar';
+import { cn, getErrorMessage } from '../lib/utils';
+import { useGetMythicSetting, useSetMythicSetting } from '../components/MythicSavedUserSetting';
+import { operatorSettingDefaults, meState, mePreferences } from '../lib/state';
 import { useReactiveVar } from '@apollo/client';
 
 /* ─────────── Reusable rows ─────────── */
@@ -186,7 +185,7 @@ const OperatorSecretsSection = () => {
     const [nk,setNk]=useState('');const [nv,setNv]=useState('');
     const {loading}=useQuery(GET_OPERATOR_SECRETS,{variables:{operator_id:opId},skip:!opId,fetchPolicy:'no-cache',onCompleted:(d:any)=>{if(d?.getOperatorSecrets?.status==='success')setSecrets(d.getOperatorSecrets.secrets||{})}});
     const [updateSecrets,{loading:saving}]=useMutation(UPDATE_OPERATOR_SECRETS);
-    const save=async()=>{try{const r=await updateSecrets({variables:{secrets,operator_id:opId}});r.data?.updateOperatorSecrets?.status==='success'?snackActions.success('Secrets saved'):snackActions.error(r.data?.updateOperatorSecrets?.error||'Failed')}catch(e:any){snackActions.error(e.message)}};
+    const save=async()=>{try{const r=await updateSecrets({variables:{secrets,operator_id:opId}});r.data?.updateOperatorSecrets?.status==='success'?snackActions.success('Secrets saved'):snackActions.error(r.data?.updateOperatorSecrets?.error||'Failed')}catch(e: unknown){snackActions.error(getErrorMessage(e))}};
     if(loading)return<div className="flex items-center justify-center h-32"><RefreshCw size={20} className="animate-spin text-signal/50"/></div>;
     return(
         <div className="space-y-4">
@@ -215,7 +214,7 @@ const APITokensSection = () => {
     const [tokens,setTokens]=useState<any[]>([]);const [name,setName]=useState('');const [shown,setShown]=useState<string|null>(null);
     const {loading,refetch}=useQuery(GET_API_TOKENS,{variables:{operator_id:opId},skip:!opId,fetchPolicy:'no-cache',onCompleted:(d:any)=>setTokens(d?.apitokens||[])});
     const [createToken]=useMutation(CREATE_API_TOKEN);const [deleteToken]=useMutation(DELETE_API_TOKEN);const [toggleActive]=useMutation(TOGGLE_API_TOKEN_ACTIVE);
-    const create=async()=>{if(!name.trim())return;try{const r=await createToken({variables:{operator_id:opId,name:name.trim()}});const d=r.data?.createAPIToken;if(d?.status==='success'){setShown(d.token_value);setName('');refetch()}else snackActions.error(d?.error||'Failed')}catch(e:any){snackActions.error(e.message)}};
+    const create=async()=>{if(!name.trim())return;try{const r=await createToken({variables:{operator_id:opId,name:name.trim()}});const d=r.data?.createAPIToken;if(d?.status==='success'){setShown(d.token_value);setName('');refetch()}else snackActions.error(d?.error||'Failed')}catch(e: unknown){snackActions.error(getErrorMessage(e))}};
     if(loading)return<div className="flex items-center justify-center h-32"><RefreshCw size={20} className="animate-spin text-signal/50"/></div>;
     return(
         <div className="space-y-4">
@@ -242,8 +241,8 @@ const APITokensSection = () => {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                         <button onClick={()=>{navigator.clipboard.writeText(t.token_value);snackActions.success('Copied')}} className="text-gray-500 hover:text-signal transition-colors p-1" title="Copy"><Copy size={13}/></button>
-                        <button onClick={async()=>{try{await toggleActive({variables:{id:t.id,active:!t.active}});refetch()}catch(e:any){snackActions.error(e.message)}}} className={cn("p-1 transition-colors",t.active?"text-signal hover:text-yellow-500":"text-gray-600 hover:text-signal")} title={t.active?'Deactivate':'Activate'}>{t.active?<Power size={13}/>:<PowerOff size={13}/>}</button>
-                        <button onClick={async()=>{try{await deleteToken({variables:{id:t.id}});snackActions.success('Deleted');refetch()}catch(e:any){snackActions.error(e.message)}}} className="text-gray-500 hover:text-red-400 transition-colors p-1" title="Delete"><Trash2 size={13}/></button>
+                        <button onClick={async()=>{try{await toggleActive({variables:{id:t.id,active:!t.active}});refetch()}catch(e: unknown){snackActions.error(getErrorMessage(e))}}} className={cn("p-1 transition-colors",t.active?"text-signal hover:text-yellow-500":"text-gray-600 hover:text-signal")} title={t.active?'Deactivate':'Activate'}>{t.active?<Power size={13}/>:<PowerOff size={13}/>}</button>
+                        <button onClick={async()=>{try{await deleteToken({variables:{id:t.id}});snackActions.success('Deleted');refetch()}catch(e: unknown){snackActions.error(getErrorMessage(e))}}} className="text-gray-500 hover:text-red-400 transition-colors p-1" title="Delete"><Trash2 size={13}/></button>
                     </div>
                 </div>
             ))}</div>}
@@ -866,7 +865,6 @@ const SettingsPage = () => {
     ];
     return(
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar/>
             <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{duration:0.3}} className={cn("flex-1 flex flex-col transition-all duration-300 p-6 lg:p-12 h-screen",isSidebarCollapsed?"ml-16":"ml-64")}>
                 <header className="flex justify-between items-center mb-8 shrink-0">
                     <div className="flex items-center gap-4"><div className="p-3 border border-white/50 bg-white/10 rounded"><Shield size={24} className="text-white"/></div>

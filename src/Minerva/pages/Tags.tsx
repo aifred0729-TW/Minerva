@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useQuery, useMutation, useLazyQuery, gql } from '@apollo/client';
+import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Tag, 
@@ -17,81 +17,20 @@ import {
     Download,
     Upload
 } from 'lucide-react';
-import { Sidebar } from '../components/Sidebar';
+
 import { useAppStore } from '../store';
 import { cn } from '../lib/utils';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { downloadFileFromMemory } from '../../components/utilities/Clipboard';
-
-// ============================================
-// GraphQL Queries & Mutations
-// ============================================
-const GET_TAGTYPES = gql`
-query getOperationTags {
-  tagtype(order_by: {name: asc}) {
-    id
-    color
-    description
-    name
-    tags_aggregate {
-      aggregate {
-        count
-      }
-    }
-  }
-}
-`;
-
-const CREATE_TAGTYPE = gql`
-mutation createTagtype($name: String!, $description: String!, $color: String!) {
-  createTagtype(name: $name, description: $description, color: $color) {
-    status
-    error
-    id
-    name
-    description
-    color
-  }
-}
-`;
-
-const UPDATE_TAGTYPE = gql`
-mutation updateTagtype($id: Int!, $name: String!, $description: String!, $color: String!) {
-  updateTagtype(id: $id, name: $name, description: $description, color: $color) {
-    status
-    error
-    id
-    name
-    description
-    color
-  }
-}
-`;
-
-const DELETE_TAGTYPE = gql`
-mutation tagtypeDeleteMutation($id: Int!) {
-  deleteTagtype(id: $id) {
-      status
-      error
-      tagtype_id
-  }
-}
-`;
-
-// ============================================
-// Types
-// ============================================
-interface Tagtype {
-    id: number;
-    name: string;
-    description: string;
-    color: string;
-    tags_aggregate: {
-        aggregate: {
-            count: number;
-        };
-    };
-}
+import { snackActions } from '../lib/snackbar';
+import { downloadFileFromMemory } from '../lib/clipboard';
+import type { Tagtype } from '../types/tags';
+import {
+    GET_TAGTYPES,
+    CREATE_TAGTYPE,
+    UPDATE_TAGTYPE,
+    DELETE_TAGTYPE,
+    EXPORT_TAGTYPES,
+    IMPORT_TAGTYPES,
+} from '../lib/api/tags';
 
 // ============================================
 // Predefined Colors
@@ -372,25 +311,6 @@ const TagTypeEditor = ({
 // ============================================
 // Main Tags Page
 // ============================================
-const EXPORT_TAGTYPES = gql`
-query getAllTagTypes {
-    tagtype(order_by: {name: asc}) {
-        color
-        description
-        name
-    }
-}
-`;
-
-const IMPORT_TAGTYPES = gql`
-mutation importMultipleTagtypes($tagtypes: String!) {
-    importTagtypes(tagtypes: $tagtypes) {
-        status
-        error
-    }
-}
-`;
-
 const Tags = () => {
     const { isSidebarCollapsed } = useAppStore();
     const [tagtypes, setTagtypes] = useState<Tagtype[]>([]);
@@ -555,9 +475,7 @@ const Tags = () => {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-            
-            <motion.div 
+            <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}

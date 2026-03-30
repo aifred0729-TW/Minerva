@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useQuery, useMutation, useLazyQuery, useSubscription, gql } from '@apollo/client';
+import { useMutation, useLazyQuery, useSubscription } from '@apollo/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Bell, 
@@ -20,159 +20,21 @@ import {
     Server,
     Filter
 } from 'lucide-react';
-import { Sidebar } from '../components/Sidebar';
 import { cn } from '../lib/utils';
 import { useAppStore } from '../store';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { meState } from '../../cache';
+import { snackActions } from '../lib/snackbar';
+import { meState } from '../lib/state';
 import { useReactiveVar } from '@apollo/client';
-import { toLocalTime } from '../../components/utilities/Time';
-
-// ============================================
-// GraphQL Queries & Mutations
-// ============================================
-const GET_EVENT_FEED = gql`
-    query GetEventFeed($offset: Int!, $limit: Int!, $search: String!, $level: String!) {
-        operationeventlog(
-            where: {
-                deleted: {_eq: false}, 
-                message: {_ilike: $search}, 
-                level: {_ilike: $level}
-            }, 
-            order_by: {id: desc}, 
-            limit: $limit, 
-            offset: $offset
-        ) {
-            id
-            level
-            message
-            resolved
-            timestamp
-            count
-            source
-            warning
-            operator {
-                username
-            }
-        }
-        operationeventlog_aggregate(
-            where: {
-                deleted: {_eq: false}, 
-                message: {_ilike: $search}, 
-                level: {_ilike: $level}
-            }
-        ) {
-            aggregate {
-                count
-            }
-        }
-    }
-`;
-
-const GET_EVENT_FEED_WITH_RESOLVED = gql`
-    query GetEventFeedWithResolved($offset: Int!, $limit: Int!, $search: String!, $level: String!, $resolved: Boolean!) {
-        operationeventlog(
-            where: {
-                deleted: {_eq: false}, 
-                message: {_ilike: $search}, 
-                level: {_like: $level},
-                resolved: {_eq: $resolved},
-                warning: {_eq: true}
-            }, 
-            order_by: {id: desc}, 
-            limit: $limit, 
-            offset: $offset
-        ) {
-            id
-            level
-            message
-            resolved
-            timestamp
-            count
-            source
-            warning
-            operator {
-                username
-            }
-        }
-        operationeventlog_aggregate(
-            where: {
-                deleted: {_eq: false}, 
-                message: {_ilike: $search}, 
-                level: {_like: $level},
-                resolved: {_eq: $resolved},
-                warning: {_eq: true}
-            }
-        ) {
-            aggregate {
-                count
-            }
-        }
-    }
-`;
-
-const SUBSCRIBE_EVENTS = gql`
-    subscription SubscribeEventFeed($fromNow: timestamp!) {
-        operationeventlog_stream(
-            cursor: {initial_value: {timestamp: $fromNow}, ordering: ASC}, 
-            batch_size: 10, 
-            where: {deleted: {_eq: false}}
-        ) {
-            id
-            level
-            message
-            resolved
-            timestamp
-            count
-            source
-            warning
-            operator {
-                username
-            }
-        }
-    }
-`;
-
-const UPDATE_RESOLUTION = gql`
-    mutation UpdateResolution($id: Int!, $resolved: Boolean!) {
-        update_operationeventlog_by_pk(pk_columns: {id: $id}, _set: {resolved: $resolved}) {
-            id
-            resolved
-        }
-    }
-`;
-
-const UPDATE_TO_WARNING = gql`
-    mutation UpdateToWarning($id: Int!) {
-        update_operationeventlog_by_pk(pk_columns: {id: $id}, _set: {warning: true, resolved: false}) {
-            id
-            warning
-            resolved
-        }
-    }
-`;
-
-const RESOLVE_ALL_VIEWABLE = gql`
-    mutation ResolveAllViewable($ids: [Int]!) {
-        update_operationeventlog(where: {id: {_in: $ids}, warning: {_eq: true}}, _set: {resolved: true}) {
-            returning {
-                id
-                resolved
-            }
-        }
-    }
-`;
-
-const RESOLVE_ALL_ERRORS = gql`
-    mutation ResolveAllErrors {
-        update_operationeventlog(where: {resolved: {_eq: false}, warning: {_eq: true}}, _set: {resolved: true}) {
-            returning {
-                id
-                resolved
-            }
-        }
-    }
-`;
+import { toLocalTime } from '../lib/time';
+import {
+    GET_EVENT_FEED,
+    GET_EVENT_FEED_WITH_RESOLVED,
+    SUBSCRIBE_EVENTS,
+    UPDATE_RESOLUTION,
+    UPDATE_TO_WARNING,
+    RESOLVE_ALL_VIEWABLE,
+    RESOLVE_ALL_ERRORS,
+} from '../lib/api';
 
 // ============================================
 // Types
@@ -482,6 +344,7 @@ export default function EventFeed() {
 
     useEffect(() => {
         loadEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleResolve = (id: number, resolved: boolean) => {
@@ -519,9 +382,8 @@ export default function EventFeed() {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-            
-            <motion.div 
+
+            <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}

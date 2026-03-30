@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
 import { motion } from 'framer-motion';
 import { GET_OPSEC_QUEUE, REQUEST_OPSEC_BYPASS } from '../lib/api';
-import { Sidebar } from '../components/Sidebar';
 import { cn } from '../lib/utils';
-import { Shield, AlertTriangle, RefreshCw, Terminal } from 'lucide-react';
+import { Shield, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../store';
 
 const statusBadge = (text: string, variant: 'warn' | 'ok' | 'info') => {
@@ -19,14 +18,13 @@ const statusBadge = (text: string, variant: 'warn' | 'ok' | 'info') => {
 const Opsec = () => {
     const { data, loading, error, refetch } = useQuery(GET_OPSEC_QUEUE, { pollInterval: 5000 });
     const [approve] = useMutation(REQUEST_OPSEC_BYPASS, { onCompleted: () => refetch() });
-    const [selected, setSelected] = useState<any>(null);
+    const [selected, setSelected] = useState<unknown>(null);
     const { isSidebarCollapsed } = useAppStore();
 
     const tasks = data?.task || [];
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

@@ -193,10 +193,10 @@ export function Step5Build({ config }: Step5Props) {
     const [filename, setFilename] = useState(`${config.payloadType}.bin`);
     const [description, setDescription] = useState(`Created via Minerva`);
     const [isBuilding, setIsBuilding] = useState(false);
-    const [buildResult, setBuildResult] = useState<any>(null);
+    const [buildResult, setBuildResult] = useState<unknown>(null);
     const [buildUUID, setBuildUUID] = useState<string | null>(null);
     const [buildFromNow] = useState(() => new Date().toISOString());
-    const [livePayloadData, setLivePayloadData] = useState<any>(null);
+    const [livePayloadData, setLivePayloadData] = useState<unknown>(null);
     const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
     const [showErrorDetails, setShowErrorDetails] = useState(false);
     const redirectTimerRef = useRef<any>(null);
@@ -313,7 +313,7 @@ export function Step5Build({ config }: Step5Props) {
                 setBuildResult(data.createPayload);
                 setBuildUUID(data.createPayload.uuid);
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             setBuildResult({ status: 'error', error: e.message || "Unknown error occurred" });
         } finally {
             setIsBuilding(false);

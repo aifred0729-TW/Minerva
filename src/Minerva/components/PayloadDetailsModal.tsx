@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileText, Terminal, Activity, Server, Hash, Calendar, Disc, Cpu, Layers, User, Command, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { X, FileText, Activity, Server, Hash, Calendar, Disc, Cpu, Layers, User, Command, Clock } from 'lucide-react';
 import { cn, b64DecodeUnicode } from '../lib/utils';
 
 interface PayloadDetailsModalProps {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSubscription, useMutation } from '@apollo/client';
 import { Link } from 'react-router-dom';
-import { Sidebar } from '../components/Sidebar';
+
 import { useAppStore } from '../store';
 import { SUBSCRIPTION_CONSOLE_CALLBACKS, UPDATE_CALLBACK_DESCRIPTION_MUTATION } from '../lib/api';
 import {
@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn, isCallbackAlive } from '../lib/utils';
-import { snackActions } from '../../components/utilities/Snackbar';
+import { snackActions } from '../lib/snackbar';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,20 @@ function ipToRange(ipStr: string): string {
     const parts = ip.split('.');
     if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
     return 'UNKNOWN_NETWORK';
+}
+
+/** Strip domain suffix from FQDN so the same machine always maps to one HostCard.
+ *  e.g. "WORKSTATION1.CORP.LOCAL" with domain "CORP.LOCAL" → "WORKSTATION1" */
+function normalizeHost(host: string, domain: string): string {
+    if (!host) return 'UNKNOWN_HOST';
+    let h = host.toUpperCase();
+    if (domain) {
+        const d = domain.toUpperCase();
+        if (h.endsWith('.' + d)) {
+            h = h.slice(0, -(d.length + 1));
+        }
+    }
+    return h;
 }
 
 interface CallbackGroup {
@@ -58,7 +72,7 @@ function groupCallbacks(callbacks: any[]): Record<string, CallbackGroup> {
             groups[groupKey] = { hosts: {}, isDomain };
         }
 
-        const host = cb.host || 'UNKNOWN_HOST';
+        const host = normalizeHost(cb.host, cb.domain);
         if (!groups[groupKey].hosts[host]) {
             groups[groupKey].hosts[host] = [];
         }
@@ -372,8 +386,6 @@ export default function ConsoleSelection() {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

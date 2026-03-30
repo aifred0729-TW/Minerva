@@ -3,21 +3,24 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useReactiveVar, useLazyQuery, gql } from '@apollo/client';
-import { meState, FailedRefresh, mePreferences } from '../cache';
-import { isJWTValid, JWTTimeLeft } from '../index';
+import { meState, mePreferences } from './lib/state';
+import { FailedRefresh } from './lib/auth';
+import { isJWTValid, JWTTimeLeft } from './lib/auth';
 
 // Eager imports — always needed
 import Login from './pages/Login';
 import { GlobalAudioPlayer } from './components/GlobalAudioPlayer';
 import { BattleMode } from './components/BattleMode';
 import { EventNotifications, AlertCountSubscription, CallbackSoundTrigger } from './components/EventNotifications';
+import { Layout } from './components/Layout';
 import { useAppStore } from './store';
-import { snackActions } from '../components/utilities/Snackbar';
+import { snackActions } from './lib/snackbar';
 import { playClick } from './lib/soundEffects';
 import './index.css';
 
 import { BattleModeProvider } from './context/BattleModeContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const userSettingsQuery = gql`
 query getUserSettings {
@@ -72,14 +75,14 @@ const MinervaApp = () => {
   // Fetch operator preferences from backend on login / page refresh
   const [getUserPreferences] = useLazyQuery(userSettingsQuery, {
     fetchPolicy: 'no-cache',
-    onCompleted: (data: any) => {
+    onCompleted: (data: Record<string, unknown>) => {
       if (data.getOperatorPreferences.status === 'success') {
         if (data.getOperatorPreferences.preferences !== null) {
           mePreferences({ ...mePreferences(), ...data.getOperatorPreferences.preferences });
         }
       }
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       console.error('Failed to load user preferences:', error.message);
     },
   });
@@ -88,6 +91,7 @@ const MinervaApp = () => {
     if (me.loggedIn) {
       getUserPreferences();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me.loggedIn]);
 
   // Global click sound effect
@@ -138,6 +142,7 @@ const MinervaApp = () => {
   }, [me.loggedIn, isLoginPage, startLogout]);
 
   return (
+    <ErrorBoundary>
     <ThemeProvider>
     <BattleModeProvider>
       <div className="minerva-root font-sans text-white h-full w-full" style={
@@ -181,154 +186,46 @@ const MinervaApp = () => {
         <Suspense fallback={<div className="flex items-center justify-center h-screen w-screen bg-void text-gray-500 font-mono text-sm">Loading…</div>}>
         <Routes>
         <Route path="login" element={<Login />} />
-        
-        <Route 
-          path="dashboard" 
-          element={<Dashboard />} 
-        />
-        
-        <Route 
-          path="callbacks" 
-          element={<Callbacks />} 
-        />
 
-        <Route 
-          path="files" 
-          element={<Files />} 
-        />
-
-        <Route 
-          path="operations" 
-          element={<Operations />} 
-        />
-
-        <Route
-          path="users"
-          element={<UsersPage />}
-        />
-
-        <Route 
-          path="c2-profiles" 
-          element={<C2Profiles />} 
-        />
-        
-        <Route
-          path="create-payload/*"
-          element={<CreatePayloadRouter />}
-        />
-
-        <Route
-          path="console"
-          element={<ConsoleSelection />}
-        />
-
-        <Route 
-          path="console/:id" 
-          element={<Console />} 
-        />
-
-        <Route
-          path="opsec"
-          element={<Opsec />}
-        />
-
-        <Route
-          path="quickhacks"
-          element={<QuickHacks />}
-        />
-
-        <Route
-          path="credentials"
-          element={<Credentials />}
-        />
-
-        <Route 
-          path="settings" 
-          element={<Settings />} 
-        />
-
-        <Route 
-          path="events" 
-          element={<EventFeed />} 
-        />
-
-        <Route 
-          path="payloads" 
-          element={<Payloads />} 
-        />
-
-        <Route 
-          path="search" 
-          element={<Search />} 
-        />
-
-        <Route 
-          path="artifacts" 
-          element={<Artifacts />} 
-        />
-
-        <Route 
-          path="mitre" 
-          element={<MitreAttack />} 
-        />
-
-        <Route 
-          path="reporting" 
-          element={<Reporting />} 
-        />
-
-        <Route 
-          path="tags" 
-          element={<Tags />} 
-        />
-
-        <Route 
-          path="browser-scripts" 
-          element={<BrowserScripts />} 
-        />
-
-        <Route 
-          path="eventing" 
-          element={<Eventing />} 
-        />
-
-        <Route 
-          path="tunnels" 
-          element={<Tunnels />} 
-        />
-
-        <Route 
-          path="payload-types" 
-          element={<PayloadTypes />} 
-        />
-
-        <Route 
-          path="task" 
-          element={<SingleTaskView />} 
-        />
-        <Route 
-          path="task/:displayId" 
-          element={<SingleTaskView />} 
-        />
-
-        <Route 
-          path="topology" 
-          element={<Topology3D />} 
-        />
-
-        {/* Redirect create-wrapper to payloads with wrapper tab */}
-        <Route 
-          path="create-wrapper" 
-          element={<Navigate to="/payloads?tab=wrapper" replace />} 
-        />
-
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        {/* All authenticated routes share a persistent Layout (Sidebar stays mounted) */}
+        <Route element={<Layout />}>
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="callbacks" element={<Callbacks />} />
+          <Route path="files" element={<Files />} />
+          <Route path="operations" element={<Operations />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="c2-profiles" element={<C2Profiles />} />
+          <Route path="create-payload/*" element={<CreatePayloadRouter />} />
+          <Route path="console" element={<ConsoleSelection />} />
+          <Route path="console/:id" element={<Console />} />
+          <Route path="opsec" element={<Opsec />} />
+          <Route path="quickhacks" element={<QuickHacks />} />
+          <Route path="credentials" element={<Credentials />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="events" element={<EventFeed />} />
+          <Route path="payloads" element={<Payloads />} />
+          <Route path="search" element={<Search />} />
+          <Route path="artifacts" element={<Artifacts />} />
+          <Route path="mitre" element={<MitreAttack />} />
+          <Route path="reporting" element={<Reporting />} />
+          <Route path="tags" element={<Tags />} />
+          <Route path="browser-scripts" element={<BrowserScripts />} />
+          <Route path="eventing" element={<Eventing />} />
+          <Route path="tunnels" element={<Tunnels />} />
+          <Route path="payload-types" element={<PayloadTypes />} />
+          <Route path="task" element={<SingleTaskView />} />
+          <Route path="task/:displayId" element={<SingleTaskView />} />
+          <Route path="topology" element={<Topology3D />} />
+          <Route path="create-wrapper" element={<Navigate to="/payloads?tab=wrapper" replace />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
       </Routes>
       </Suspense>
       </div>
     </BattleModeProvider>
     </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

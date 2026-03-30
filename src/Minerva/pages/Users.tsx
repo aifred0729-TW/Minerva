@@ -1,55 +1,43 @@
-import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
-import { 
-  GET_OPERATORS, 
-  CREATE_OPERATOR_MUTATION, 
-  UPDATE_OPERATOR_STATUS_MUTATION, 
-  UPDATE_OPERATOR_PASSWORD_MUTATION,
-  UPDATE_OPERATOR_USERNAME_MUTATION,
-  GET_INVITE_LINKS,
-  CREATE_INVITE_LINK,
-  UPDATE_INVITE_LINK,
-  GET_OPERATIONS_LIST
-} from '../lib/api';
-import { Sidebar } from '../components/Sidebar';
+import React, { useState, useEffect } from 'react'
+import { useMutation, useQuery, useLazyQuery } from '@apollo/client'
+import {
+    GET_OPERATORS,
+    CREATE_OPERATOR_MUTATION,
+    UPDATE_OPERATOR_STATUS_MUTATION,
+    UPDATE_OPERATOR_PASSWORD_MUTATION,
+    UPDATE_OPERATOR_USERNAME_MUTATION,
+    GET_INVITE_LINKS,
+    CREATE_INVITE_LINK,
+    UPDATE_INVITE_LINK,
+    GET_OPERATIONS_LIST,
+}from '../lib/api';
 import { CyberTable } from '../components/CyberTable';
-import { 
-  Users, 
-  UserPlus, 
-  Edit, 
-  Trash2, 
-  Shield, 
-  ShieldOff, 
-  CheckCircle, 
-  XCircle, 
-  Lock, 
-  MoreVertical,
-  AlertTriangle,
-  Link2,
-  Plus,
-  Copy,
-  Edit3,
-  RefreshCw,
-  X
-} from 'lucide-react';
+import {
+    Users,
+    UserPlus,
+    Edit,
+    Trash2,
+    Shield,
+    ShieldOff,
+    CheckCircle,
+    XCircle,
+    Lock,
+    MoreVertical,
+    AlertTriangle,
+    Link2,
+    Plus,
+    Copy,
+    Edit3,
+    RefreshCw,
+    X,
+}from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { copyStringToClipboard } from '../../components/utilities/Clipboard';
-import { cn } from '../lib/utils';
+import { snackActions } from '../lib/snackbar';
+import { copyStringToClipboard } from '../lib/clipboard';
+import { cn, getErrorMessage } from '../lib/utils';
 import { useAppStore } from '../store';
-
-// --- Types ---
-interface Operator {
-  id: number;
-  username: string;
-  active: boolean;
-  admin: boolean;
-  last_login: string;
-  creation_time: string;
-  email: string;
-  deleted: boolean;
-}
+import type { Operator }from '../types/operations';
 
 // --- Main Page Component ---
 export default function UsersPage() {
@@ -63,7 +51,7 @@ export default function UsersPage() {
   const [actionsMenuOpenId, setActionsMenuOpenId] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
 
-  const { data, loading, error, refetch } = useQuery(GET_OPERATORS, {
+  const { data, loading, refetch } = useQuery(GET_OPERATORS, {
     pollInterval: 10000,
     fetchPolicy: 'network-only'
   });
@@ -93,8 +81,8 @@ export default function UsersPage() {
         });
         snackActions.success(`User ${user.active ? 'deactivated' : 'activated'}`);
         refetch();
-    } catch (e: any) {
-        snackActions.error("Failed to update status: " + e.message);
+    } catch (e: unknown) {
+        snackActions.error("Failed to update status: " + getErrorMessage(e));
     }
     setActionsMenuOpenId(null);
   };
@@ -106,8 +94,8 @@ export default function UsersPage() {
         });
         snackActions.success(`User admin privileges ${user.admin ? 'revoked' : 'granted'}`);
         refetch();
-    } catch (e: any) {
-        snackActions.error("Failed to update admin status: " + e.message);
+    } catch (e: unknown) {
+        snackActions.error("Failed to update admin status: " + getErrorMessage(e));
     }
     setActionsMenuOpenId(null);
   };
@@ -126,8 +114,8 @@ export default function UsersPage() {
         });
         snackActions.success("User deleted");
         refetch();
-    } catch (e: any) {
-        snackActions.error("Failed to delete user: " + e.message);
+    } catch (e: unknown) {
+        snackActions.error("Failed to delete user: " + getErrorMessage(e));
     }
     setShowDeleteConfirm(false);
   };
@@ -232,9 +220,8 @@ export default function UsersPage() {
 
   return (
     <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-      <Sidebar />
-      
-      <motion.div 
+
+      <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
@@ -373,9 +360,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void, onSucces
                 email: email || "",
                 bot: false
             };
-            console.log("Creating operator with variables:", variables);
             const { data } = await createOp({ variables });
-            console.log("Create operator response:", data);
             
             if (data?.createOperator?.status === 'success') {
                 snackActions.success("Operator created successfully");
@@ -383,9 +368,9 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void, onSucces
             } else {
                 snackActions.error("Failed to create operator: " + (data?.createOperator?.error || "Unknown error"));
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error("Create operator error:", e);
-            snackActions.error("Failed to create operator: " + e.message);
+            snackActions.error("Failed to create operator: " + getErrorMessage(e));
         }
     };
 
@@ -461,8 +446,8 @@ function EditUserModal({ user, onClose, onSuccess }: { user: Operator, onClose: 
             await updateUser({ variables: { id: user.id, username } });
             snackActions.success("Profile updated");
             onSuccess();
-        } catch (e: any) {
-            snackActions.error("Update failed: " + e.message);
+        } catch (e: unknown) {
+            snackActions.error("Update failed: " + getErrorMessage(e));
         }
     };
 
@@ -518,8 +503,8 @@ function ChangePasswordModal({ user, onClose, onSuccess }: { user: Operator, onC
             await updatePass({ variables: { user_id: user.id, new_password: password, email } });
             snackActions.success("Credentials updated");
             onSuccess();
-        } catch (e: any) {
-            snackActions.error("Update failed: " + e.message);
+        } catch (e: unknown) {
+            snackActions.error("Update failed: " + getErrorMessage(e));
         }
     };
 
@@ -605,7 +590,7 @@ function ConfirmationModal({ title, message, onConfirm, onCancel, confirmText = 
 const InviteLinksSection = () => {
     const [inviteLinks, setInviteLinks] = useState<any[]>([]);
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const [editingLink, setEditingLink] = useState<any>(null);
+    const [editingLink, setEditingLink] = useState<unknown>(null);
     const [operations, setOperations] = useState<any[]>([]);
 
     const [getInviteLinks, { loading }] = useLazyQuery(GET_INVITE_LINKS, {
@@ -631,6 +616,7 @@ const InviteLinksSection = () => {
 
     useEffect(() => {
         getInviteLinks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleCopyLink = (link: string) => {

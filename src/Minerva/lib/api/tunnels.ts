@@ -32,6 +32,7 @@ export const CALLBACKPORT_STREAM = gql`
         process_name
         integrity_level
         active
+        sleep_info
         init_callback
         last_checkin
         payload {

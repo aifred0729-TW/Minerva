@@ -1,12 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useQuery, useLazyQuery, gql } from '@apollo/client';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useQuery, useLazyQuery } from '@apollo/client';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Target, 
-    Grid3X3, 
+import {
+    Target,
     Terminal,
-    Filter,
-    ChevronDown,
     X,
     Loader2,
     ExternalLink,
@@ -27,94 +24,22 @@ import {
     Info,
     Download,
     Cpu,
+    Tag,
 } from 'lucide-react';
-import { Sidebar } from '../components/Sidebar';
 import { cn } from '../lib/utils';
-import { snackActions } from '../../components/utilities/Snackbar';
+import { snackActions } from '../lib/snackbar';
 import { useReactiveVar } from '@apollo/client';
-import { meState } from '../../cache';
+import { meState } from '../lib/state';
 import { useAppStore } from '../store';
-
-// ============================================
-// GraphQL Queries
-// ============================================
-const GET_MITRE_ATTACK = gql`
-query GetMitreAttack {
-  attack(order_by: {t_num: asc}){
-    id
-    name
-    t_num
-    os
-    tactic
-  }
-}
-`;
-
-const GET_TASK_ATTACKS = gql`
-query GetMitreTaskAttack($operation_id: Int!) {
-  attacktask(where: {task: {callback: {operation_id: {_eq: $operation_id}}}}) {
-    attack_id
-    task {
-      id
-      command_name
-      comment
-      display_params
-      callback {
-        id
-        display_id
-        payload {
-          payloadtype {
-            name
-          }
-        }
-      }
-    }
-  }
-}
-`;
-
-const GET_COMMAND_ATTACKS = gql`
-query GetMitreCommandAttack{
-  attackcommand {
-    attack_id
-    command {
-      cmd
-      payloadtype {
-        name
-      }
-    }
-  }
-}
-`;
-
-// #16 — MITRE "by tag" mode queries
-const GET_TASK_TAGS = gql`
-query GetTaskTags {
-  tag(where: {task_id: {_is_null: false}}) {
-    id
-    tagtype { name }
-    task_id
-  }
-}
-`;
-const GET_TASK_ATTACKS_BY_TAG = gql`
-query GetMitreTaskAttackByTag($tasks: [Int!]!) {
-  attacktask(where: {task_id: {_in: $tasks}}) {
-    attack_id
-    task {
-      id
-      command_name
-      comment
-      display_params
-      callback {
-        id
-        display_id
-        payload { payloadtype { name } }
-      }
-    }
-  }
-}
-`;
+import {
+    GET_MITRE_ATTACK,
+    GET_TASK_ATTACKS,
+    GET_TASK_ATTACKS_FILTERED,
+    GET_COMMAND_ATTACKS,
+    GET_COMMAND_ATTACKS_FILTERED,
+    GET_TASK_TAGS,
+    GET_TASK_ATTACKS_BY_TAG,
+} from '../lib/api/mitre';
 
 // ============================================
 // Types
@@ -123,8 +48,16 @@ interface Attack {
     id: number;
     name: string;
     t_num: string;
+    os: string[] | string;
+    tactic: string[] | string;
+}
+
+interface ParsedAttack {
+    id: number;
+    name: string;
+    t_num: string;
     os: string[];
-    tactic: string;
+    tactic: string[];
 }
 
 interface TaskAttack {
@@ -156,16 +89,24 @@ interface CommandAttack {
     };
 }
 
-interface TacticData {
-    tactic: string;
-    techniques: (Attack & { 
-        hasTask: boolean; 
-        hasCommand: boolean; 
-        taskCount: number;
-        commandCount: number;
-    })[];
+interface TechniqueInTactic extends ParsedAttack {
+    hasTask: boolean;
+    hasCommand: boolean;
+    hasTag: boolean;
+    hasTaskByPt: boolean;
     taskCount: number;
     commandCount: number;
+    tagCount: number;
+    taskByPtCount: number;
+}
+
+interface __TacticData {
+    tactic: string;
+    techniques: TechniqueInTactic[];
+    taskCount: number;
+    commandCount: number;
+    tagCount: number;
+    taskByPtCount: number;
 }
 
 // ============================================
@@ -189,19 +130,40 @@ const TACTICS = [
 ];
 
 // ============================================
+// Helper: parse JSON fields from DB
+// ============================================
+function parseAttack(raw: Attack): ParsedAttack {
+    let os: string[] = [];
+    let tactic: string[] = [];
+    try {
+        os = typeof raw.os === 'string' ? JSON.parse(raw.os) : (Array.isArray(raw.os) ? raw.os : []);
+    } catch { os = []; }
+    try {
+        tactic = typeof raw.tactic === 'string' ? JSON.parse(raw.tactic) : (Array.isArray(raw.tactic) ? raw.tactic : []);
+    } catch { tactic = []; }
+    return { ...raw, os, tactic };
+}
+
+// ============================================
 // Technique Cell Component
 // ============================================
-const TechniqueCell = ({ 
-    technique, 
+const TechniqueCell = ({
+    technique,
     viewMode,
-    onClick 
-}: { 
-    technique: Attack & { hasTask: boolean; hasCommand: boolean; hasTag?: boolean; hasTaskByPt?: boolean; taskCount: number; commandCount: number; tagCount?: number; taskByPtCount?: number };
+    onClick
+}: {
+    technique: TechniqueInTactic;
     viewMode: 'commands' | 'tasks' | 'tasks_by_pt' | 'tags';
     onClick: () => void;
 }) => {
-    const isActive = viewMode === 'tasks' ? technique.hasTask : viewMode === 'tasks_by_pt' ? (technique.hasTaskByPt || false) : viewMode === 'tags' ? (technique.hasTag || false) : technique.hasCommand;
-    const count = viewMode === 'tasks' ? technique.taskCount : viewMode === 'tasks_by_pt' ? (technique.taskByPtCount || 0) : viewMode === 'tags' ? (technique.tagCount || 0) : technique.commandCount;
+    const isActive = viewMode === 'tasks' ? technique.hasTask
+        : viewMode === 'tasks_by_pt' ? technique.hasTaskByPt
+        : viewMode === 'tags' ? technique.hasTag
+        : technique.hasCommand;
+    const count = viewMode === 'tasks' ? technique.taskCount
+        : viewMode === 'tasks_by_pt' ? technique.taskByPtCount
+        : viewMode === 'tags' ? technique.tagCount
+        : technique.commandCount;
 
     return (
         <motion.div
@@ -209,6 +171,7 @@ const TechniqueCell = ({
             onClick={onClick}
             className={cn(
                 "p-2 rounded border cursor-pointer transition-all text-xs",
+                technique.t_num.includes('.') && "ml-4 border-l-2",
                 isActive
                     ? "bg-signal/10 border-signal/30 hover:border-signal/50"
                     : "bg-ghost/5 border-ghost/20 hover:border-ghost/40 opacity-60 hover:opacity-80"
@@ -247,16 +210,48 @@ const TechniqueDetailModal = ({
     viewMode,
     onClose
 }: {
-    technique: Attack | null;
+    technique: ParsedAttack | null;
     tasks: TaskAttack[];
     commands: CommandAttack[];
     viewMode: 'commands' | 'tasks' | 'tasks_by_pt' | 'tags';
     onClose: () => void;
 }) => {
+    const relevantTasks = tasks.filter(t => technique && t.attack_id === technique.id);
+    const relevantCommands = commands.filter(c => technique && c.attack_id === technique.id);
+
+    // Group tasks by payload type (like MythicReactUI reference)
+    const groupedTasks = useMemo(() => {
+        const groups: Record<string, { id: number; command: string; comment: string; callback_id: number; display_id: number }[]> = {};
+        relevantTasks.forEach(t => {
+            const ptName = t.task.callback?.payload?.payloadtype?.name || 'Unknown';
+            if (!groups[ptName]) groups[ptName] = [];
+            groups[ptName].push({
+                id: t.task.id,
+                command: t.task.command_name + (t.task.display_params ? ' ' + t.task.display_params : ''),
+                comment: t.task.comment || '',
+                callback_id: t.task.callback?.id || 0,
+                display_id: t.task.callback?.display_id || 0,
+            });
+        });
+        return Object.entries(groups);
+    }, [relevantTasks]);
+
+    // Group commands by payload type
+    const groupedCommands = useMemo(() => {
+        const groups: Record<string, string[]> = {};
+        relevantCommands.forEach(c => {
+            const ptName = c.command.payloadtype.name;
+            if (!groups[ptName]) groups[ptName] = [];
+            if (!groups[ptName].includes(c.command.cmd)) {
+                groups[ptName].push(c.command.cmd);
+            }
+        });
+        return Object.entries(groups);
+    }, [relevantCommands]);
+
     if (!technique) return null;
 
-    const relevantTasks = tasks.filter(t => t.attack_id === technique.id);
-    const relevantCommands = commands.filter(c => c.attack_id === technique.id);
+    const showTasks = viewMode === 'tasks' || viewMode === 'tasks_by_pt' || viewMode === 'tags';
 
     return (
         <motion.div
@@ -278,7 +273,7 @@ const TechniqueDetailModal = ({
                         <div>
                             <div className="flex items-center gap-2 mb-2">
                                 <span className="text-signal font-mono text-lg">{technique.t_num}</span>
-                                <a 
+                                <a
                                     href={`https://attack.mitre.org/techniques/${technique.t_num.replace('.', '/')}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
@@ -288,7 +283,9 @@ const TechniqueDetailModal = ({
                                 </a>
                             </div>
                             <h2 className="text-xl font-bold text-white">{technique.name}</h2>
-                            <p className="text-sm text-gray-400 mt-1">Tactic: {technique.tactic}</p>
+                            <p className="text-sm text-gray-400 mt-1">
+                                Tactics: {technique.tactic.join(', ')}
+                            </p>
                         </div>
                         <button
                             onClick={onClose}
@@ -300,36 +297,65 @@ const TechniqueDetailModal = ({
                 </div>
 
                 <div className="p-6 overflow-auto max-h-[60vh]">
-                    {(viewMode === 'tasks' || viewMode === 'tasks_by_pt' || viewMode === 'tags') ? (
+                    {showTasks ? (
                         <div>
                             <h3 className="text-sm font-medium text-gray-400 uppercase mb-3 flex items-center gap-2">
                                 <Activity size={16} />
                                 Executed Tasks ({relevantTasks.length})
                             </h3>
-                            {relevantTasks.length === 0 ? (
+                            {groupedTasks.length === 0 ? (
                                 <p className="text-gray-500 text-sm">No tasks executed for this technique</p>
                             ) : (
-                                <div className="space-y-2">
-                                    {relevantTasks.map((t, idx) => (
-                                        <div 
-                                            key={idx}
-                                            className="p-3 bg-black/30 border border-ghost/20 rounded"
-                                        >
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="text-signal font-mono">{t.task.command_name}</span>
-                                                <span className="text-gray-500 text-xs">
-                                                    Callback #{t.task.callback?.display_id}
-                                                </span>
-                                                <span className="text-gray-500 text-xs">
-                                                    ({t.task.callback?.payload?.payloadtype?.name})
-                                                </span>
+                                <div className="space-y-4">
+                                    {groupedTasks.map(([ptName, tasks]) => (
+                                        <div key={ptName}>
+                                            <div className="px-3 py-2 bg-signal/5 border border-signal/20 rounded-t font-medium text-signal text-sm">
+                                                {ptName}
                                             </div>
-                                            {t.task.display_params && (
-                                                <p className="text-gray-400 font-mono text-xs truncate">{t.task.display_params}</p>
-                                            )}
-                                            {t.task.comment && (
-                                                <p className="text-gray-500 text-xs italic mt-1">"{t.task.comment}"</p>
-                                            )}
+                                            <div className="border border-t-0 border-ghost/20 rounded-b overflow-hidden">
+                                                <table className="w-full text-sm">
+                                                    <thead>
+                                                        <tr className="border-b border-ghost/20 text-gray-400 text-xs">
+                                                            <th className="px-3 py-2 text-left w-20">Callback</th>
+                                                            <th className="px-3 py-2 text-left w-16">Task</th>
+                                                            <th className="px-3 py-2 text-left">Command</th>
+                                                            <th className="px-3 py-2 text-left">Comment</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {tasks.map((task, idx) => (
+                                                            <tr key={idx} className="border-b border-ghost/10 hover:bg-ghost/5">
+                                                                <td className="px-3 py-2">
+                                                                    <a
+                                                                        href={`/callbacks/${task.callback_id}`}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="text-signal hover:underline font-mono"
+                                                                    >
+                                                                        #{task.display_id}
+                                                                    </a>
+                                                                </td>
+                                                                <td className="px-3 py-2">
+                                                                    <a
+                                                                        href={`/tasks/${task.id}`}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="text-signal hover:underline font-mono"
+                                                                    >
+                                                                        {task.id}
+                                                                    </a>
+                                                                </td>
+                                                                <td className="px-3 py-2 font-mono text-gray-300 truncate max-w-[300px]">
+                                                                    {task.command}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-gray-500 italic truncate max-w-[200px]">
+                                                                    {task.comment}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -341,17 +367,42 @@ const TechniqueDetailModal = ({
                                 <Command size={16} />
                                 Available Commands ({relevantCommands.length})
                             </h3>
-                            {relevantCommands.length === 0 ? (
+                            {groupedCommands.length === 0 ? (
                                 <p className="text-gray-500 text-sm">No commands mapped to this technique</p>
                             ) : (
-                                <div className="grid grid-cols-2 gap-2">
-                                    {relevantCommands.map((c, idx) => (
-                                        <div 
-                                            key={idx}
-                                            className="p-3 bg-black/30 border border-ghost/20 rounded flex items-center justify-between"
-                                        >
-                                            <span className="text-signal font-mono">{c.command.cmd}</span>
-                                            <span className="text-gray-500 text-xs">{c.command.payloadtype.name}</span>
+                                <div className="space-y-4">
+                                    {groupedCommands.map(([ptName, cmds]) => (
+                                        <div key={ptName}>
+                                            <div className="px-3 py-2 bg-signal/5 border border-signal/20 rounded-t font-medium text-signal text-sm">
+                                                {ptName}
+                                            </div>
+                                            <div className="border border-t-0 border-ghost/20 rounded-b overflow-hidden">
+                                                <table className="w-full text-sm">
+                                                    <thead>
+                                                        <tr className="border-b border-ghost/20 text-gray-400 text-xs">
+                                                            <th className="px-3 py-2 text-left">Command</th>
+                                                            <th className="px-3 py-2 text-left w-24">Docs</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {cmds.map((cmd, idx) => (
+                                                            <tr key={idx} className="border-b border-ghost/10 hover:bg-ghost/5">
+                                                                <td className="px-3 py-2 font-mono text-signal">{cmd}</td>
+                                                                <td className="px-3 py-2">
+                                                                    <a
+                                                                        href={`/docs/agents/${ptName}/commands/${cmd}`}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="px-2 py-1 bg-signal/10 border border-signal/30 rounded text-signal text-xs hover:bg-signal/20 transition-colors"
+                                                                    >
+                                                                        Docs
+                                                                    </a>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -371,11 +422,13 @@ const MitreAttack = () => {
     const me = useReactiveVar(meState);
     const { isSidebarCollapsed } = useAppStore();
     const [viewMode, setViewMode] = useState<'commands' | 'tasks' | 'tasks_by_pt' | 'tags'>('tasks');
-    const [loading, setLoading] = useState(true);
-    const [attacks, setAttacks] = useState<Attack[]>([]);
+    const [attacksLoaded, setAttacksLoaded] = useState(false);
+    const [attacks, setAttacks] = useState<ParsedAttack[]>([]);
     const [taskAttacks, setTaskAttacks] = useState<TaskAttack[]>([]);
     const [commandAttacks, setCommandAttacks] = useState<CommandAttack[]>([]);
-    const [selectedTechnique, setSelectedTechnique] = useState<Attack | null>(null);
+    const [filteredTaskAttacks, setFilteredTaskAttacks] = useState<TaskAttack[]>([]);
+    const [filteredCommandAttacks, setFilteredCommandAttacks] = useState<CommandAttack[]>([]);
+    const [selectedTechnique, setSelectedTechnique] = useState<ParsedAttack | null>(null);
     const [filterPayloadType, setFilterPayloadType] = useState('all');
     const [filterTaskPayloadType, setFilterTaskPayloadType] = useState('all');
     const [techSearch, setTechSearch] = useState('');
@@ -421,34 +474,59 @@ const MitreAttack = () => {
 
     // Fetch all MITRE techniques
     useQuery(GET_MITRE_ATTACK, {
+        fetchPolicy: "no-cache",
         onCompleted: (data) => {
-            setAttacks(data.attack);
+            const parsed = (data.attack || []).map((a: Attack) => parseAttack(a));
+            setAttacks(parsed);
+            setAttacksLoaded(true);
         },
         onError: () => {
             snackActions.error('Failed to load MITRE ATT&CK data');
+            setAttacksLoaded(true);
         }
     });
 
-    // Fetch task attacks
+    // Fetch all task attacks (unfiltered)
     const [fetchTaskAttacks] = useLazyQuery(GET_TASK_ATTACKS, {
         fetchPolicy: "network-only",
         onCompleted: (data) => {
-            setTaskAttacks(data.attacktask);
-            setLoading(false);
+            setTaskAttacks(data.attacktask || []);
         },
         onError: () => {
             snackActions.error('Failed to load task attack mappings');
-            setLoading(false);
         }
     });
 
-    // Fetch command attacks
+    // Fetch filtered task attacks by payload type
+    const [fetchTaskAttacksFiltered] = useLazyQuery(GET_TASK_ATTACKS_FILTERED, {
+        fetchPolicy: "network-only",
+        onCompleted: (data) => {
+            setFilteredTaskAttacks(data.attacktask || []);
+        },
+        onError: () => {
+            snackActions.error('Failed to load filtered task attack mappings');
+        }
+    });
+
+    // Fetch all command attacks (unfiltered)
     useQuery(GET_COMMAND_ATTACKS, {
         onCompleted: (data) => {
-            setCommandAttacks(data.attackcommand);
+            setCommandAttacks(data.attackcommand || []);
         }
     });
 
+    // Fetch filtered command attacks by payload type
+    const [fetchCommandAttacksFiltered] = useLazyQuery(GET_COMMAND_ATTACKS_FILTERED, {
+        fetchPolicy: "network-only",
+        onCompleted: (data) => {
+            setFilteredCommandAttacks(data.attackcommand || []);
+        },
+        onError: () => {
+            snackActions.error('Failed to load filtered command attack mappings');
+        }
+    });
+
+    // Initial fetch for tasks
     useEffect(() => {
         // @ts-ignore
         if (me?.user?.current_operation_id) {
@@ -457,56 +535,72 @@ const MitreAttack = () => {
         }
     }, [me, fetchTaskAttacks]);
 
-    // Process data into tactics
-    const tacticsData = useMemo(() => {
-        const taskAttackIds = new Set(taskAttacks.map(t => t.attack_id));
-        const commandAttackIds = new Set(commandAttacks.map(c => c.attack_id));
-        // #16 — tag mode attack ids
-        const tagAttackIds = new Set(tagTaskAttacks.map(t => t.attack_id));
+    // When command payload type filter changes
+    useEffect(() => {
+        if (viewMode === 'commands' && filterPayloadType !== 'all') {
+            fetchCommandAttacksFiltered({ variables: { payload_type: filterPayloadType } });
+        }
+    }, [viewMode, filterPayloadType, fetchCommandAttacksFiltered]);
 
-        // Count tasks and commands per technique
+    // When task payload type filter changes
+    useEffect(() => {
+        // @ts-ignore
+        if (viewMode === 'tasks_by_pt' && filterTaskPayloadType !== 'all' && me?.user?.current_operation_id) {
+            fetchTaskAttacksFiltered({
+                variables: {
+                    // @ts-ignore
+                    operation_id: me.user.current_operation_id,
+                    payload_type: filterTaskPayloadType
+                }
+            });
+        }
+    }, [viewMode, filterTaskPayloadType, me, fetchTaskAttacksFiltered]);
+
+    // Determine which data sets to use based on view mode
+    const activeTaskAttacks = useMemo(() => {
+        if (viewMode === 'tags') return tagTaskAttacks;
+        if (viewMode === 'tasks_by_pt' && filterTaskPayloadType !== 'all') return filteredTaskAttacks;
+        return taskAttacks;
+    }, [viewMode, taskAttacks, filteredTaskAttacks, tagTaskAttacks, filterTaskPayloadType]);
+
+    const activeCommandAttacks = useMemo(() => {
+        if (viewMode === 'commands' && filterPayloadType !== 'all') return filteredCommandAttacks;
+        return commandAttacks;
+    }, [viewMode, commandAttacks, filteredCommandAttacks, filterPayloadType]);
+
+    // Process data into tactics — techniques can appear in MULTIPLE tactics
+    const tacticsData = useMemo(() => {
+        const taskAttackIds = new Set(activeTaskAttacks.map(t => t.attack_id));
+        const commandAttackIds = new Set(activeCommandAttacks.map(c => c.attack_id));
+
+        // Count per technique
         const taskCounts: Record<number, number> = {};
         const commandCounts: Record<number, number> = {};
-        const tagCounts: Record<number, number> = {};
-        // #3 — tasks filtered by payload type
-        const taskByPtCounts: Record<number, number> = {};
-        const taskByPtIds = new Set<number>();
 
-        taskAttacks.forEach(t => {
+        activeTaskAttacks.forEach(t => {
             taskCounts[t.attack_id] = (taskCounts[t.attack_id] || 0) + 1;
-            // #3 — count per payload-type filter
-            if (filterTaskPayloadType === 'all' || t.task?.callback?.payload?.payloadtype?.name === filterTaskPayloadType) {
-                taskByPtCounts[t.attack_id] = (taskByPtCounts[t.attack_id] || 0) + 1;
-                taskByPtIds.add(t.attack_id);
-            }
         });
-
-        commandAttacks.forEach(c => {
-            if (filterPayloadType === 'all' || c.command.payloadtype.name === filterPayloadType) {
-                commandCounts[c.attack_id] = (commandCounts[c.attack_id] || 0) + 1;
-            }
-        });
-
-        tagTaskAttacks.forEach(t => {
-            tagCounts[t.attack_id] = (tagCounts[t.attack_id] || 0) + 1;
+        activeCommandAttacks.forEach(c => {
+            commandCounts[c.attack_id] = (commandCounts[c.attack_id] || 0) + 1;
         });
 
         const lowerSearch = techSearch.toLowerCase();
 
         return TACTICS.map(tactic => {
-            const techniques = attacks
-                .filter(a => a.tactic === tactic.id)
+            // Filter attacks that belong to THIS tactic (tactic is an array — a technique can be in multiple)
+            const techniques: TechniqueInTactic[] = attacks
+                .filter(a => a.tactic.includes(tactic.id))
                 .filter(a => !techSearch || a.name.toLowerCase().includes(lowerSearch) || a.t_num.toLowerCase().includes(lowerSearch))
                 .map(a => ({
                     ...a,
                     hasTask: taskAttackIds.has(a.id),
                     hasCommand: commandAttackIds.has(a.id),
-                    hasTag: tagAttackIds.has(a.id),
-                    hasTaskByPt: taskByPtIds.has(a.id),
+                    hasTag: taskAttackIds.has(a.id),
+                    hasTaskByPt: taskAttackIds.has(a.id),
                     taskCount: taskCounts[a.id] || 0,
                     commandCount: commandCounts[a.id] || 0,
-                    tagCount: tagCounts[a.id] || 0,
-                    taskByPtCount: taskByPtCounts[a.id] || 0,
+                    tagCount: taskCounts[a.id] || 0,
+                    taskByPtCount: taskCounts[a.id] || 0,
                 }));
 
             return {
@@ -518,16 +612,16 @@ const MitreAttack = () => {
                 taskByPtCount: techniques.filter(t => t.hasTaskByPt).length,
             };
         });
-    }, [attacks, taskAttacks, commandAttacks, tagTaskAttacks, filterPayloadType, filterTaskPayloadType, techSearch]);
+    }, [attacks, activeTaskAttacks, activeCommandAttacks, techSearch]);
 
-    // Get unique payload types (commands)
+    // Get unique payload types (from all commands)
     const payloadTypes = useMemo(() => {
         const types = new Set<string>();
         commandAttacks.forEach(c => types.add(c.command.payloadtype.name));
         return Array.from(types).sort();
     }, [commandAttacks]);
 
-    // #3 — Get unique payload types from tasks
+    // Get unique payload types from tasks
     const taskPayloadTypes = useMemo(() => {
         const types = new Set<string>();
         taskAttacks.forEach(t => { const n = t.task?.callback?.payload?.payloadtype?.name; if (n) types.add(n); });
@@ -545,9 +639,9 @@ const MitreAttack = () => {
         };
     }, [attacks, taskAttacks, commandAttacks]);
 
-    // #1 — Export highlighted techniques to ATT&CK Navigator JSON layer
-    const exportToNavigator = () => {
-        const highlightedTechniques: { t_num: string; score: number }[] = [];
+    // Export highlighted techniques to ATT&CK Navigator JSON layer
+    const exportToNavigator = useCallback(() => {
+        const highlightedTechniques: { t_num: string; tactic: string; score: number }[] = [];
         tacticsData.forEach(td => {
             td.techniques.forEach(tech => {
                 let active = false;
@@ -555,8 +649,14 @@ const MitreAttack = () => {
                 if (viewMode === 'tasks') { active = tech.hasTask; score = tech.taskCount; }
                 else if (viewMode === 'tasks_by_pt') { active = tech.hasTaskByPt; score = tech.taskByPtCount; }
                 else if (viewMode === 'commands') { active = tech.hasCommand; score = tech.commandCount; }
-                else if (viewMode === 'tags') { active = tech.hasTag || false; score = tech.tagCount || 0; }
-                if (active) highlightedTechniques.push({ t_num: tech.t_num, score });
+                else if (viewMode === 'tags') { active = tech.hasTag; score = tech.tagCount; }
+                if (active) {
+                    highlightedTechniques.push({
+                        t_num: tech.t_num,
+                        tactic: td.tactic.replaceAll(' ', '-').toLowerCase(),
+                        score
+                    });
+                }
             });
         });
         const layer = {
@@ -569,16 +669,15 @@ const MitreAttack = () => {
             layout: { layout: "side", aggregateFunction: "average", showID: true, showName: true, showAggregateScores: false, countUnscored: false },
             hideDisabled: false,
             techniques: highlightedTechniques.map(t => ({
-                techniqueID: t.t_num.includes('.') ? t.t_num.split('.')[0] : t.t_num,
-                ...(t.t_num.includes('.') ? { tactic: '', comment: '', enabled: true, metadata: [], links: [], showSubtechniques: true } : {}),
-                tactic: "",
+                techniqueID: t.t_num,
+                tactic: t.tactic,
                 color: "#bc3b24",
                 comment: `Score: ${t.score}`,
                 score: t.score,
                 enabled: true,
                 metadata: [],
                 links: [],
-                showSubtechniques: false,
+                showSubtechniques: true,
             })),
             gradient: { colors: ["#ffffff", "#bc3b24"], minValue: 0, maxValue: Math.max(1, ...highlightedTechniques.map(t => t.score)) },
             legendItems: [],
@@ -598,13 +697,14 @@ const MitreAttack = () => {
         a.click();
         URL.revokeObjectURL(url);
         snackActions.success(`Exported ${highlightedTechniques.length} techniques to ATT&CK Navigator`);
-    };
+    }, [tacticsData, viewMode]);
+
+    const loading = !attacksLoaded;
 
     return (
         <div className="flex h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-            
-            <motion.div 
+
+            <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}
@@ -645,7 +745,7 @@ const MitreAttack = () => {
                                 ))}
                             </select>
                         )}
-                        {/* #3 — Payload Type Filter (tasks_by_pt mode) */}
+                        {/* Payload Type Filter (tasks_by_pt mode) */}
                         {viewMode === 'tasks_by_pt' && (
                             <select
                                 value={filterTaskPayloadType}
@@ -658,7 +758,7 @@ const MitreAttack = () => {
                                 ))}
                             </select>
                         )}
-                        {/* #16 — Tag Type Filter */}
+                        {/* Tag Type Filter */}
                         {viewMode === 'tags' && tagTypes.length > 0 && (
                             <select
                                 value={selectedTagType}
@@ -671,7 +771,7 @@ const MitreAttack = () => {
                             </select>
                         )}
 
-                        {/* #1 — Export to ATT&CK Navigator */}
+                        {/* Export to ATT&CK Navigator */}
                         <button
                             onClick={exportToNavigator}
                             className="h-9 px-3 bg-black/50 border border-ghost/30 rounded text-gray-400 text-sm hover:text-signal hover:border-signal/50 transition-colors flex items-center gap-2"
@@ -729,7 +829,7 @@ const MitreAttack = () => {
                                         : "text-gray-400 hover:text-white"
                                 )}
                             >
-                                <Database size={14} className="inline-block mr-1.5" />
+                                <Tag size={14} className="inline-block mr-1.5" />
                                 By Tag
                             </button>
                         </div>
@@ -747,10 +847,13 @@ const MitreAttack = () => {
                             {tacticsData.map((tacticData) => {
                                 const tacticConfig = TACTICS.find(t => t.id === tacticData.tactic);
                                 const TacticIcon = tacticConfig?.icon || Target;
-                                const count = viewMode === 'tasks' ? tacticData.taskCount : viewMode === 'tasks_by_pt' ? tacticData.taskByPtCount : viewMode === 'tags' ? tacticData.tagCount : tacticData.commandCount;
+                                const count = viewMode === 'tasks' ? tacticData.taskCount
+                                    : viewMode === 'tasks_by_pt' ? tacticData.taskByPtCount
+                                    : viewMode === 'tags' ? tacticData.tagCount
+                                    : tacticData.commandCount;
 
                                 return (
-                                    <div 
+                                    <div
                                         key={tacticData.tactic}
                                         className="w-48 flex-shrink-0"
                                     >
@@ -774,7 +877,7 @@ const MitreAttack = () => {
                                         <div className="border-x border-b border-ghost/30 rounded-b-lg bg-black/20 p-2 space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto cyber-scrollbar">
                                             {tacticData.techniques.map((technique) => (
                                                 <TechniqueCell
-                                                    key={technique.id}
+                                                    key={`${technique.id}-${tacticData.tactic}`}
                                                     technique={technique}
                                                     viewMode={viewMode}
                                                     onClick={() => setSelectedTechnique(technique)}
@@ -792,13 +895,13 @@ const MitreAttack = () => {
                 <div className="border-t border-ghost/30 p-4 flex items-center justify-center gap-8 text-xs text-gray-400">
                     <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-signal/10 border border-signal/30 rounded" />
-                        <span>{viewMode === 'tasks' ? 'Executed' : 'Available'}</span>
+                        <span>{viewMode === 'commands' ? 'Available' : 'Executed'}</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-ghost/5 border border-ghost/20 rounded opacity-60" />
-                        <span>Not {viewMode === 'tasks' ? 'Executed' : 'Available'}</span>
+                        <span>Not {viewMode === 'commands' ? 'Available' : 'Executed'}</span>
                     </div>
-                    <a 
+                    <a
                         href="https://attack.mitre.org/"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -815,8 +918,8 @@ const MitreAttack = () => {
                 {selectedTechnique && (
                     <TechniqueDetailModal
                         technique={selectedTechnique}
-                        tasks={taskAttacks}
-                        commands={commandAttacks}
+                        tasks={activeTaskAttacks}
+                        commands={activeCommandAttacks}
                         viewMode={viewMode}
                         onClose={() => setSelectedTechnique(null)}
                     />

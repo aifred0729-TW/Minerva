@@ -1,25 +1,11 @@
-import React, { useEffect } from 'react';
-import { gql, useSubscription } from '@apollo/client';
-import { snackActions } from '../../components/utilities/Snackbar';
+import React from 'react';
+import { useSubscription } from '@apollo/client';
+import { SUBSCRIBE_NEW_CALLBACKS, SUBSCRIBE_EVENTS, SUBSCRIBE_ALERT_COUNT } from '../lib/api';
 import { useAppStore } from '../store';
-import { getSkewedNow } from '../../components/utilities/Time';
+import { getSkewedNow } from '../lib/time';
 import { Bell, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { playCallback, playNotification } from '../lib/soundEffects';
-
-// Subscription for new callbacks
-const SUBSCRIBE_NEW_CALLBACKS = gql`
-    subscription NewCallbackStream($fromNow: timestamp!) {
-        callback_stream(
-            cursor: {initial_value: {init_callback: $fromNow}, ordering: ASC},
-            batch_size: 1
-        ) {
-            id
-            host
-            user
-        }
-    }
-`;
 
 // Component that plays a sound when a new callback connects
 export function CallbackSoundTrigger() {
@@ -41,40 +27,6 @@ export function CallbackSoundTrigger() {
 
     return null;
 }
-
-// Subscription for real-time event notifications
-const SUBSCRIBE_EVENTS = gql`
-    subscription EventFeedNotificationSubscription($fromNow: timestamp!) {
-        operationeventlog_stream(
-            cursor: {initial_value: {timestamp: $fromNow}, ordering: ASC}, 
-            batch_size: 1, 
-            where: {deleted: {_eq: false}}
-        ) {
-            operator {
-                username
-            }
-            id
-            message
-            level
-            resolved
-            source
-            warning
-        }
-    }
-`;
-
-// Subscription for alert count badge
-const SUBSCRIBE_ALERT_COUNT = gql`
-    subscription OperationAlertCounts {
-        operation_stream(
-            cursor: {initial_value: {updated_at: "1970-01-01"}, ordering: ASC}, 
-            batch_size: 1
-        ) {
-            id
-            alert_count
-        }
-    }
-`;
 
 // Custom toast component for cyberpunk style
 const CyberToast = ({ 

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { useMutation, useSubscription, gql } from '@apollo/client';
+import { useMutation, useSubscription } from '@apollo/client';
+import { GENERATE_REPORT, REPORT_SUBSCRIPTION } from '../lib/api';
 import { motion } from 'framer-motion';
 import { 
     FileText, 
@@ -7,7 +8,6 @@ import {
     FileJson,
     FileCode,
     Target,
-    Shield,
     Terminal,
     Filter,
     User,
@@ -15,55 +15,14 @@ import {
     Hash,
     Loader2,
     CheckCircle,
-    AlertCircle,
     Info
 } from 'lucide-react';
-import { Sidebar } from '../components/Sidebar';
+
 import { useAppStore } from '../store';
 import { cn } from '../lib/utils';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { MythicSnackDownload } from '../../components/MythicComponents/MythicSnackDownload';
-import { getSkewedNow } from '../../components/utilities/Time';
-
-// ============================================
-// GraphQL Queries & Mutations
-// ============================================
-const GENERATE_REPORT = gql`
-mutation generateReportMutation(
-    $outputFormat: String!, 
-    $includeMITREPerTask: Boolean!, 
-    $includeMITREOverall: Boolean!, 
-    $excludedUsers: String!, 
-    $excludedHosts: String!, 
-    $excludedIDs: String!, 
-    $includeOutput: Boolean!
-){
-    generateReport(
-        outputFormat: $outputFormat, 
-        includeMITREPerTask: $includeMITREPerTask, 
-        includeMITREOverall: $includeMITREOverall, 
-        excludedUsers: $excludedUsers, 
-        excludedHosts: $excludedHosts, 
-        excludedIDs: $excludedIDs, 
-        includeOutput: $includeOutput
-    ){
-        status
-        error
-    }
-}
-`;
-
-const REPORT_SUBSCRIPTION = gql`
-subscription generatedReportEventSubscription($fromNow: timestamp!){
-    operationeventlog_stream(
-        batch_size: 1, 
-        where: {source: {_eq: "generated_report"}}, 
-        cursor: {initial_value: {timestamp: $fromNow}}
-    ) {
-        message
-    }
-}
-`;
+import { snackActions } from '../lib/snackbar';
+import { MythicSnackDownload } from '../components/MythicSnackDownload';
+import { getSkewedNow } from '../lib/time';
 
 // ============================================
 // Report Option Toggle Component
@@ -189,9 +148,7 @@ const Reporting = () => {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-            
-            <motion.div 
+            <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}

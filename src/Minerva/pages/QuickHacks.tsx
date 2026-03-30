@@ -1,27 +1,27 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sidebar } from '../components/Sidebar';
 import { cn } from '../lib/utils';
 import { useAppStore } from '../store';
 import { Shield, Plus, Trash2, Edit, Save, X, Copy, ChevronDown, ChevronUp, Globe, Hash } from 'lucide-react';
-import { QuickHackDef, QuickHackVariable, DEFAULT_QUICKHACKS, QUICKHACK_SETTING_KEY, useQuickHacks } from '../lib/quickhacks';
-import { useSetMythicSetting } from '../../components/MythicComponents/MythicSavedUserSetting';
+import { QuickHackDef, QuickHackStep, QuickHackVariable, DEFAULT_QUICKHACKS, QUICKHACK_SETTING_KEY, useQuickHacks } from '../lib/quickhacks';
+import { LucideIcon, PRESET_ICON_NAMES } from '../lib/iconMap';
+import { useSetMythicSetting } from '../components/MythicSavedUserSetting';
 
-const PRESET_ICONS = ['⚡', '🔥', '💀', '🧠', '👁', '🔓', '📡', '🕷', '💉', '🛡', '⚙', '🔑', '🎯', '🌐', '📂', '🖥', '⬆', '⬇', '🔗', '💣'];
 const PRESET_COLORS = ['#22d3ee', '#22c55e', '#ff003c', '#ff6600', '#ffcc00', '#00ff88', '#6633ff', '#ff33cc', '#3b82f6', '#f59e0b'];
 
 // Minerva page accent — matches the cyberpunk HUD palette
-const PAGE_ACCENT = '#22d3ee'; // cyan
+const __PAGE_ACCENT = '#22d3ee'; // cyan
 
 const generateId = () => `qh_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 const emptyHack: Omit<QuickHackDef, 'id'> = {
     name: '',
     description: '',
-    icon: '⚡',
+    icon: 'Zap',
     color: '#22d3ee',
     command: '',
     params: '',
+    steps: [{ command: '', params: '' }],
     variables: [],
 };
 
@@ -47,16 +47,21 @@ const QuickHacks = () => {
     }, [setSetting]);
 
     const handleCreate = useCallback(() => {
-        if (!createForm.name.trim() || !createForm.command.trim()) return;
-        const newHack: QuickHackDef = { ...createForm, id: generateId() };
+        const steps = (createForm.steps ?? []).filter(s => s.command.trim());
+        if (!createForm.name.trim() || steps.length === 0) return;
+        const synced = { ...createForm, steps, command: steps[0].command, params: steps[0].params };
+        const newHack: QuickHackDef = { ...synced, id: generateId() };
         persistHacks([...hacks, newHack]);
         setCreateForm(emptyHack);
         setIsCreating(false);
     }, [createForm, hacks, persistHacks]);
 
     const handleUpdate = useCallback(() => {
-        if (!editForm || !editForm.name.trim() || !editForm.command.trim()) return;
-        persistHacks(hacks.map(h => h.id === editForm.id ? editForm : h));
+        if (!editForm) return;
+        const steps = (editForm.steps ?? []).filter(s => s.command.trim());
+        if (!editForm.name.trim() || steps.length === 0) return;
+        const synced = { ...editForm, steps, command: steps[0].command, params: steps[0].params };
+        persistHacks(hacks.map(h => h.id === synced.id ? synced : h));
         setEditingId(null);
         setEditForm(null);
     }, [editForm, hacks, persistHacks]);
@@ -90,7 +95,6 @@ const QuickHacks = () => {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -218,9 +222,9 @@ const HackCard = ({
         {/* Main row */}
         <div className="flex items-center gap-4 px-5 py-4 cursor-pointer" onClick={onToggleExpand}>
             {/* Icon */}
-            <div className="w-10 h-10 flex items-center justify-center text-xl shrink-0 rounded"
-                style={{ background: `${hack.color}18`, border: `1px solid ${hack.color}35` }}>
-                {hack.icon}
+            <div className="w-10 h-10 flex items-center justify-center shrink-0 rounded"
+                style={{ background: `${hack.color}18`, border: `1px solid ${hack.color}35`, color: hack.color }}>
+                <LucideIcon name={hack.icon} size={20} />
             </div>
 
             {/* Info */}
@@ -229,6 +233,12 @@ const HackCard = ({
                     <span className="text-sm font-bold font-mono tracking-[0.15em]" style={{ color: hack.color }}>
                         {hack.name}
                     </span>
+                    {(hack.steps ?? []).length > 1 && (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 border tracking-wider"
+                            style={{ borderColor: `${hack.color}35`, color: `${hack.color}90` }}>
+                            {hack.steps.length} STEPS
+                        </span>
+                    )}
                     {hack.variables && hack.variables.length > 0 && (
                         <span className="text-[9px] font-mono px-1.5 py-0.5 border tracking-wider flex items-center gap-1"
                             style={{ borderColor: `${hack.color}35`, color: `${hack.color}90` }}>
@@ -269,10 +279,29 @@ const HackCard = ({
                     className="overflow-hidden"
                 >
                     <div className="px-5 pb-4 pt-1 border-t border-white/5 space-y-3">
-                        <DetailRow label="COMMAND" value={hack.command} color={hack.color} />
-                        <DetailRow label="PARAMETERS" value={hack.params} color={hack.color} mono />
-                        <div className="flex gap-6">
-                            <DetailRow label="ICON" value={hack.icon} color={hack.color} />
+                        {/* Steps */}
+                        <div>
+                            <div className="text-[9px] font-mono text-gray-400 uppercase tracking-[0.2em] mb-1.5">
+                                COMMANDS <span className="text-gray-600">({(hack.steps ?? []).length || 1} STEP{((hack.steps ?? []).length || 1) !== 1 ? 'S' : ''})</span>
+                            </div>
+                            <div className="space-y-1.5">
+                                {(hack.steps && hack.steps.length > 0 ? hack.steps : [{ command: hack.command, params: hack.params }]).map((step, idx) => (
+                                    <div key={idx} className="flex gap-2 items-start text-xs font-mono bg-black/30 border border-white/5 px-2.5 py-1.5">
+                                        <span className="text-gray-500 shrink-0 select-none">{idx + 1}.</span>
+                                        <span className="shrink-0" style={{ color: hack.color }}>{step.command}</span>
+                                        {step.params && <span className="text-gray-400 break-all">{step.params}</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex gap-6 items-end">
+                            <div className="flex-1 min-w-0">
+                                <div className="text-[9px] font-mono text-gray-400 uppercase tracking-[0.2em] mb-1">ICON</div>
+                                <div className="flex items-center gap-2 text-xs text-gray-200">
+                                    <LucideIcon name={hack.icon} size={14} style={{ color: hack.color }} />
+                                    <span>{hack.icon}</span>
+                                </div>
+                            </div>
                             <DetailRow label="COLOR" value={hack.color} color={hack.color} />
                         </div>
                         {hack.variables && hack.variables.length > 0 && (
@@ -318,8 +347,8 @@ const VariablesEditor = ({
     onChange: (vars: QuickHackVariable[]) => void;
     accentColor: string;
 }) => {
-    const addVariable = (type: 'ip' | 'port') => {
-        const prefix = type === 'ip' ? 'TARGET_IP' : 'TARGET_PORT';
+    const addVariable = (type: 'ip' | 'number') => {
+        const prefix = type === 'ip' ? 'TARGET_IP' : 'TARGET_NUMBER';
         const existingCount = variables.filter(v => v.type === type).length;
         const key = existingCount === 0 ? prefix : `${prefix}_${existingCount + 1}`;
         onChange([...variables, { key, type }]);
@@ -371,10 +400,10 @@ const VariablesEditor = ({
                         <Globe size={10} /> + IP
                     </button>
                     <button
-                        onClick={() => addVariable('port')}
+                        onClick={() => addVariable('number')}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono border border-amber-500/25 text-amber-400/80 hover:bg-amber-500/10 hover:text-amber-300 transition-colors tracking-wider"
                     >
-                        <Hash size={10} /> + PORT
+                        <Hash size={10} /> + NUMBER
                     </button>
                 </div>
             </div>
@@ -393,7 +422,28 @@ const HackForm = ({
     onCancel: () => void;
 }) => {
     const update = (key: string, value: any) => onChange({ ...form, [key]: value });
-    const isValid = form.name.trim() && form.command.trim();
+    const steps: QuickHackStep[] = form.steps && form.steps.length > 0
+        ? form.steps
+        : [{ command: form.command ?? '', params: form.params ?? '' }];
+    const updateStep = (idx: number, field: 'command' | 'params', value: string) => {
+        const next = [...steps];
+        next[idx] = { ...next[idx], [field]: value };
+        onChange({ ...form, steps: next, command: next[0]?.command ?? '', params: next[0]?.params ?? '' });
+    };
+    const addStep = () => onChange({ ...form, steps: [...steps, { command: '', params: '' }] });
+    const removeStep = (idx: number) => {
+        if (steps.length <= 1) return;
+        const next = steps.filter((_, i) => i !== idx);
+        onChange({ ...form, steps: next, command: next[0]?.command ?? '', params: next[0]?.params ?? '' });
+    };
+    const moveStep = (idx: number, dir: -1 | 1) => {
+        const target = idx + dir;
+        if (target < 0 || target >= steps.length) return;
+        const next = [...steps];
+        [next[idx], next[target]] = [next[target], next[idx]];
+        onChange({ ...form, steps: next, command: next[0]?.command ?? '', params: next[0]?.params ?? '' });
+    };
+    const isValid = form.name.trim() && steps.some(s => s.command.trim());
 
     return (
         <div className="border border-cyan-500/20 bg-black/60 p-5 space-y-4">
@@ -424,32 +474,58 @@ const HackForm = ({
                 />
             </div>
 
-            {/* Command */}
+            {/* Command Steps */}
             <div>
-                <label className="text-[10px] font-mono text-gray-300 uppercase tracking-[0.2em] block mb-1">MYTHIC COMMAND *</label>
-                <input
-                    value={form.command}
-                    onChange={e => update('command', e.target.value)}
-                    placeholder="shell, mimikatz, download, etc."
-                    className="w-full bg-black/50 border border-white/10 px-3 py-2 text-xs font-mono text-white placeholder-gray-500 focus:border-cyan-500/40 focus:outline-none transition-colors"
-                />
-            </div>
-
-            {/* Parameters */}
-            <div>
-                <label className="text-[10px] font-mono text-gray-300 uppercase tracking-[0.2em] block mb-1">
-                    PARAMETERS
+                <label className="text-[10px] font-mono text-gray-300 uppercase tracking-[0.2em] block mb-1.5">
+                    COMMAND STEPS *
+                    <span className="text-gray-500 ml-2">— {steps.length} step{steps.length !== 1 ? 's' : ''}, executed in order</span>
                     {form.variables && form.variables.length > 0 && (
-                        <span className="text-gray-500 ml-2">— variables: {form.variables.map(v => `{{${v.key}}}`).join(', ')}</span>
+                        <span className="text-gray-500 ml-2">| variables: {form.variables.map(v => `{{${v.key}}}`).join(', ')}</span>
                     )}
                 </label>
-                <textarea
-                    value={form.params}
-                    onChange={e => update('params', e.target.value)}
-                    placeholder='Command parameters, e.g. "privilege::debug" "sekurlsa::logonpasswords" exit'
-                    rows={3}
-                    className="w-full bg-black/50 border border-white/10 px-3 py-2 text-xs font-mono text-white placeholder-gray-500 focus:border-cyan-500/40 focus:outline-none transition-colors resize-none cyber-scrollbar"
-                />
+                <div className="space-y-2">
+                    {steps.map((step, idx) => (
+                        <div key={idx} className="border border-white/[0.08] bg-black/30 p-3 space-y-2 relative group">
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="text-[9px] font-mono text-gray-500 tracking-wider select-none">STEP {idx + 1}</span>
+                                <div className="flex-1" />
+                                {steps.length > 1 && (
+                                    <>
+                                        <button onClick={() => moveStep(idx, -1)} disabled={idx === 0}
+                                            className="p-0.5 text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed transition-colors" title="Move up">
+                                            <ChevronUp size={12} />
+                                        </button>
+                                        <button onClick={() => moveStep(idx, 1)} disabled={idx === steps.length - 1}
+                                            className="p-0.5 text-gray-600 hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed transition-colors" title="Move down">
+                                            <ChevronDown size={12} />
+                                        </button>
+                                        <button onClick={() => removeStep(idx)}
+                                            className="p-0.5 text-gray-600 hover:text-red-400 transition-colors" title="Remove step">
+                                            <X size={12} />
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                            <input
+                                value={step.command}
+                                onChange={e => updateStep(idx, 'command', e.target.value)}
+                                placeholder="shell, mimikatz, download, etc."
+                                className="w-full bg-black/50 border border-white/10 px-2.5 py-1.5 text-xs font-mono text-white placeholder-gray-500 focus:border-cyan-500/40 focus:outline-none transition-colors"
+                            />
+                            <textarea
+                                value={step.params}
+                                onChange={e => updateStep(idx, 'params', e.target.value)}
+                                placeholder="Command parameters"
+                                rows={2}
+                                className="w-full bg-black/50 border border-white/10 px-2.5 py-1.5 text-xs font-mono text-white placeholder-gray-500 focus:border-cyan-500/40 focus:outline-none transition-colors resize-none cyber-scrollbar"
+                            />
+                        </div>
+                    ))}
+                    <button onClick={addStep}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono border border-dashed border-white/10 text-gray-400 hover:text-cyan-400 hover:border-cyan-500/30 transition-colors tracking-wider w-full justify-center">
+                        <Plus size={12} /> ADD STEP
+                    </button>
+                </div>
             </div>
 
             {/* Variables */}
@@ -462,28 +538,22 @@ const HackForm = ({
             {/* Icon picker */}
             <div>
                 <label className="text-[10px] font-mono text-gray-300 uppercase tracking-[0.2em] block mb-1">ICON</label>
-                <div className="flex items-center gap-2 flex-wrap">
-                    {PRESET_ICONS.map(icon => (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                    {PRESET_ICON_NAMES.map(iconName => (
                         <button
-                            key={icon}
-                            onClick={() => update('icon', icon)}
+                            key={iconName}
+                            onClick={() => update('icon', iconName)}
+                            title={iconName}
                             className={cn(
-                                "w-8 h-8 flex items-center justify-center text-base border transition-all",
-                                form.icon === icon
-                                    ? "border-cyan-500/50 bg-cyan-500/10 scale-110"
-                                    : "border-white/10 hover:border-white/30 bg-black/30"
+                                "w-8 h-8 flex items-center justify-center border transition-all",
+                                form.icon === iconName
+                                    ? "border-cyan-500/50 bg-cyan-500/10 scale-110 text-cyan-400"
+                                    : "border-white/10 hover:border-white/30 bg-black/30 text-gray-400 hover:text-white"
                             )}
                         >
-                            {icon}
+                            <LucideIcon name={iconName} size={16} />
                         </button>
                     ))}
-                    <input
-                        value={form.icon}
-                        onChange={e => update('icon', e.target.value)}
-                        className="w-12 bg-black/50 border border-white/10 px-2 py-1 text-center text-base text-white focus:border-cyan-500/40 focus:outline-none transition-colors"
-                        title="Custom icon (emoji or character)"
-                        maxLength={4}
-                    />
                 </div>
             </div>
 
@@ -517,9 +587,9 @@ const HackForm = ({
             <div className="flex items-center justify-between pt-3 border-t border-white/5">
                 {/* Preview */}
                 <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 flex items-center justify-center text-lg rounded"
-                        style={{ background: `${form.color}18`, border: `1px solid ${form.color}35` }}>
-                        {form.icon}
+                    <div className="w-9 h-9 flex items-center justify-center rounded"
+                        style={{ background: `${form.color}18`, border: `1px solid ${form.color}35`, color: form.color }}>
+                        <LucideIcon name={form.icon} size={18} />
                     </div>
                     <div>
                         <span className="text-xs font-bold font-mono tracking-wider" style={{ color: form.color }}>

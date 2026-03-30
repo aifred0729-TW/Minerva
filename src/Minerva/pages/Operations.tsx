@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useLazyQuery, useReactiveVar } from '@apollo/client';
 import {
     GET_OPERATIONS,
@@ -15,7 +15,6 @@ import {
     DELETE_BLOCK_LIST_ENTRIES,
     GET_ALL_COMMANDS,
 } from '../lib/api';
-import { Sidebar } from '../components/Sidebar';
 import {
     Layers, Plus, Edit, Users, Trash2, RotateCcw, CheckCircle,
     XCircle, Shield, Eye, EyeOff, UserPlus, AlertTriangle,
@@ -24,23 +23,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HexColorPicker } from 'react-colorful';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { cn } from '../lib/utils';
-import { meState } from '../../cache';
-import { restartWebsockets } from '../../index';
+import { snackActions } from '../lib/snackbar';
+import { cn, getErrorMessage } from '../lib/utils';
+import { meState } from '../lib/state';
+import { restartWebsockets } from '../lib/websocket';
 import { useAppStore } from '../store';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface Operator { id: number; username: string; }
-interface OperatorOperation { id: number; view_mode: string; operator: Operator; }
-interface Operation {
-    id: number; name: string; complete: boolean; deleted: boolean;
-    webhook: string; channel: string; banner_text: string; banner_color: string;
-    admin: Operator; operatoroperations: OperatorOperation[];
-}
-interface MemberEntry {
-    id: number; username: string; checked: boolean; view_mode: 'operator' | 'spectator' | 'lead';
-}
+import type { OperatorRef, Operation, MemberEntry } from '../types/operations';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const ROLE_COLORS: Record<string, string> = {
@@ -124,7 +112,7 @@ function CreateOperationModal({ onClose, onSuccess }: { onClose: () => void; onS
             if (data?.createOperation?.status === 'error') throw new Error(data.createOperation.error);
             snackActions.success('Operation created');
             onSuccess();
-        } catch (err: any) { snackActions.error(err.message || 'Failed to create operation'); }
+        } catch (err: unknown) { snackActions.error(err.message || 'Failed to create operation'); }
     };
     return (
         <ModalBackdrop onClose={onClose}>
@@ -165,7 +153,7 @@ function CreateOperatorModal({ onClose }: { onClose: () => void }) {
             if (data?.createOperator?.status === 'error') throw new Error(data.createOperator.error);
             snackActions.success('Operator created: ' + username);
             onClose();
-        } catch (err: any) { snackActions.error(err.message || 'Failed to create operator'); }
+        } catch (err: unknown) { snackActions.error(err.message || 'Failed to create operator'); }
     };
     return (
         <ModalBackdrop onClose={onClose}>
@@ -230,7 +218,7 @@ function EditOperationModal({ operation, onClose, onSuccess }: {
             }
             snackActions.success('Operation updated');
             onSuccess();
-        } catch (err: any) { snackActions.error(err.message || 'Update failed'); }
+        } catch (err: unknown) { snackActions.error(err.message || 'Update failed'); }
     };
 
     return (
@@ -307,7 +295,7 @@ function EditOperationModal({ operation, onClose, onSuccess }: {
 
 // ── Manage Members ────────────────────────────────────────────────────────────
 function MembersOperationModal({ operation, allOperators, onClose, onSuccess }: {
-    operation: Operation; allOperators: Operator[]; onClose: () => void; onSuccess: () => void;
+    operation: Operation; allOperators: OperatorRef[]; onClose: () => void; onSuccess: () => void;
 }) {
     const buildInitial = (): MemberEntry[] =>
         allOperators.map(op => {
@@ -353,7 +341,7 @@ function MembersOperationModal({ operation, allOperators, onClose, onSuccess }: 
             if (data?.updateOperatorOperation?.status === 'error') throw new Error(data.updateOperatorOperation.error);
             snackActions.success('Members updated');
             onSuccess();
-        } catch (err: any) { snackActions.error(err.message || 'Failed to update members'); }
+        } catch (err: unknown) { snackActions.error(err.message || 'Failed to update members'); }
     };
 
     const sorted = [...members].sort((a, b) => {
@@ -570,6 +558,7 @@ function EditBlockListModal({ existingName, existingEntries, onClose, onSubmit }
             Object.values(existingEntries).forEach(cmds => cmds.forEach(c => sel.add(`${c.id}`)));
             setSelected(sel);
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const payloadTypes = useMemo(() => {
@@ -718,6 +707,7 @@ function BlockListSection() {
         onError: () => snackActions.error('Failed to delete entries'),
     });
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => { fetchBlockLists(); }, []);
 
     const handleSubmit = ({ toAdd, toRemove }: { toAdd: any[]; toRemove: any[] }) => {
@@ -870,7 +860,7 @@ export default function Operations() {
             restartWebsockets();
             snackActions.success(`Switched to: ${op.name}`);
             refetch();
-        } catch (err: any) { snackActions.error(err.message || 'Failed to switch operation'); }
+        } catch (err: unknown) { snackActions.error(err.message || 'Failed to switch operation'); }
     };
 
     const handleToggleDelete = async () => {
@@ -879,12 +869,12 @@ export default function Operations() {
             await toggleDelete({ variables: { operation_id: confirmOp.op.id, deleted: !confirmOp.restore } });
             snackActions.success(confirmOp.restore ? 'Operation restored' : 'Operation deleted');
             refetch();
-        } catch (err: any) { snackActions.error(err.message || 'Action failed'); }
+        } catch (err: unknown) { snackActions.error(err.message || 'Action failed'); }
         setConfirmOp(null);
     };
 
     const allOps: Operation[] = data?.operation || [];
-    const allOperators: Operator[] = data?.operator || [];
+    const allOperators: OperatorRef[] = data?.operator || [];
     const operations = allOps.filter(op => showDeleted || !op.deleted);
     const stats = {
         total:    allOps.length,
@@ -895,7 +885,6 @@ export default function Operations() {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
             <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}
                 className={cn("flex-1 transition-all duration-300 flex flex-col h-screen overflow-hidden", isSidebarCollapsed ? "ml-16" : "ml-64")}

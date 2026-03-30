@@ -6,24 +6,12 @@ import { twMerge } from 'tailwind-merge';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { loginUser } from '../lib/api';
-import { successfulLogin } from '../../cache';
+import { successfulLogin } from '../lib/auth';
 import { playEnter, playAuthed } from '../lib/soundEffects';
+import type { ViewMode, CheckItem } from '../types/login';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
-}
-
-// -----------------------------------------------------------------------------
-// TYPES
-// -----------------------------------------------------------------------------
-
-type ViewMode = 'INTRO' | 'LOGIN' | 'HANDSHAKE' | 'TRANSITIONING';
-type CheckStatus = 'PENDING' | 'CHECKING' | 'OK' | 'FAIL';
-
-interface CheckItem {
-  id: string;
-  label: string;
-  status: CheckStatus;
 }
 
 const INITIAL_CHECKS: CheckItem[] = [
@@ -113,6 +101,7 @@ const IntroSequence = ({ onComplete }: { onComplete: () => void }) => {
             clearInterval(terminalInterval);
             clearTimeout(completeTimer);
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
@@ -215,6 +204,7 @@ const TransitionScreen = ({ username, onComplete }: { username: string; onComple
         const compressTimer = setTimeout(() => setCompressing(true), 1900);
         const navTimer = setTimeout(onComplete, 2250);
         return () => { clearTimeout(compressTimer); clearTimeout(navTimer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
@@ -396,7 +386,7 @@ const ServerStatus = () => {
 
 export default function Login() {
     const navigate = useNavigate();
-    const { setAppState, appState, isLoggingOut, reset } = useAppStore();
+    const { setAppState, __appState, isLoggingOut, reset } = useAppStore();
 
     const [viewMode, setViewMode] = useState<ViewMode>(isLoggingOut ? 'HANDSHAKE' : 'INTRO');
 
@@ -420,6 +410,7 @@ export default function Login() {
         } else {
             setAppState('LOGIN');
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoggingOut]);
 
     const runLogoutSequence = async () => {
@@ -478,7 +469,7 @@ export default function Login() {
 
             if (result && result.access_token) {
                 setChecks(prev => prev.map((item, i) => i === 2 ? { ...item, status: 'OK' } : item));
-                const authedSoundPromise = playAuthed();
+                const __authedSoundPromise = playAuthed();
 
                 // Check 4: Establish session
                 setChecks(prev => prev.map((item, i) => i === 3 ? { ...item, status: 'CHECKING' } : item));
@@ -552,7 +543,7 @@ export default function Login() {
                                     <span className="font-mono text-signal tracking-[0.3em] text-sm">MINERVA C2</span>
                                 </div>
                                 <h2 className="text-6xl font-bold text-gray-100 opacity-20 select-none tracking-tighter">
-                                    COMMAND<br />&amp; CONTROL
+                                    MINERVA<br />SYSTEM
                                 </h2>
                             </div>
 

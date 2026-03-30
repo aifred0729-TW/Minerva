@@ -27,7 +27,7 @@ export const CreatePayloadParameter = memo(function CreatePayloadParameter({
     onChange, parameter_type, default_value, name, required, verifier_regex, id,
     description, initialValue, choices, trackedValue, payload_type, selected_os, dynamic_query_function
 }: ParameterProps) {
-    const [value, setValue] = useState<any>("");
+    const [value, setValue] = useState<unknown>("");
     const [options, setOptions] = useState<any[]>([]);
     const [loadingDynamic, setLoadingDynamic] = useState(false);
 

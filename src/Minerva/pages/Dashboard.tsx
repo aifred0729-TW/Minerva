@@ -21,9 +21,7 @@ import { useAppStore } from '../store';
 import { useNavigate } from 'react-router-dom';
 import { GET_DASHBOARD_DATA } from '../lib/api';
 import { cn } from '../lib/utils';
-import { meState } from '../../cache';
-
-import { Sidebar } from '../components/Sidebar';
+import { meState } from '../lib/state';
 
 // ── Dashboard Perspective/Widget System ──────────────────────────────────────
 type WidgetKey =
@@ -94,7 +92,7 @@ function loadPerspective(): Perspective {
 }
 
 export default function Dashboard() {
-  const { startLogout, appState, setAppState, isSidebarCollapsed } = useAppStore();
+  const { __startLogout, appState, setAppState, isSidebarCollapsed } = useAppStore();
   const navigate = useNavigate();
   const me = useReactiveVar(meState);
   // @ts-ignore
@@ -138,6 +136,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (appState === 'LOGIN') setAppState('DASHBOARD');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const container = {
@@ -212,7 +211,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void overflow-x-hidden">
-      <Sidebar />
       <div className={cn("transition-all duration-300 p-6 lg:p-12 min-h-screen", isSidebarCollapsed ? "ml-16" : "ml-64")}>
       <AnimatePresence>
         {appState === 'DASHBOARD' && (

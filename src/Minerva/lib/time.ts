@@ -1,0 +1,123 @@
+// ═══════════════════════════════════════════════════════════════════
+//  Time utilities (TypeScript port of components/utilities/Time.js)
+//
+//  Imports `meState` from ./state so there is NO circular dependency.
+// ═══════════════════════════════════════════════════════════════════
+import React, { useEffect, useRef } from 'react';
+import { meState } from './state';
+
+/**
+ * Convert a UTC date string to the operator's local time representation.
+ */
+export function toLocalTime(date: string | null, view_utc?: boolean): string {
+    try {
+        if (date === null) return "N/A";
+        const init_date = new Date(date);
+        if (view_utc) {
+            return init_date.toDateString() + " " + init_date.toTimeString().substring(0, 8) + " UTC";
+        }
+        const timezoneDate = new Date(date + "Z");
+        return (
+            timezoneDate.toDateString() +
+            " " +
+            timezoneDate.toLocaleString(['en-us'], { hour12: true, hour: "2-digit", minute: "2-digit" })
+        );
+    } catch (_error) {
+        return date + " UTC";
+    }
+}
+
+function formatDate(date: Date): string {
+    const day = String(date.getDate()).padStart(2, '0');
+    const monthNames = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day}-${month}-${year} ` + date.toLocaleString(['en-us'], { hour12: false, hour: "2-digit", minute: "2-digit" });
+}
+
+export function toLocalTimeShort(date: string | null, view_utc?: boolean): string {
+    try {
+        if (date === null) return "N/A";
+        if (view_utc) {
+            return formatDate(new Date(date));
+        }
+        const timezoneDate = new Date(date + "Z");
+        return formatDate(timezoneDate);
+    } catch (_error) {
+        return date + " UTC";
+    }
+}
+
+export function getTimeDifference(checkin_time: string, current_time?: string): string {
+    let date = new Date();
+    if (current_time !== undefined) {
+        date = new Date(current_time);
+    }
+    const now = date.getTime() + date.getTimezoneOffset() * 60000;
+    const millisec = Math.abs(now - new Date(checkin_time).getTime());
+    const seconds = Math.trunc((millisec / 1000) % 60);
+    const minutes = Math.trunc((millisec / (1000 * 60)) % 60);
+    const hours = Math.trunc((millisec / (1000 * 60 * 60)) % 24);
+    const days = Math.trunc((millisec / (1000 * 60 * 60 * 24)) % 365);
+    let output = "";
+    if (days !== 0) output += days + "d";
+    if (hours !== 0) output += hours + "h";
+    if (minutes !== 0) output += minutes + "m";
+    output += seconds + "s";
+    return output;
+}
+
+export function milisecondsToString(millisec: number): string {
+    const seconds = Math.trunc((millisec / 1000) % 60);
+    const minutes = Math.trunc((millisec / (1000 * 60)) % 60);
+    const hours = Math.trunc((millisec / (1000 * 60 * 60)) % 24);
+    const days = Math.trunc((millisec / (1000 * 60 * 60 * 24)) % 365);
+    let output = "";
+    if (days !== 0) output += days + "d";
+    if (hours !== 0) output += hours + "h";
+    if (minutes !== 0) output += minutes + "m";
+    output += seconds + "s";
+    return output;
+}
+
+/**
+ * Declarative setInterval hook.
+ * See: https://overreacted.io/making-setinterval-declarative-with-react-hooks/
+ */
+export function useInterval(
+    callback: () => void,
+    delay: number,
+    mountedRef?: React.RefObject<boolean>,
+    parentMountedRef?: React.RefObject<boolean>,
+): void {
+    const savedCallback = useRef<() => void>(callback);
+
+    useEffect(() => {
+        savedCallback.current = callback;
+    });
+
+    useEffect(() => {
+        function tick() {
+            if ((mountedRef && !mountedRef.current) || (parentMountedRef && !parentMountedRef.current)) {
+                return;
+            }
+            savedCallback.current();
+        }
+        if ((mountedRef && !mountedRef.current) || (parentMountedRef && !parentMountedRef.current)) {
+            return;
+        }
+        const id = setInterval(tick, delay);
+        return () => clearInterval(id);
+    }, [delay, mountedRef, parentMountedRef]);
+}
+
+/**
+ * Get the current time adjusted for server clock skew.
+ */
+export function getSkewedNow(): Date {
+    const now = new Date();
+    return new Date(now.getTime() + (meState()?.user?.server_skew || 0));
+}

@@ -13,8 +13,8 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useSubscription, useLazyQuery } from '@apollo/client';
-import { Sidebar } from '../components/Sidebar';
-import { cn } from '../lib/utils';
+
+import { cn, parseIPString } from '../lib/utils';
 import { useAppStore } from '../store';
 import {
     b64Decode as b64DecodeLib,
@@ -22,7 +22,6 @@ import {
     BrowserScriptOutput,
     StructuredResponseOutput,
     hasBuiltinStructuredRenderer,
-    ParsedOutput,
     RawOutput,
     OutputModeToggle,
     type OutputMode,
@@ -36,20 +35,26 @@ import {
     GET_BROWSERSCRIPT,
 } from '../lib/api';
 import {
-    ChevronRight, ChevronDown, Search, Monitor, Globe, Network,
-    Terminal, Clock, CheckCircle, XCircle, Loader, Hash,
-    FileText, Database, ExternalLink, RefreshCw, X, Layers, User,
-} from 'lucide-react';
+    ChevronRight,
+    ChevronDown,
+    Search,
+    Monitor,
+    Globe,
+    Network,
+    Terminal,
+    Hash,
+    FileText,
+    Database,
+    ExternalLink,
+    RefreshCw,
+    X,
+    Layers,
+}from 'lucide-react';
+import type { CbRow, StatusTier } from '../types/tasks';
 
 // Clock / CheckCircle / XCircle / Loader — kept for future use
 
 // ─── types ────────────────────────────────────────────────────────────────────
-
-interface CbRow {
-    id: number; display_id: number; host: string; user: string;
-    ip: string; domain: string; active: boolean;
-    payload: { payloadtype: { name: string } };
-}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -59,10 +64,7 @@ const fmtHM  = (ts?: string | null) => ts ? new Date(ts).toLocaleTimeString([], 
 // b64Decode is provided by OutputRenderer (UTF-8 aware)
 const b64Decode = b64DecodeLib;
 
-const parseFirstIP = (ip: string): string => {
-    try { const a = JSON.parse(ip); return Array.isArray(a) && a.length ? a[0] : ip; }
-    catch { return ip || ''; }
-};
+const parseFirstIP = (ip: string): string => parseIPString(ip)[0] || ip || '';
 
 const domainKey = (cb: CbRow): string => {
     if (cb.domain?.trim() && cb.domain.trim() !== '-') return cb.domain.trim().toUpperCase();
@@ -91,7 +93,6 @@ const buildTree = (cbs: CbRow[]) => {
     }));
 };
 
-type StatusTier = 'ok' | 'error' | 'running' | 'pending' | 'idle';
 const statusTier = (s: string): StatusTier => {
     const l = (s ?? '').toLowerCase();
     if (l.includes('complet') || l.includes('success')) return 'ok';
@@ -236,7 +237,7 @@ function TaskList({ sessionCbs, selectedId, initialId, onSelect }: {
     sessionCbs: CbRow[];
     selectedId: number | null;
     initialId:  number | null;
-    onSelect:   (t: any) => void;
+    onSelect:   (t: Record<string, unknown>) => void;
 }) {
     const [bySession, setBySession] = useState<Map<number, any[]>>(new Map());
     const [q, setQ]                 = useState('');
@@ -360,7 +361,7 @@ function TaskDetail({ task }: { task: any }) {
 
     const [fetchBrowserScript] = useLazyQuery(GET_BROWSERSCRIPT, {
         fetchPolicy: 'network-only',
-        onCompleted: (d: any) => {
+        onCompleted: (d: Record<string, unknown>) => {
             const scripts = d?.browserscript || [];
             if (!scripts.length) { setBrowserScriptFn(null); setBrowserScriptData(null); return; }
             try {
@@ -382,18 +383,20 @@ function TaskDetail({ task }: { task: any }) {
         setBrowserScriptFn(null);
         setBrowserScriptData(null);
         if (task?.command?.id) fetchBrowserScript({ variables: { command_id: task.command.id } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [task?.id, task?.responses, task?.command?.id]);
 
     // Re-run browser script whenever responses or script function changes
     useEffect(() => {
         if (!browserScriptFn || !responses.length) { setBrowserScriptData(null); return; }
         try {
-            const rawArr = responses.map((r: any) => b64Decode(r.response ?? ''));
+            const rawArr = responses.map((r: Record<string, unknown>) => b64Decode(r.response ?? ''));
             const result = browserScriptFn(task, rawArr);
             setBrowserScriptData(
                 result && typeof result === 'object' && Object.keys(result).length > 0 ? result : null
             );
         } catch { setBrowserScriptData(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [browserScriptFn, responses]);
 
     useSubscription(STREAM_TASK_RESPONSES_BY_ID, {
@@ -403,8 +406,8 @@ function TaskDetail({ task }: { task: any }) {
             const batch: any[] = data.data?.response_stream ?? [];
             if (!batch.length) return;
             setResponses(prev => {
-                const ids  = new Set(prev.map((r: any) => r.id));
-                const news = batch.filter((r: any) => !ids.has(r.id));
+                const ids  = new Set(prev.map((r: Record<string, unknown>) => r.id));
+                const news = batch.filter((r: Record<string, unknown>) => !ids.has(r.id));
                 return news.length ? [...prev, ...news].sort((a, b) => a.id - b.id) : prev;
             });
         },
@@ -598,12 +601,13 @@ export default function SingleTaskView() {
     const initId                 = displayId ? parseInt(displayId, 10) : null;
 
     const [selHost, setSelHost]   = useState<string | null>(null);
-    const [selTask, setSelTask]   = useState<any>(null);
+    const [selTask, setSelTask]   = useState<unknown>(null);
 
     const { data: cbData, loading: cbLoading, refetch } = useQuery(GET_CALLBACKS, {
         fetchPolicy: 'cache-and-network',
         pollInterval: 15_000,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const callbacks: CbRow[] = cbData?.callback ?? [];
 
     const selCbs = useMemo<CbRow[]>(() => {
@@ -617,7 +621,7 @@ export default function SingleTaskView() {
 
     const [fetchById] = useLazyQuery(GET_TASK_BY_DISPLAY_ID, {
         fetchPolicy: 'network-only',
-        onCompleted: (data: any) => {
+        onCompleted: (data: Record<string, unknown>) => {
             const t = data?.task?.[0];
             if (!t) return;
             setSelTask(t);
@@ -646,15 +650,13 @@ export default function SingleTaskView() {
         setSelHost(key); setSelTask(null);
         navigate('/task', { replace: true });
     };
-    const handleTaskSelect = (t: any) => {
+    const handleTaskSelect = (t: Record<string, unknown>) => {
         setSelTask(t);
         navigate(`/task/${t.display_id}`, { replace: true });
     };
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar/>
-
             <div className={cn(
                 'transition-all duration-300 p-6 lg:p-12 h-screen flex flex-col overflow-hidden',
                 isSidebarCollapsed ? 'ml-16' : 'ml-64'

@@ -1,13 +1,25 @@
 import React, { useState, useMemo } from 'react';
 import { useSubscription } from '@apollo/client';
-import { Sidebar } from '../components/Sidebar';
+
 import { cn } from '../lib/utils';
 import { SUB_PAYLOAD_TYPES, SUB_CONSUMING_CONTAINERS, SUB_TRANSLATION_CONTAINERS, SUB_CUSTOM_BROWSERS } from '../lib/api';
 import {
-    Package, Cpu, Globe, CheckCircle, XCircle, ChevronDown, ChevronRight,
-    Terminal, Link, ArrowLeftRight, Layers, RefreshCw, Server, Info,
-    Radio, Webhook, FileText, Shield, Eye, ExternalLink, Puzzle, MonitorCog
-} from 'lucide-react';
+    Package,
+    ChevronDown,
+    ChevronRight,
+    ArrowLeftRight,
+    Layers,
+    RefreshCw,
+    Server,
+    Radio,
+    Webhook,
+    FileText,
+    Shield,
+    Eye,
+    ExternalLink,
+    Puzzle,
+    MonitorCog,
+}from 'lucide-react';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -262,8 +274,10 @@ export default function PayloadTypes() {
 
     const [activeTab, setActiveTab] = useState<TabKey>('agents');
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const payloadTypes: any[] = ptData?.payloadtype ?? [];
     const translationContainers: any[] = tcData?.translationcontainer ?? [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const consumingContainers: any[] = ccData?.consumingcontainer ?? [];
     const customBrowsers: any[] = cbData?.custombrowser ?? [];
 
@@ -276,7 +290,7 @@ export default function PayloadTypes() {
     const eventingContainers = useMemo(() => consumingContainers.filter(c => c.type === 'eventing'), [consumingContainers]);
     const authContainers = useMemo(() => consumingContainers.filter(c => c.type === 'auth'), [consumingContainers]);
 
-    const tabDataMap: Record<TabKey, any[]> = {
+    const __tabDataMap: Record<TabKey, any[]> = {
         agents, c2: [], translation: translationContainers, commandaugment: commandAugments,
         thirdparty: thirdParty, webhooks, loggers, eventing: eventingContainers,
         auth: authContainers, browsers: customBrowsers,
@@ -359,7 +373,6 @@ export default function PayloadTypes() {
 
     return (
         <div className="flex h-screen bg-void text-ghost overflow-hidden">
-            <Sidebar />
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
                 {/* ── Header ── */}

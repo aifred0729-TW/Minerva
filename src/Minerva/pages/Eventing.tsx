@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { gql, useQuery, useMutation, useSubscription, useLazyQuery } from '@apollo/client';
+import { useQuery, useMutation, useSubscription, useLazyQuery } from '@apollo/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Zap, 
@@ -16,9 +16,7 @@ import {
     Eye,
     EyeOff,
     Upload,
-    Edit,
     Clock,
-    Calendar,
     Activity,
     FileText,
     Users,
@@ -29,203 +27,27 @@ import {
     List,
     XCircle
 } from 'lucide-react';
-import { Sidebar } from '../components/Sidebar';
+
 import { cn } from '../lib/utils';
 import { useAppStore } from '../store';
-import { snackActions } from '../../components/utilities/Snackbar';
+import { snackActions } from '../lib/snackbar';
 import {
     GET_EVENT_GROUP_INSTANCES,
     SUB_EVENT_GROUP_INSTANCES,
     SUB_EVENTSTEP_INSTANCES,
     CANCEL_EVENT_GROUP_INSTANCE,
     RETRY_EVENT_GROUP_INSTANCE,
+    GET_EVENTGROUPS,
+    SUB_EVENTGROUPS,
+    TOGGLE_EVENTGROUP_ACTIVE,
+    DELETE_EVENTGROUP,
+    RESTORE_EVENTGROUP,
+    CREATE_EVENTGROUP,
+    APPROVE_EVENTGROUP,
+    TRIGGER_MANUAL,
+    TRIGGER_KEYWORD,
+    EXPORT_EVENT_GROUP,
 } from '../lib/api';
-
-// GraphQL Queries
-const GET_EVENTGROUPS = gql`
-query GetEventGroups {
-  eventgroup(limit: 50, order_by: {id: desc}) {
-    id
-    operator {
-        username
-    }
-    filemetum {
-        agent_file_id
-        id
-        filename_text
-    }
-    filemeta(where: {deleted: {_eq: false}}) {
-        agent_file_id
-        id
-        filename_text
-        deleted
-    }
-    name
-    description
-    trigger
-    trigger_data
-    next_scheduled_run
-    keywords
-    environment
-    active
-    deleted
-    created_at
-    run_as
-    approved_to_run
-    eventgroupapprovals(order_by: {id: asc}) {
-      id
-      operator {
-        id
-        username
-      }
-      approved
-      created_at
-      updated_at
-    }
-    eventgroupconsumingcontainers {
-        id
-        consuming_container_name
-        all_functions_available
-        function_names
-        consuming_container {
-            container_running
-            subscriptions
-        }
-    }
-  }
-}
-`;
-
-const SUB_EVENTGROUPS = gql`
-subscription GetEventGroups {
-  eventgroup_stream(cursor: {initial_value: {updated_at: "1970-01-01"}, ordering: ASC}, batch_size: 50, where: {}) {
-    id
-    operator {
-        username
-    }
-    filemetum {
-        agent_file_id
-        id
-        filename_text
-    }
-    filemeta(where: {deleted: {_eq: false}}) {
-        agent_file_id
-        id
-        filename_text
-        deleted
-    }
-    name
-    description
-    trigger
-    trigger_data
-    next_scheduled_run
-    keywords
-    environment
-    active
-    deleted
-    created_at
-    run_as
-    approved_to_run
-    eventgroupapprovals(order_by: {id: asc}) {
-      id
-      operator {
-        id
-        username
-      }
-      approved
-      created_at
-      updated_at
-    }
-    eventgroupconsumingcontainers {
-        id
-        consuming_container_name
-        all_functions_available
-        function_names
-        consuming_container {
-            container_running
-            subscriptions
-        }
-    }
-  }
-}
-`;
-
-const TOGGLE_EVENTGROUP_ACTIVE = gql`
-mutation ToggleEventGroupActive($id: Int!, $active: Boolean!) {
-    update_eventgroup_by_pk(pk_columns: {id: $id}, _set: {active: $active}) {
-        id
-        active
-    }
-}
-`;
-
-const DELETE_EVENTGROUP = gql`
-mutation DeleteEventGroup($id: Int!) {
-    update_eventgroup_by_pk(pk_columns: {id: $id}, _set: {deleted: true}) {
-        id
-    }
-}
-`;
-
-const RESTORE_EVENTGROUP = gql`
-mutation RestoreEventGroup($id: Int!) {
-    update_eventgroup_by_pk(pk_columns: {id: $id}, _set: {deleted: false}) {
-        id
-    }
-}
-`;
-
-const CREATE_EVENTGROUP = gql`
-mutation CreateEventGroupFromFile($file: String!, $filename: String!) {
-    uploadEventFile(file: $file, filename: $filename) {
-        status
-        error
-        file_id
-    }
-}
-`;
-
-const APPROVE_EVENTGROUP = gql`
-mutation ApproveEventGroup($eventgroup_id: Int!, $approved: Boolean!) {
-    approveEventGroup(eventgroup_id: $eventgroup_id, approved: $approved) {
-        status
-        error
-    }
-}
-`;
-
-const TRIGGER_MANUAL = gql`
-mutation eventingManualTrigger($eventgroup_id: Int!) {
-    eventingTriggerManual(eventgroup_id: $eventgroup_id) {
-        status
-        error
-    }
-}
-`;
-
-const TRIGGER_KEYWORD = gql`
-mutation triggerKeyword($keyword: String!, $keywordEnvData: jsonb!) {
-    eventingTriggerKeyword(keyword: $keyword, keywordEnvData: $keywordEnvData) {
-        status
-        error
-    }
-}
-`;
-
-const EXPORT_EVENT_GROUP = gql`
-query ExportEventGroup($id: Int!) {
-    eventgroup_by_pk(id: $id) {
-        id
-        name
-        description
-        trigger
-        trigger_data
-        keywords
-        environment
-        run_as
-    }
-}
-`;
 
 interface EventGroup {
     id: number;
@@ -1252,9 +1074,7 @@ export default function Eventing() {
 
     return (
         <div className="min-h-screen bg-void text-signal">
-            <Sidebar />
-
-            <motion.div 
+            <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}

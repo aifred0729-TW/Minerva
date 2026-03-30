@@ -1,136 +1,23 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useQuery, useLazyQuery, useMutation, gql } from '@apollo/client';
+import React, { useState, useEffect } from 'react';
+import { useQuery, useLazyQuery, useMutation } from '@apollo/client';
+import { GET_ARTIFACTS, GET_ARTIFACT_TYPES, CREATE_ARTIFACT } from '../lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Database, 
     Search, 
     Terminal,
-    Server,
-    Clock,
     Filter,
     ChevronDown,
-    Trash2,
     Plus,
     X,
     Loader2,
-    AlertCircle,
-    FileText,
     Copy,
-    MoreVertical
 } from 'lucide-react';
-import { Sidebar } from '../components/Sidebar';
+import type { Artifact } from '../types/artifacts';
 import { useAppStore } from '../store';
 import { cn } from '../lib/utils';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { toLocalTime } from '../../components/utilities/Time';
-
-// ============================================
-// GraphQL Queries & Mutations
-// ============================================
-const GET_ARTIFACTS = gql`
-query GetArtifacts($offset: Int!, $limit: Int!, $search: String!) {
-    taskartifact(
-        where: {
-            _or: [
-                {artifact_text: {_ilike: $search}},
-                {host: {_ilike: $search}}
-            ]
-        }, 
-        order_by: {id: desc}, 
-        limit: $limit, 
-        offset: $offset
-    ) {
-        id
-        artifact_text
-        host
-        timestamp
-        base_artifact
-        task {
-            id
-            command_name
-            display_params
-            callback {
-                display_id
-                host
-                user
-                payload {
-                    payloadtype {
-                        name
-                    }
-                }
-            }
-            operator {
-                username
-            }
-        }
-    }
-    taskartifact_aggregate(
-        where: {
-            _or: [
-                {artifact_text: {_ilike: $search}},
-                {host: {_ilike: $search}}
-            ]
-        }
-    ) {
-        aggregate {
-            count
-        }
-    }
-}
-`;
-
-const GET_ARTIFACT_TYPES = gql`
-query GetArtifactTypes {
-    taskartifact(distinct_on: base_artifact) {
-        base_artifact
-    }
-}
-`;
-
-const CREATE_ARTIFACT = gql`
-mutation CreateArtifact($artifact_text: String!, $base_artifact: String!, $host: String!) {
-    insert_taskartifact_one(object: {
-        artifact_text: $artifact_text,
-        base_artifact: $base_artifact,
-        host: $host
-    }) {
-        id
-        artifact_text
-        base_artifact
-        host
-        timestamp
-    }
-}
-`;
-
-// ============================================
-// Types
-// ============================================
-interface Artifact {
-    id: number;
-    artifact_text: string;
-    host: string;
-    timestamp: string;
-    base_artifact: string;
-    task: {
-        id: number;
-        command_name: string;
-        display_params: string;
-        callback: {
-            display_id: number;
-            host: string;
-            user: string;
-            payload: {
-                payloadtype: {
-                    name: string;
-                };
-            };
-        };
-        operator: {
-            username: string;
-        };
-    } | null;
-}
+import { snackActions } from '../lib/snackbar';
+import { toLocalTime } from '../lib/time';
 
 // ============================================
 // Artifact Type Badge Colors
@@ -468,9 +355,8 @@ const Artifacts = () => {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-            
-            <motion.div 
+
+            <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}

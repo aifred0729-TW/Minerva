@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useLazyQuery } from '@apollo/client';
 import { GET_PAYLOAD_TYPES, GET_EXISTING_PAYLOADS, GET_PAYLOAD_INSTANCE_PARAMS } from './queries';
 import { ChevronRight, Disc, Check, Monitor, Command, Terminal, Smartphone, Server, Globe, Database } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { PayloadsList } from './PayloadsList';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Sidebar } from '../../components/Sidebar';
+
 import { useAppStore } from '../../store';
 import { Step2Configuration, getDefaultValueForType } from './Step2Configuration';
 import { Step3Commands } from './Step3Commands';
 import { Step4C2Profiles } from './Step4C2Profiles';
 import { Step5Build } from './Step5Build';
-import { snackActions } from '../../../components/utilities/Snackbar';
+import { snackActions } from '../../lib/snackbar';
 
 const STEPS = [
     'TARGET_SYSTEM',
@@ -68,6 +68,16 @@ const PayloadCreationWizard = () => {
     });
     const [showNoC2Confirm, setShowNoC2Confirm] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
+    const rebuildStateRef = useRef<{ fromPayloadId: number; fromPayloadOS: string; fromPayloadType: string } | null>(
+        (location.state as any)?.fromPayloadId
+            ? {
+                  fromPayloadId: (location.state as any).fromPayloadId,
+                  fromPayloadOS: (location.state as any).fromPayloadOS,
+                  fromPayloadType: (location.state as any).fromPayloadType,
+              }
+            : null
+    );
     // Data Fetching
     const { data: payloadTypesData, loading: loadingTypes } = useQuery(GET_PAYLOAD_TYPES);
 
@@ -115,6 +125,23 @@ const PayloadCreationWizard = () => {
             setExistingPayloads(existingPayloadsData.payload.filter((p: any) => p.build_phase === "success"));
         }
     }, [existingPayloadsData]);
+
+    // Auto-load config when navigating from Payloads "Rebuild from Config (Wizard)"
+    useEffect(() => {
+        const rs = rebuildStateRef.current;
+        if (!rs || !payloadTypesData?.payloadtype) return;
+        // Only fire once
+        rebuildStateRef.current = null;
+        // Clear location state so refresh doesn't re-trigger
+        window.history.replaceState({}, '');
+        // Auto-set OS + payloadType
+        setConfig(prev => ({ ...prev, os: rs.fromPayloadOS, payloadType: rs.fromPayloadType }));
+        // Give state a tick to settle, then load the full config
+        setTimeout(() => {
+            handleLoadExistingPayload(rs.fromPayloadId);
+        }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [payloadTypesData]);
 
     const handlePayloadTypeInfoLoad = useCallback((info: any) => {
         setConfig(prev => ({ ...prev, payloadTypeInfo: info }));
@@ -553,8 +580,6 @@ export default function CreatePayloadRouter() {
 
     return (
         <div className="h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex">
-            <Sidebar />
-
             <div className={cn("transition-all duration-300 flex-1 h-full", isSidebarCollapsed ? "ml-16" : "ml-64")}>
                 <Routes>
                     <Route path="/" element={<PayloadsList />} />

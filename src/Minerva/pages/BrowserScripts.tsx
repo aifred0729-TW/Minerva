@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { gql, useQuery, useMutation, useSubscription } from '@apollo/client';
+import { useQuery, useMutation, useSubscription } from '@apollo/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Code, 
@@ -17,113 +17,29 @@ import {
     Copy,
     Loader
 } from 'lucide-react';
-import { Sidebar } from '../components/Sidebar';
+
+import type { BrowserScript, BrowserScriptPayloadType } from '../types/browserScripts';
 import { cn } from '../lib/utils';
 import { useAppStore } from '../store';
-import { snackActions } from '../../components/utilities/Snackbar';
-import { meState } from '../../cache';
+import { snackActions } from '../lib/snackbar';
+import { meState } from '../lib/state';
 import { useReactiveVar } from '@apollo/client';
+import {
+    SUB_BrowserScripts,
+    UPDATE_SCRIPT_ACTIVE,
+    UPDATE_SCRIPT,
+    REVERT_SCRIPT,
+    CREATE_SCRIPT,
+} from '../lib/api/browserScripts';
+import { GET_PAYLOAD_TYPES } from '../lib/api/payloads';
 
-// GraphQL Queries and Mutations
-const SUB_BrowserScripts = gql`
-subscription SubscribeBrowserScripts($operator_id: Int!) {
-  browserscript(where: {operator_id: {_eq: $operator_id}, for_new_ui: {_eq: true}}, order_by: {payloadtype: {name: asc}}) {
-    active
-    author
-    user_modified
-    script
-    payloadtype {
-      name
-      id
-    }
-    id
-    creation_time
-    container_version_author
-    container_version
-    command {
-      cmd
-      id
-    }
-  }
-}
-`;
-
-const GET_PAYLOAD_TYPES = gql`
-query GetPayloadTypes {
-    payloadtype(where: {deleted: {_eq: false}}) {
-        id
-        name
-        commands {
-            id
-            cmd
-        }
-    }
-}
-`;
-
-const UPDATE_SCRIPT_ACTIVE = gql`
-mutation updateBrowserScriptActive($browserscript_id: Int!, $active: Boolean!) {
-  update_browserscript_by_pk(pk_columns: {id: $browserscript_id}, _set: {active: $active}) {
-    id
-  }
-}
-`;
-
-const UPDATE_SCRIPT = gql`
-mutation updateBrowserScriptScript($browserscript_id: Int!, $script: String!, $command_id: Int!, $payload_type_id: Int!) {
-  update_browserscript_by_pk(pk_columns: {id: $browserscript_id}, _set: {script: $script, user_modified: true, command_id: $command_id, payload_type_id: $payload_type_id}) {
-    id
-  }
-}
-`;
-
-const REVERT_SCRIPT = gql`
-mutation updateBrowserScriptRevert($browserscript_id: Int!, $script: String!) {
-  update_browserscript_by_pk(pk_columns: {id: $browserscript_id}, _set: {script: $script, user_modified: false}) {
-    id
-  }
-}
-`;
-
-const CREATE_SCRIPT = gql`
-mutation insertNewBrowserScript($script: String!, $payload_type_id: Int!, $command_id: Int!, $author: String!){
-  insert_browserscript_one(object: {script: $script, payload_type_id: $payload_type_id, command_id: $command_id, author: $author}){
-    id
-  }
-}
-`;
-
-interface BrowserScript {
-    id: number;
-    active: boolean;
-    author: string;
-    user_modified: boolean;
-    script: string;
-    payloadtype: {
-        name: string;
-        id: number;
-    };
-    command: {
-        cmd: string;
-        id: number;
-    };
-    container_version: string;
-    container_version_author: string;
-    creation_time: string;
-}
-
-interface PayloadType {
-    id: number;
-    name: string;
-    commands: { id: number; cmd: string }[];
-}
 
 // Script Editor Modal
 const ScriptEditorModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     script?: BrowserScript;
-    payloadTypes: PayloadType[];
+    payloadTypes: BrowserScriptPayloadType[];
     onSubmit: (data: { script: string; command_id: number; payload_type_id: number }) => void;
     mode: 'edit' | 'create';
     username: string;
@@ -388,7 +304,7 @@ export default function BrowserScripts() {
     const me = useReactiveVar(meState);
 
     const [scripts, setScripts] = useState<BrowserScript[]>([]);
-    const [payloadTypes, setPayloadTypes] = useState<PayloadType[]>([]);
+    const [payloadTypes, setPayloadTypes] = useState<BrowserScriptPayloadType[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterPayloadType, setFilterPayloadType] = useState<string>('');
     const [showActiveOnly, setShowActiveOnly] = useState(false);
@@ -523,9 +439,7 @@ export default function BrowserScripts() {
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <Sidebar />
-
-            <motion.div 
+            <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.3 }}

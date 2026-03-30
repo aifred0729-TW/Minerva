@@ -72,6 +72,7 @@ export function Step3Commands({ payloadType, currentCommands, onUpdate }: Step3P
                  if (initialSelection.length > 0) onUpdate(initialSelection);
             }
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data]);
 
     const toggleCommand = useCallback((cmd: string) => {

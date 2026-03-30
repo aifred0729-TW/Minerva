@@ -275,14 +275,6 @@ export const PAYLOAD_CALLBACK_ALLOWED_MUTATION = gql`
 
 // ─── Host file through C2 ────────────────────────────────────────
 
-export const HOST_FILE_MUTATION = gql`
-  mutation HostFileMutation($c2_id: Int!, $file_uuid: String!, $host_url: String!, $alert_on_download: Boolean, $remove: Boolean) {
-    c2HostFile(c2_id: $c2_id, file_uuid: $file_uuid, host_url: $host_url, alert_on_download: $alert_on_download, remove: $remove) {
-      status
-      error
-    }
-  }
-`;
 
 export const GET_RUNNING_EGRESS_C2_PROFILES = gql`
   query GetRunningEgressC2Profiles {

@@ -6,8 +6,8 @@ import { Disc, Plus, X } from 'lucide-react';
 
 import { CyberDropdown } from '../../components/CyberDropdown';
 import * as RandExp from 'randexp';
-import { meState } from '../../../cache';
-import { snackActions } from '../../../components/utilities/Snackbar';
+import { meState } from '../../lib/state';
+import { snackActions } from '../../lib/snackbar';
 
 interface Step4Props {
     payloadType: string;
@@ -135,7 +135,7 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
 
     const handleAddProfile = () => {
         if (!selectedProfileId) return;
-        const profile = availableProfiles.find((p: any) => p.id === parseInt(selectedProfileId));
+        const profile = availableProfiles.find((p: Record<string, unknown>) => p.id === parseInt(selectedProfileId));
         if (!profile) return;
 
         // Check supports_multiple_c2_in_build
@@ -145,7 +145,7 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
         }
         // Check supports_multiple_c2_instances_in_build (same profile twice)
         if (payloadTypeInfo && !payloadTypeInfo.supports_multiple_c2_instances_in_build) {
-            if (currentC2Profiles.some((p: any) => p.name === profile.name)) {
+            if (currentC2Profiles.some((p: Record<string, unknown>) => p.name === profile.name)) {
                 snackActions.warning("This payload type does not support multiple instances of the same C2 profile");
                 return;
             }
@@ -160,11 +160,11 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
     };
 
     const handleRemoveProfile = (instanceId: number) => {
-        onUpdate(currentC2Profiles.filter((p: any) => p.instance_id !== instanceId));
+        onUpdate(currentC2Profiles.filter((p: Record<string, unknown>) => p.instance_id !== instanceId));
     };
 
     const handleParamChange = (instanceId: number, paramName: string, value: any, hasError: boolean) => {
-        const updatedProfiles = currentC2Profiles.map((p: any) => {
+        const updatedProfiles = currentC2Profiles.map((p: Record<string, unknown>) => {
             if (p.instance_id === instanceId) {
                 const updatedParams = p.c2profileparameters.map((param: any) =>
                     param.name === paramName ? { ...param, value, error: hasError } : param
@@ -184,7 +184,7 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
                 if (defaultsData?.c2profile_by_pk) {
                     const defaults = defaultsData.c2profile_by_pk.c2profileparameters;
                     const resetParams = getModifiedC2Params(profile, defaults, payloadTypeInfo, false);
-                    const updatedProfiles = currentC2Profiles.map((p: any) =>
+                    const updatedProfiles = currentC2Profiles.map((p: Record<string, unknown>) =>
                         p.instance_id === instanceId
                             ? { ...p, c2profileparameters: resetParams, selected_instance: "None" }
                             : p
@@ -211,7 +211,7 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
                     }
                     return param;
                 });
-                const updatedProfiles = currentC2Profiles.map((p: any) =>
+                const updatedProfiles = currentC2Profiles.map((p: Record<string, unknown>) =>
                     p.instance_id === instanceId
                         ? { ...p, c2profileparameters: updatedParams, selected_instance: instanceName }
                         : p
@@ -226,7 +226,7 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
     if (loading) return <div className="flex items-center gap-2 text-signal"><Disc className="animate-spin" /> LOADING_C2_PROFILES...</div>;
     if (error) return <div className="text-red-500">ERROR_LOADING_C2: {error.message}</div>;
 
-    const profileOptions = availableProfiles.map((p: any) => ({
+    const profileOptions = availableProfiles.map((p: Record<string, unknown>) => ({
         label: `${p.name}${p.is_p2p ? ' [P2P]' : ''} - ${p.description}`,
         value: String(p.id)
     }));

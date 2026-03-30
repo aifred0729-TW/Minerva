@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { X, AlertTriangle, CheckCircle, Info, ShieldAlert, Square, Activity, Command } from 'lucide-react';
+import { X, AlertTriangle, CheckCircle, ShieldAlert, Square, Activity } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // --- Modern Tech Modal (現代化彈窗) ---
@@ -94,7 +94,6 @@ export function CyberModal({
     </motion.div>
   );
 }
-
 
 // --- Cyberpunk Alert Modal (打勾彈窗 - 維持重工業風格) ---
 // Design: "Heavy Industrial" - High contrast, urgent, warning focused

@@ -5,6 +5,31 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Safely extract a human-readable message from an unknown caught value.
+ * Use in catch blocks: `catch (e) { snackActions.error(getErrorMessage(e)); }`
+ */
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object' && 'message' in error && typeof (error as Record<string, unknown>).message === 'string') {
+    return (error as Record<string, unknown>).message as string;
+  }
+  return 'Unknown error';
+}
+
+/* ── Debug logger ──────────────────────────────────────────────────
+ * Only emits output when localStorage "minerva_debug" === "1".
+ * Usage:  import { dbg } from '../../lib/utils';
+ *         dbg('auth', 'token refreshed');
+ */
+const isDebug = () => {
+    try { return localStorage.getItem('minerva_debug') === '1'; } catch { return false; }
+};
+export const dbg = (tag: string, ...args: unknown[]) => {
+    if (isDebug()) console.log(`[Minerva:${tag}]`, ...args);
+};
+
 export function b64DecodeUnicode(str: string): string {
   if (!str || str.length === 0) { return "" }
   try {
@@ -65,6 +90,39 @@ export function isCallbackAlive(callback: { active?: boolean; last_checkin?: str
     } catch { }
     const timeStr = callback.last_checkin.endsWith('Z') ? callback.last_checkin : `${callback.last_checkin}Z`;
     return (Date.now() - new Date(timeStr).getTime()) < thresholdMs;
+}
+
+/**
+ * Human-readable file-size string (e.g. "4.2 KB").
+ * Duplicated in Console, FileBrowser, Files — centralised here.
+ */
+export function formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * Parse a JSON-encoded IP string into an array.
+ * Handles single strings, JSON arrays, and malformed input gracefully.
+ */
+export function parseIPString(ip: string): string[] {
+    if (!ip) return [];
+    try {
+        const r = JSON.parse(ip);
+        return Array.isArray(r) ? r : [r];
+    } catch {
+        return [ip];
+    }
+}
+
+/**
+ * Safely parse a JSON string, returning fallback on failure.
+ */
+export function safeJsonParse<T>(str: string, fallback: T): T {
+    try { return JSON.parse(str); } catch { return fallback; }
 }
 
 export function b64EncodeUnicode(str: string): string {
