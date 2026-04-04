@@ -2,7 +2,9 @@ import React, { useEffect, useRef, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { useReactiveVar, useLazyQuery, gql } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useLazyQueryCompat as useLazyQuery } from "./lib/useQueryCompat";
+import { useReactiveVar } from "@apollo/client/react";
 import { meState, mePreferences } from './lib/state';
 import { FailedRefresh } from './lib/auth';
 import { isJWTValid, JWTTimeLeft } from './lib/auth';
@@ -59,11 +61,12 @@ const PayloadTypes = lazy(() => import('./pages/PayloadTypes'));
 const SingleTaskView = lazy(() => import('./pages/SingleTaskView'));
 const Topology3D = lazy(() => import('./pages/Topology3D'));
 const QuickHacks = lazy(() => import('./pages/QuickHacks'));
+const Metasploit = lazy(() => import('./pages/Metasploit'));
 
 const MinervaApp = () => {
   const { isLoggingOut, startLogout } = useAppStore();
   const me = useReactiveVar(meState);
-  const prefs = useReactiveVar(mePreferences) as any;
+  const prefs = useReactiveVar(mePreferences);
   const rawBg = prefs?.palette?.backgroundImage;
   const bgImage = typeof rawBg === 'string' && rawBg.length > 0 ? rawBg : null;
   const navigate = useNavigate();
@@ -73,9 +76,9 @@ const MinervaApp = () => {
   const warnedRef = useRef(false);
 
   // Fetch operator preferences from backend on login / page refresh
-  const [getUserPreferences] = useLazyQuery(userSettingsQuery, {
+  const [getUserPreferences] = useLazyQuery<any>(userSettingsQuery, {
     fetchPolicy: 'no-cache',
-    onCompleted: (data: Record<string, unknown>) => {
+    onCompleted: (data: any) => {
       if (data.getOperatorPreferences.status === 'success') {
         if (data.getOperatorPreferences.preferences !== null) {
           mePreferences({ ...mePreferences(), ...data.getOperatorPreferences.preferences });
@@ -103,26 +106,48 @@ const MinervaApp = () => {
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, []);
 
-  // Auto-logout when JWT session expires (check every 60 seconds)
+  // Global keyboard shortcuts
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore when typing in input/textarea/contenteditable
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      // Ctrl+K or Cmd+K → Search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        navigate('/search');
+      }
+      // Ctrl+/ or Cmd+/ → Console selection
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        navigate('/console');
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [navigate]);
+
+  // Auto-logout when JWT session expires
+  useEffect(() => {
+    const SESSION_CHECK_INTERVAL_MS = 60_000;
+    const SESSION_WARNING_THRESHOLD_MS = 30 * 60_000; // 30 minutes
     // Reset warning flag on login state change
     warnedRef.current = false;
     const checkSession = () => {
       if (!me.loggedIn) return;
       const msLeft = JWTTimeLeft();
       if (!isJWTValid() || msLeft <= 0) {
-        // Session has expired — force logout
         FailedRefresh(true);
         startLogout();
-      } else if (msLeft <= 1800000 && !warnedRef.current) {
-        // Less than 30 minutes left — show a one-time warning
+      } else if (msLeft <= SESSION_WARNING_THRESHOLD_MS && !warnedRef.current) {
         warnedRef.current = true;
-        const minsLeft = Math.floor(msLeft / 60000);
+        const minsLeft = Math.floor(msLeft / 60_000);
         snackActions.warning(`Session expires in ${minsLeft} minute${minsLeft !== 1 ? 's' : ''}. Save your work.`);
       }
     };
 
-    const interval = setInterval(checkSession, 60000);
+    const interval = setInterval(checkSession, SESSION_CHECK_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [me.loggedIn, startLogout]);
 
@@ -168,7 +193,7 @@ const MinervaApp = () => {
         <ToastContainer
           position="top-right"
           theme="dark"
-          autoClose={5000}
+          autoClose={5_000}
           hideProgressBar={false}
           newestOnTop
           closeOnClick
@@ -216,6 +241,7 @@ const MinervaApp = () => {
           <Route path="task" element={<SingleTaskView />} />
           <Route path="task/:displayId" element={<SingleTaskView />} />
           <Route path="topology" element={<Topology3D />} />
+          <Route path="metasploit" element={<Metasploit />} />
           <Route path="create-wrapper" element={<Navigate to="/payloads?tab=wrapper" replace />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

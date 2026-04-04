@@ -1,27 +1,28 @@
 import React from 'react';
-import { useSubscription } from '@apollo/client';
+import { useSubscription } from "@apollo/client/react";
 import { SUBSCRIBE_NEW_CALLBACKS, SUBSCRIBE_EVENTS, SUBSCRIBE_ALERT_COUNT } from '../lib/api';
 import { useAppStore } from '../store';
 import { getSkewedNow } from '../lib/time';
 import { Bell, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { playCallback, playNotification } from '../lib/soundEffects';
+import { dbg } from '../lib/utils';
 
 // Component that plays a sound when a new callback connects
 export function CallbackSoundTrigger() {
     const [fromNow] = React.useState(getSkewedNow().toISOString());
 
-    useSubscription(SUBSCRIBE_NEW_CALLBACKS, {
+    useSubscription<any>(SUBSCRIBE_NEW_CALLBACKS, {
         variables: { fromNow },
         fetchPolicy: "no-cache",
         shouldResubscribe: true,
-        onData: ({ data }) => {
+        onData: ({ data }: { data: any } ) => {
             if (data.data?.callback_stream?.length > 0) {
                 playCallback();
             }
         },
         onError: (error) => {
-            console.error('Callback sound trigger error:', error);
+            dbg('subscriptions', 'Callback sound trigger error:', error);
         },
     });
 
@@ -66,14 +67,14 @@ export function EventNotifications() {
     const [fromNow] = React.useState(getSkewedNow().toISOString());
     const { hideLoginNotifications } = useAppStore();
 
-    useSubscription(SUBSCRIBE_EVENTS, {
+    useSubscription<any>(SUBSCRIBE_EVENTS, {
         variables: { fromNow },
         fetchPolicy: "no-cache",
         shouldResubscribe: true,
         onError: (error) => {
-            console.error('Event notification subscription error:', error);
+            dbg('subscriptions', 'Event notification subscription error:', error);
         },
-        onData: ({ data }) => {
+        onData: ({ data }: { data: any } ) => {
             if (data.data?.operationeventlog_stream?.length > 0) {
                 const event = data.data.operationeventlog_stream[0];
 
@@ -121,11 +122,12 @@ export function EventNotifications() {
 export function AlertCountSubscription() {
     const { alertCount, setAlertCount } = useAppStore();
 
-    useSubscription(SUBSCRIBE_ALERT_COUNT, {
+    useSubscription<any>(SUBSCRIBE_ALERT_COUNT, {
+        shouldResubscribe: true,
         onError: (error) => {
-            console.error('Alert count subscription error:', error);
+            dbg('subscriptions', 'Alert count subscription error:', error);
         },
-        onData: ({ data }) => {
+        onData: ({ data }: { data: any } ) => {
             const newAlertCount = data.data?.operation_stream?.[0]?.alert_count ?? 0;
             if (newAlertCount !== alertCount) {
                 setAlertCount(newAlertCount);

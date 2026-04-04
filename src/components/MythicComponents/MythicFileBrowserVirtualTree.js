@@ -1,8 +1,8 @@
 import { alpha } from "@mui/material";
 import { styled } from '@mui/material/styles';
 import React, { useCallback, useMemo } from "react";
-import AutoSizer from "react-virtualized-auto-sizer";
-import { FixedSizeList as List } from "react-window";
+import { AutoSizer } from "react-virtualized-auto-sizer";
+import { List } from "react-window";
 import {faFolderOpen, faFolder} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import ComputerIcon from '@mui/icons-material/Computer';
@@ -13,7 +13,7 @@ import { useTheme } from '@mui/material/styles';
 import { Typography } from '@mui/material';
 import { MythicStyledTooltip } from "./MythicStyledTooltip";
 import WidgetsIcon from '@mui/icons-material/Widgets';
-import { areEqual } from 'react-window';
+
 
 const PREFIX = 'FileBrowserVirtualTree';
 
@@ -35,11 +35,13 @@ const classes = {
   visuallyHidden: `${PREFIX}-visuallyHidden`
 };
 
-const StyledAutoSizer = styled(AutoSizer)((
+const StyledContainer = styled('div')((
   {
     theme
   }
 ) => ({
+  width: '100%',
+  height: '100%',
   [`& .${classes.rowContainer}`]: {},
 
   [`& .${classes.row}`]: {
@@ -279,7 +281,7 @@ const VirtualTreeRow = React.memo(({
     </div>
     </div>
   );
-}, areEqual);
+});
 const caseInsensitiveCompare = (a, b) => {
     try{
         return a.localeCompare(b);
@@ -435,7 +437,8 @@ const FileBrowserVirtualTreePreMemo = ({
       }
   }, [selectedFolderData, flattenedNodes]);
   return flattenedNodes.length > 0 ? (
-    <StyledAutoSizer>
+    <StyledContainer>
+    <AutoSizer>
     {(AutoSizerProps) => (
       <List
         itemData={flattenedNodes}
@@ -461,7 +464,8 @@ const FileBrowserVirtualTreePreMemo = ({
         )}
       </List>
     )}
-  </StyledAutoSizer>
+  </AutoSizer>
+  </StyledContainer>
   ) : null;
 };
 export const FileBrowserVirtualTree = React.memo(FileBrowserVirtualTreePreMemo);

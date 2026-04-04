@@ -14,9 +14,10 @@ import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
 import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
-import {useQuery, gql } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import { meState } from '../../../cache';
-import {useReactiveVar} from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 
 const PREFIX = 'CallbacksTabsTaskingFilterDialog';
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useMutation, useLazyQuery } from '@apollo/client';
+import { useMutation, useLazyQuery } from "@apollo/client/react";
 import { GET_PROFILE_CONFIG, GET_PROFILE_OUTPUT, SET_PROFILE_CONFIG, START_STOP_PROFILE_MUTATION } from '../lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Server, Activity, FileText, Terminal, Save, Power, RefreshCw } from 'lucide-react';
@@ -16,19 +16,26 @@ export function C2DetailsModal({ profile, onClose, isOpen }: C2DetailsModalProps
     const [configContent, setConfigContent] = useState('');
     const [consoleOutput, setConsoleOutput] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const toggleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (toggleTimerRef.current) clearTimeout(toggleTimerRef.current);
+        };
+    }, []);
     
     // Actions
-    const [startStopProfile, { loading: toggling }] = useMutation(START_STOP_PROFILE_MUTATION);
+    const [startStopProfile, { loading: toggling }] = useMutation<any>(START_STOP_PROFILE_MUTATION);
     
-    const [fetchConfig, { data: configData, loading: configLoading }] = useLazyQuery(GET_PROFILE_CONFIG, {
+    const [fetchConfig, { data: configData, loading: configLoading }] = useLazyQuery<any>(GET_PROFILE_CONFIG, {
         fetchPolicy: "network-only"
     });
 
-    const [fetchOutput, { data: outputData, loading: outputLoading }] = useLazyQuery(GET_PROFILE_OUTPUT, {
+    const [fetchOutput, { data: outputData, loading: outputLoading }] = useLazyQuery<any>(GET_PROFILE_OUTPUT, {
         fetchPolicy: "network-only"
     });
 
-    const [saveConfig] = useMutation(SET_PROFILE_CONFIG);
+    const [saveConfig] = useMutation<any>(SET_PROFILE_CONFIG);
 
     // Initial Fetch when tab changes or profile opens
     useEffect(() => {
@@ -85,7 +92,7 @@ export function C2DetailsModal({ profile, onClose, isOpen }: C2DetailsModalProps
                 }
             });
             // Refetch output after toggle to show result
-            setTimeout(() => {
+            toggleTimerRef.current = setTimeout(() => {
                 if (activeTab === 'console') fetchOutput({ variables: { id: profile.id } });
             }, 1000);
         } catch (e) {

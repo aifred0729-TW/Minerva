@@ -1,5 +1,7 @@
 import React, {useCallback} from 'react';
-import {gql, useQuery, useSubscription, useMutation, useLazyQuery} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useSubscription, useMutation, useLazyQuery } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import Typography from '@mui/material/Typography';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';

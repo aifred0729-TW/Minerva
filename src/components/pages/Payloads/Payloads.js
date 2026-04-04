@@ -1,6 +1,8 @@
 import React from 'react';
 import { PayloadsTable } from './PayloadsTable';
-import {useMutation, gql, useSubscription, useQuery, useLazyQuery} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation, useSubscription, useLazyQuery } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import { snackActions } from '../../utilities/Snackbar';
 import {getSkewedNow} from "../../utilities/Time";
 

@@ -2,7 +2,8 @@ import React, {useState, useEffect} from 'react';
 import Button from '@mui/material/Button';
 import DialogActions from '@mui/material/DialogActions';
 import DialogTitle from '@mui/material/DialogTitle';
-import {useQuery, gql} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import LinearProgress from '@mui/material/LinearProgress';
 import {ResponseDisplayPlaintext} from "../Callbacks/ResponseDisplayPlaintext";
 

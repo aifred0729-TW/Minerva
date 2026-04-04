@@ -13,7 +13,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { MythicDialog } from '../../MythicComponents/MythicDialog';
 import {MythicModifyStringDialog} from '../../MythicComponents/MythicDialog';
 import { meState } from '../../../cache';
-import {useReactiveVar, useMutation} from '@apollo/client';
+import { useReactiveVar, useMutation } from "@apollo/client/react";
 import {
     CallbacksTableC2Cell,
     CallbacksTableLastCheckinCell,

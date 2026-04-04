@@ -1,29 +1,5 @@
 import { gql } from '@apollo/client';
 
-export const GET_TAG_TYPES_EXPORT = gql`
-  query GetTagTypesExport {
-    tagtype(order_by: {name: asc}) {
-      id
-      name
-      color
-      description
-    }
-  }
-`;
-
-export const IMPORT_TAG_TYPES = gql`
-  mutation ImportTagTypes($tagtypes: [tagtype_insert_input!]!) {
-    insert_tagtype(objects: $tagtypes, on_conflict: {constraint: tagtype_name_operation_id_key, update_columns: [color, description]}) {
-      returning {
-        id
-        name
-        color
-        description
-      }
-    }
-  }
-`;
-
 // ─── All commands for block list selection ────────────────
 
 export const GET_ALL_COMMANDS = gql`

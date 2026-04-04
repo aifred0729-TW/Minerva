@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { useMutation, useReactiveVar, useLazyQuery } from '@apollo/client';
+import { useMutation, useReactiveVar } from "@apollo/client/react";
+import { useLazyQueryCompat as useLazyQuery } from "../lib/useQueryCompat";
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import {
@@ -66,7 +67,7 @@ const readUrlParams = (): { search: string; searchField: SearchField; deleted: b
     const p = new URLSearchParams(window.location.search);
     return {
         search:      p.get('search') ?? '',
-        searchField: (SEARCH_FIELD_OPTIONS.includes(p.get('searchField') as any)
+        searchField: (SEARCH_FIELD_OPTIONS.includes(p.get('searchField') as SearchField)
             ? p.get('searchField')
             : 'Account') as SearchField,
         deleted: p.get('deleted') === 'true',
@@ -86,7 +87,7 @@ const writeUrlParams = (search: string, searchField: SearchField, deleted: boole
 // ============================================
 export default function Credentials() {
     const { isSidebarCollapsed } = useAppStore();
-    const me = useReactiveVar(meState) as any;
+    const me = useReactiveVar(meState);
     const operationId: number = me?.user?.current_operation_id ?? 0;
 
     // ── state ──
@@ -126,11 +127,11 @@ export default function Credentials() {
     }, []);
 
     // ── lazy queries ───────────────────────────────────────────────────
-    const [runAccountSearch]    = useLazyQuery(ACCOUNT_SEARCH,    { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
-    const [runRealmSearch]      = useLazyQuery(REALM_SEARCH,      { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
-    const [runCredSearch]       = useLazyQuery(CREDENTIAL_SEARCH, { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
-    const [runCommentSearch]    = useLazyQuery(COMMENT_SEARCH,    { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
-    const [runTagSearch]        = useLazyQuery(TAG_SEARCH,        { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
+    const [runAccountSearch]    = useLazyQuery<any>(ACCOUNT_SEARCH,    { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
+    const [runRealmSearch]      = useLazyQuery<any>(REALM_SEARCH,      { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
+    const [runCredSearch]       = useLazyQuery<any>(CREDENTIAL_SEARCH, { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
+    const [runCommentSearch]    = useLazyQuery<any>(COMMENT_SEARCH,    { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
+    const [runTagSearch]        = useLazyQuery<any>(TAG_SEARCH,        { fetchPolicy: 'no-cache', onCompleted: handleSearchResults, onError: handleSearchError });
 
     // ── search dispatcher ──────────────────────────────────────────────
     const doSearch = useCallback((field: SearchField, search: string, offset: number, deleted: boolean, opId: number) => {
@@ -158,8 +159,8 @@ export default function Credentials() {
         doSearch(searchFieldRef.current, searchQuery, (currentPage - 1) * FETCH_LIMIT, showDeletedRef.current, operationId);
     }, [doSearch, searchQuery, currentPage, operationId]);
 
-    const [createCredential] = useMutation(CREATE_CREDENTIAL, {
-        onCompleted: (data) => {
+    const [createCredential] = useMutation<any>(CREATE_CREDENTIAL, {
+        onCompleted: (data: any) => {
             if (data.createCredential.status === 'success') {
                 snackActions.success('Credential created');
                 setCreateModalOpen(false);
@@ -170,15 +171,15 @@ export default function Credentials() {
         },
         onError: () => snackActions.error('Failed to create credential'),
     });
-    const [updateComment] = useMutation(UPDATE_CREDENTIAL_COMMENT,  { onCompleted: () => { snackActions.success('Comment updated');    refresh(); } });
-    const [updateAccount] = useMutation(UPDATE_CREDENTIAL_ACCOUNT,  { onCompleted: () => { snackActions.success('Account updated');    refresh(); } });
-    const [updateRealm]   = useMutation(UPDATE_CREDENTIAL_REALM,    { onCompleted: () => { snackActions.success('Realm updated');      refresh(); } });
-    const [updateType]    = useMutation(UPDATE_CREDENTIAL_TYPE,     { onCompleted: () => { snackActions.success('Type updated');       refresh(); } });
-    const [updateValue]   = useMutation(UPDATE_CREDENTIAL_VALUE,    { onCompleted: () => { snackActions.success('Credential updated'); refresh(); } });
-    const [updateDeleted] = useMutation(UPDATE_CREDENTIAL_DELETED,  { onCompleted: () => { snackActions.success('Status updated');     refresh(); } });
+    const [updateComment] = useMutation<any>(UPDATE_CREDENTIAL_COMMENT,  { onCompleted: () => { snackActions.success('Comment updated');    refresh(); } });
+    const [updateAccount] = useMutation<any>(UPDATE_CREDENTIAL_ACCOUNT,  { onCompleted: () => { snackActions.success('Account updated');    refresh(); } });
+    const [updateRealm]   = useMutation<any>(UPDATE_CREDENTIAL_REALM,    { onCompleted: () => { snackActions.success('Realm updated');      refresh(); } });
+    const [updateType]    = useMutation<any>(UPDATE_CREDENTIAL_TYPE,     { onCompleted: () => { snackActions.success('Type updated');       refresh(); } });
+    const [updateValue]   = useMutation<any>(UPDATE_CREDENTIAL_VALUE,    { onCompleted: () => { snackActions.success('Credential updated'); refresh(); } });
+    const [updateDeleted] = useMutation<any>(UPDATE_CREDENTIAL_DELETED,  { onCompleted: () => { snackActions.success('Status updated');     refresh(); } });
 
-    const [bulkDeleteHarvested, { loading: bulkDelHarvestedLoading }] = useMutation(BULK_DELETE_HARVESTED, {
-        onCompleted: (data) => {
+    const [bulkDeleteHarvested, { loading: bulkDelHarvestedLoading }] = useMutation<any>(BULK_DELETE_HARVESTED, {
+        onCompleted: (data: any) => {
             const n = data.update_credential?.affected_rows ?? 0;
             snackActions.success(`${n} harvested credential${n !== 1 ? 's' : ''} deleted`);
             setBulkDeleteConfirm(null);
@@ -188,8 +189,8 @@ export default function Credentials() {
         onError: () => snackActions.error('Bulk delete failed'),
     });
     // ── dedup harvested credentials ──────────────────────────────────
-    const [fetchAllHarvested] = useLazyQuery(FETCH_ALL_HARVESTED, { fetchPolicy: 'no-cache' });
-    const [bulkDeleteByIds]   = useMutation(BULK_DELETE_BY_IDS);
+    const [fetchAllHarvested] = useLazyQuery<any>(FETCH_ALL_HARVESTED, { fetchPolicy: 'no-cache' });
+    const [bulkDeleteByIds]   = useMutation<any>(BULK_DELETE_BY_IDS);
     const dedupRanRef = useRef(false);
 
     useEffect(() => {
@@ -214,8 +215,9 @@ export default function Credentials() {
                 if (dupIds.length > 0) {
                     await bulkDeleteByIds({ variables: { ids: dupIds } });
                     snackActions.success(`Auto-removed ${dupIds.length} duplicate credential${dupIds.length !== 1 ? 's' : ''}`);
-                    // Refresh current view
-                    doSearch(searchFieldRef.current, searchQuery, (currentPage - 1) * FETCH_LIMIT, showDeletedRef.current, operationId);
+                    // Refresh current view — read URL params to avoid stale closure
+                    const current = readUrlParams();
+                    doSearch(searchFieldRef.current, current.search, 0, showDeletedRef.current, operationId);
                 }
             } catch (err) {
                 console.error('Dedup failed:', err);
@@ -223,8 +225,8 @@ export default function Credentials() {
         })();
     }, [operationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const [bulkDeleteVerified, { loading: bulkDelVerifiedLoading }] = useMutation(BULK_DELETE_VERIFIED, {
-        onCompleted: (data) => {
+    const [bulkDeleteVerified, { loading: bulkDelVerifiedLoading }] = useMutation<any>(BULK_DELETE_VERIFIED, {
+        onCompleted: (data: any) => {
             const n = data.update_credential?.affected_rows ?? 0;
             snackActions.success(`${n} verified credential${n !== 1 ? 's' : ''} deleted`);
             setBulkDeleteConfirm(null);
@@ -780,9 +782,10 @@ const CredentialCard = ({
 }) => {
     const typeColor = TYPE_COLORS[credential.type] ?? TYPE_COLORS.plaintext;
     const typeIcon  = TYPE_ICONS[credential.type]  ?? <Lock size={12} />;
-    const maxLen    = 50;
-    const raw       = isVisible ? credential.credential_text : '•'.repeat(Math.min(credential.credential_text?.length ?? 0, 24));
-    const truncated = raw.length > maxLen ? raw.slice(0, maxLen) + '…' : raw;
+    const DISPLAY_MAX_LEN = 50;
+    const MASK_MAX_LEN = 24;
+    const raw       = isVisible ? credential.credential_text : '•'.repeat(Math.min(credential.credential_text?.length ?? 0, MASK_MAX_LEN));
+    const truncated = raw.length > DISPLAY_MAX_LEN ? raw.slice(0, DISPLAY_MAX_LEN) + '…' : raw;
 
     return (
         <motion.div
@@ -892,7 +895,7 @@ const CredentialCard = ({
                                 <pre className="p-2 bg-black/40 rounded border border-white/10 text-xs text-gray-300 font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto">
                                     {isVisible
                                         ? credential.credential_text
-                                        : '•'.repeat(Math.min(credential.credential_text?.length ?? 0, 50))}
+                                        : '•'.repeat(Math.min(credential.credential_text?.length ?? 0, DISPLAY_MAX_LEN))}
                                 </pre>
                             </div>
 

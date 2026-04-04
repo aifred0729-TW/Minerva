@@ -10,7 +10,7 @@ function cn(...inputs: (string | undefined | null | false)[]) {
 
 interface Column<T> {
   header: string;
-  accessorKey?: keyof T;
+  accessorKey?: string;
   cell?: (item: T) => React.ReactNode;
   className?: string;
   sortKey?: string;
@@ -86,7 +86,7 @@ export function CyberTable<T extends { id: number | string }>({ data, columns, o
               return (
               <motion.tr
                 key={row.id}
-                data-cb-id={String((row as any).id)}
+                data-cb-id={String(row.id)}
                 onClick={() => onRowClick && onRowClick(row)}
                 onDoubleClick={() => onRowDoubleClick && onRowDoubleClick(row)}
                 onContextMenu={(e) => { if (onRowContextMenu) { e.preventDefault(); onRowContextMenu(row, e); } }}

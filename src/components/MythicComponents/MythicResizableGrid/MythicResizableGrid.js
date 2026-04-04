@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState, createContext, useContext } from 'react';
 import PropTypes from 'prop-types';
-import AutoSizer from 'react-virtualized-auto-sizer';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 import useScrollbarSize from 'react-scrollbar-size';
-import { VariableSizeGrid } from 'react-window';
+import { Grid as VariableSizeGrid } from 'react-window';
 import HeaderCell from './HeaderCell';
 import Cell from './Cell';
 import DraggableHandles from './DraggableHandles';

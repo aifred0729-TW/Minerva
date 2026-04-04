@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { useSubscription, useMutation } from '@apollo/client';
+import { useSubscription, useMutation } from "@apollo/client/react";
 import { Link } from 'react-router-dom';
 
 import { useAppStore } from '../store';
 import { SUBSCRIPTION_CONSOLE_CALLBACKS, UPDATE_CALLBACK_DESCRIPTION_MUTATION } from '../lib/api';
+import { timeAgo } from '../lib/time';
 import {
     Terminal, Monitor, Globe, Network, ChevronRight,
     Crown, Wifi, Skull, Pencil, Check, X
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { cn, isCallbackAlive } from '../lib/utils';
+import { cn, isCallbackAlive, parseFirstIP } from '../lib/utils';
 import { snackActions } from '../lib/snackbar';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -17,18 +18,8 @@ import { snackActions } from '../lib/snackbar';
 /** A session is "dead" if isCallbackAlive (sleep_info-aware) returns false */
 const isSessionDead = (session: any): boolean => !isCallbackAlive(session);
 
-function getFirstIP(ipStr: string): string {
-    if (!ipStr) return '';
-    try {
-        const parsed = JSON.parse(ipStr);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0];
-        if (typeof parsed === 'string') return parsed;
-    } catch { /* ignore */ }
-    return ipStr.split(',')[0].trim();
-}
-
 function ipToRange(ipStr: string): string {
-    const ip = getFirstIP(ipStr);
+    const ip = parseFirstIP(ipStr);
     if (!ip) return 'UNKNOWN_NETWORK';
     const parts = ip.split('.');
     if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
@@ -128,7 +119,7 @@ const SessionRow = ({ session, isBest }: { session: any; isBest: boolean }) => {
     const dead = isSessionDead(session);
     const [editingName, setEditingName] = useState(false);
     const [nameValue, setNameValue] = useState(session.description || '');
-    const [updateDesc, { loading: saving }] = useMutation(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
+    const [updateDesc, { loading: saving }] = useMutation<any>(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
 
     const saveName = async (e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
@@ -139,15 +130,7 @@ const SessionRow = ({ session, isBest }: { session: any; isBest: boolean }) => {
         setEditingName(false);
     };
 
-    const ago = (() => {
-        try {
-            const diff = Math.floor((Date.now() - new Date(session.last_checkin).getTime()) / 1000);
-            if (diff < 60) return `${diff}s ago`;
-            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-            return `${Math.floor(diff / 86400)}d ago`;
-        } catch { return ''; }
-    })();
+    const ago = timeAgo(session.last_checkin);
 
     return (
         <div className={cn(
@@ -209,7 +192,7 @@ const SessionRow = ({ session, isBest }: { session: any; isBest: boolean }) => {
                         autoFocus
                         value={nameValue}
                         onChange={e => setNameValue(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') saveName(e as any); if (e.key === 'Escape') setEditingName(false); }}
+                        onKeyDown={e => { if (e.key === 'Enter') saveName(e as unknown as React.MouseEvent); if (e.key === 'Escape') setEditingName(false); }}
                         placeholder="Custom session name…"
                         className="flex-1 bg-black/60 border border-gray-600 focus:border-signal px-2 py-0.5 text-white font-mono text-[10px] outline-none"
                     />
@@ -368,7 +351,9 @@ const DomainSection = ({
 export default function ConsoleSelection() {
     const { isSidebarCollapsed } = useAppStore();
     const [hideDead, setHideDead] = useState(false);
-    const { data, loading } = useSubscription(SUBSCRIPTION_CONSOLE_CALLBACKS);
+    const { data, loading } = useSubscription<any>(SUBSCRIPTION_CONSOLE_CALLBACKS, {
+        onError: (err) => { console.error('[SUBSCRIPTION_CONSOLE_CALLBACKS] subscription error:', err); },
+    });
 
     const callbacks: any[] = data?.callback || [];
     const filteredCallbacks = hideDead ? callbacks.filter(cb => !isSessionDead(cb)) : callbacks;

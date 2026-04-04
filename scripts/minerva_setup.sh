@@ -14,6 +14,7 @@ die()   { err "$1"; exit 1; }
 MINERVA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="$MINERVA_DIR/scripts"
 MYTHIC_DIR="${MYTHIC_DIR:-/opt/Mythic}"
+MSF_COMPOSE="$MINERVA_DIR/docker-compose.metasploit.yml"
 REACT_UI="$MYTHIC_DIR/MythicReactUI"
 REACT_BAK="$MYTHIC_DIR/MythicReactUI.bak"
 HASURA_METADATA="$MYTHIC_DIR/hasura-docker/metadata"
@@ -295,6 +296,62 @@ do_uninstall() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
+# MSF-START — Deploy & start Metasploit RPC container
+# ══════════════════════════════════════════════════════════════════════════════
+do_msf_start() {
+    info "Starting Metasploit RPC container (minerva_msf) ..."
+    [ -f "$MSF_COMPOSE" ] || die "Compose file not found: $MSF_COMPOSE"
+    docker compose -f "$MSF_COMPOSE" up -d
+    ok "minerva_msf container started"
+    info "Waiting for msfrpcd to initialize (this may take 30-60s on first run) ..."
+    local attempts=0
+    while [ $attempts -lt 30 ]; do
+        if docker logs minerva_msf 2>&1 | grep -q "MSGRPC starting"; then
+            ok "msfrpcd is ready!"
+            return
+        fi
+        sleep 2
+        ((attempts++))
+    done
+    warn "Timed out waiting for msfrpcd — check 'docker logs minerva_msf'"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MSF-STOP — Stop Metasploit RPC container
+# ══════════════════════════════════════════════════════════════════════════════
+do_msf_stop() {
+    info "Stopping Metasploit RPC container ..."
+    docker compose -f "$MSF_COMPOSE" down
+    ok "minerva_msf stopped"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MSF-STATUS — Show Metasploit container status & recent logs
+# ══════════════════════════════════════════════════════════════════════════════
+do_msf_status() {
+    info "Metasploit container status:"
+    echo ""
+    docker ps --filter "name=minerva_msf" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || warn "Container not found"
+    echo ""
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "minerva_msf"; then
+        info "Recent logs:"
+        echo "---"
+        docker logs minerva_msf --tail 10 2>&1
+        echo "---"
+    fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MSF-VERIFY — Run Python script to verify RPC connectivity
+# ══════════════════════════════════════════════════════════════════════════════
+do_msf_verify() {
+    info "Verifying MSF-RPC connectivity ..."
+    local script="$SCRIPTS_DIR/msfrpc_verify.py"
+    [ -f "$script" ] || die "Verification script not found: $script"
+    python3 "$script"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 usage() {
@@ -309,6 +366,13 @@ usage() {
     echo "  status      Show container status and logs"
     echo "  clean       Remove custom graph nodes from database"
     echo "  uninstall   Restore original MythicReactUI"
+    echo ""
+    echo "Metasploit:"
+    echo "  msf-start   Deploy & start Metasploit RPC container"
+    echo "  msf-stop    Stop Metasploit RPC container"
+    echo "  msf-status  Show Metasploit container status & logs"
+    echo "  msf-verify  Verify MSF-RPC connectivity (Python)"
+    echo ""
     echo "  help        Show this message"
     echo ""
     echo "Environment:"
@@ -322,6 +386,10 @@ case "${1:-install}" in
     status)       do_status ;;
     clean)        do_clean ;;
     uninstall)    do_uninstall ;;
+    msf-start)    do_msf_start ;;
+    msf-stop)     do_msf_stop ;;
+    msf-status)   do_msf_status ;;
+    msf-verify)   do_msf_verify ;;
     help|--help|-h) usage ;;
     *) err "Unknown command: $1"; usage; exit 1 ;;
 esac

@@ -4,13 +4,91 @@ import { Handle, Position, BaseEdge, EdgeLabelRenderer, EdgeProps, getStraightPa
 import { Terminal, Cpu, User, Shield, Network, Skull, Info } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion';
 import { isCallbackAlive } from '../../lib/utils';
+import { timeAgo } from '../../lib/time';
 import { getOSIcon } from '../OSIcons';
 
-export const CyberNode = ({ data, dragging }: any) => {
+// ── Node data type definitions ──────────────────────────────────────────────
+
+/** Data carried by the main CyberNode (callback graph nodes) */
+export interface CyberNodeData {
+    callback_id: number;
+    display_id: number;
+    db_id?: number;
+    user: string;
+    host: string;
+    ip: string;
+    integrity_level: number;
+    payloadType: string;
+    os: string;
+    last_checkin: string;
+    pid: number;
+    architecture: string;
+    domain: string;
+    description: string;
+    locked: boolean;
+    sleep_info: string;
+    animationDelay: number;
+    isNewNode: boolean;
+    label: string;
+    onContextMenu?: (e: React.MouseEvent, info: Record<string, unknown>, rect?: DOMRect) => void;
+    isCustom: boolean;
+    process_name: string;
+    c2profiles: string[];
+    nodeLabels: string[];
+    hostSessions?: Array<Record<string, unknown>> | null;
+    active?: boolean;
+    isHighlighted?: boolean;
+    isDimmed?: boolean;
+    [key: string]: unknown;
+}
+
+/** Data carried by the root "Minerva" node */
+export interface RootNodeData {
+    label: string;
+    [key: string]: unknown;
+}
+
+/** Data for group bounding box overlay nodes */
+export interface GroupBoundNodeData {
+    groupBy: string;
+    groupValue: string;
+    [key: string]: unknown;
+}
+
+/** Data for task sub-graph nodes */
+export interface TaskNodeData {
+    label?: string;
+    id?: string;
+    status?: string;
+    [key: string]: unknown;
+}
+
+/** Data for browserscript nodes */
+export interface BrowserscriptNodeData {
+    label?: string;
+    name?: string;
+    command?: string;
+    agentIcon?: string;
+    img?: string;
+    overlay_img?: React.ReactNode;
+    data?: { label?: string };
+    [key: string]: unknown;
+}
+
+/** Data for BsCallback (lightweight callback in BrowserScript view) */
+export interface BsCallbackNodeData {
+    displayId: number;
+    host?: string;
+    payloadType?: string;
+    _selected?: boolean;
+    _anySelected?: boolean;
+    [key: string]: unknown;
+}
+
+export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: boolean }) => {
     const isHighIntegrity = data.integrity_level > 2;
     // Base colors (Final state)
     const finalBorderColor = isHighIntegrity ? "border-yellow-500" : "border-signal/50";
-    const __finalGlowColor = isHighIntegrity ? "bg-yellow-500/20" : "bg-signal/20";
     const finalTextColor = isHighIntegrity ? "text-yellow-500" : "text-signal";
     
     const payloadType = data.payloadType || '';
@@ -57,23 +135,9 @@ export const CyberNode = ({ data, dragging }: any) => {
 
     // Calculate last checkin with live update
     const calculateTimeAgo = useCallback(() => {
-        // Custom nodes don't have real checkin times
         if (data.isCustom) return "N/A";
         if (!data.last_checkin) return "NEVER";
-        try {
-            const timeStr = data.last_checkin.endsWith('Z') ? data.last_checkin : `${data.last_checkin}Z`;
-            const last = new Date(timeStr).getTime();
-            const now = new Date().getTime();
-            const diff = Math.floor((now - last) / 1000); 
-            
-            if (diff < 0) return "0s ago";
-            if (diff < 60) return `${diff}s ago`;
-            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-            return `${Math.floor(diff / 86400)}d ago`;
-        } catch (e) {
-            return "ERROR";
-        }
+        return timeAgo(data.last_checkin);
     }, [data.last_checkin, data.isCustom]);
 
     const [lastCheckinText, setLastCheckinText] = useState(calculateTimeAgo());
@@ -82,7 +146,7 @@ export const CyberNode = ({ data, dragging }: any) => {
         setLastCheckinText(calculateTimeAgo()); // Initial update
         const interval = setInterval(() => {
             setLastCheckinText(calculateTimeAgo());
-        }, 1000);
+        }, 5000);
         return () => clearInterval(interval);
     }, [calculateTimeAgo]);
 
@@ -161,31 +225,6 @@ export const CyberNode = ({ data, dragging }: any) => {
 
     // --- Animation Variants ---
 
-    // 1. Container: Reveal via clip-path (No width animation) to avoid layout thrashing
-    const __containerVariants = {
-        hidden: { 
-            opacity: 0, 
-            scale: 0.8,
-            clipPath: "inset(0 100% 0 0)", // Start fully clipped from right
-            borderColor: "#ffffff", // Initial white border
-            filter: "blur(5px)"
-        },
-        visible: { 
-            opacity: 1, 
-            scale: 1,
-            clipPath: "inset(0 0% 0 0)", // Reveal to full width
-            borderColor: isDead ? "#ef4444" : (isHighIntegrity ? "#eab308" : "rgba(34, 197, 94, 0.5)"), // Transition to color
-            filter: "blur(0px)",
-            transition: {
-                clipPath: { delay: animationDelay + 0.2, duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }, // Faster, snappier reveal
-                borderColor: { delay: animationDelay + 1.0, duration: 1.2, ease: [0.42, 0, 0.58, 1] }, // Faster colorize
-                opacity: { duration: 0.4, delay: animationDelay },
-                scale: { duration: 0.4, delay: animationDelay },
-                filter: { duration: 0.4, delay: animationDelay }
-            }
-        }
-    };
-
     // 2. Content Reveal: Elements that appear after expansion
     const contentRevealVariants = {
         hidden: { opacity: 0, x: -5 },
@@ -193,16 +232,6 @@ export const CyberNode = ({ data, dragging }: any) => {
             opacity: 1, 
             x: 0,
             transition: { delay: animationDelay + 0.8, duration: 0.4 }
-        }
-    };
-
-    // 3. Icon Reveal
-    const __iconRevealVariants = {
-        hidden: { scale: 0, opacity: 0 },
-        visible: { 
-            scale: 1, 
-            opacity: 1,
-            transition: { delay: animationDelay + 0.7, type: "spring", stiffness: 300, damping: 20 } // Snappy pop-in
         }
     };
 
@@ -538,7 +567,7 @@ export const CyberNode = ({ data, dragging }: any) => {
     );
 };
 
-export const RootNode = ({ data }: { data: Record<string, unknown> }) => {
+export const RootNode = ({ data }: { data: RootNodeData }) => {
     return (
         <motion.div 
             className="relative group"
@@ -669,93 +698,8 @@ export const RootNode = ({ data }: { data: Record<string, unknown> }) => {
     );
 };
 
-const __PulseEdge = ({
-    id,
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    style = {},
-    markerEnd,
-    data,
-    label
-  }: EdgeProps) => {
-    const [edgePath, labelX, labelY] = getStraightPath({
-      sourceX,
-      sourceY,
-      targetX,
-      targetY,
-    });
-  
-    // Use timestamp as key to trigger animation restart
-    const timestamp = data?.timestamp;
-    // C2 profile icon loading
-    const [c2ImgLoaded, setC2ImgLoaded] = useState(false);
-    const [c2ImgError, setC2ImgError] = useState(false);
-    const c2IconName = String(label || '').split(',')[0].trim();
-    const c2IconUrl = (c2IconName && c2IconName !== 'Linked' && c2IconName !== 'Custom' && c2IconName !== '')
-        ? `/direct/download/${c2IconName}/icon.svg` : null;
-  
-    return (
-      <>
-        <BaseEdge path={edgePath} style={style} />
-        {/* Edge Label via HTML overlay for icon + text */}
-        {label && (
-          <EdgeLabelRenderer>
-            <div
-              style={{
-                position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-                pointerEvents: 'none',
-                zIndex: 10,
-              }}
-              className="flex items-center gap-1 px-1.5 py-0.5 bg-white/95 border border-black/20 text-gray-800 text-[10px] font-semibold font-mono whitespace-nowrap rounded-sm"
-            >
-              {c2IconUrl && !c2ImgError && (
-                <img
-                  src={c2IconUrl}
-                  onLoad={() => setC2ImgLoaded(true)}
-                  onError={() => setC2ImgError(true)}
-                  style={{ width: 11, height: 11, objectFit: 'contain', opacity: c2ImgLoaded ? 1 : 0 }}
-                  alt=""
-                />
-              )}
-              {String(label)}
-            </div>
-          </EdgeLabelRenderer>
-        )}
-        {data?.active && (
-          <g>
-             <circle r="4" fill="#ffffff" filter="url(#glow-pulse)" opacity="0">
-                <animateMotion 
-                    key={String(timestamp || '')}
-                    dur="1.5s" 
-                    repeatCount="1" 
-                    path={edgePath} 
-                    keyPoints="1;0"
-                    keyTimes="0;1"
-                    calcMode="linear"
-                    fill="remove"
-                />
-                <animate 
-                    key={`${timestamp}-opacity`}
-                    attributeName="opacity" 
-                    values="1;1" 
-                    dur="1.5s" 
-                    repeatCount="1" 
-                    fill="remove"
-                />
-             </circle>
-          </g>
-        )}
-      </>
-    );
-  };
-
 // Group bound container node for groupBy visual clustering
-export const GroupBoundNode = ({ data }: { data: Record<string, unknown> }) => (
+export const GroupBoundNode = ({ data }: { data: GroupBoundNodeData }) => (
     <div style={{ width: '100%', height: '100%', position: 'relative', pointerEvents: 'none' }}>
         <div className="absolute inset-0 border border-signal/10 bg-signal/[0.025] rounded-sm" />
         <div className="absolute top-0 left-4" style={{ transform: 'translateY(-50%)' }}>
@@ -768,7 +712,7 @@ export const GroupBoundNode = ({ data }: { data: Record<string, unknown> }) => (
 );
 
 // TaskNode — used in task-relationship sub-graphs (similar to OldReactUI TaskNode)
-export const TaskNode = ({ data }: { data: Record<string, unknown> }) => (
+export const TaskNode = ({ data }: { data: TaskNodeData }) => (
     <div className="flex flex-col items-center" style={{ minWidth: 80, maxWidth: 160 }}>
         <Handle type="target" position={Position.Left} isConnectable={false} />
         <div className="border border-blue-500/40 bg-blue-900/20 rounded px-2 py-1 text-[10px] font-mono text-blue-300 text-center max-w-full overflow-hidden">
@@ -785,7 +729,7 @@ export const TaskNode = ({ data }: { data: Record<string, unknown> }) => (
 );
 
 // BrowserscriptNode — used in browserscript-relationship sub-graphs
-export const BrowserscriptNode = ({ data }: { data: Record<string, unknown> }) => (
+export const BrowserscriptNode = ({ data }: { data: BrowserscriptNodeData }) => (
     <div className="flex flex-col items-center gap-1">
         <Handle type="target" position={Position.Left} isConnectable={false} />
         <div className="relative flex flex-col items-center">
@@ -809,46 +753,8 @@ export const BrowserscriptNode = ({ data }: { data: Record<string, unknown> }) =
     </div>
 );
 
-// Edge with C2 profile icon label via EdgeLabelRenderer
-const __C2LabelEdge = ({ id, sourceX, sourceY, targetX, targetY, style, data, label }: EdgeProps) => {
-    const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY });
-    const [imgLoaded, setImgLoaded] = useState(false);
-    const [imgError, setImgError] = useState(false);
-    const profileName = String(label || '').split(',')[0].trim();
-    const iconUrl = (profileName && profileName !== 'Linked' && profileName !== 'Custom' && profileName !== '')
-        ? `/direct/download/${profileName}/icon.svg` : null;
-    return (
-        <>
-            <BaseEdge id={id} path={edgePath} style={style} />
-            {label && (
-                <EdgeLabelRenderer>
-                    <div
-                        style={{
-                            position: 'absolute',
-                            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-                            pointerEvents: 'none',
-                        }}
-                        className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-sm text-[10px] font-mono bg-black/80 border border-white/15 text-gray-400 whitespace-nowrap"
-                    >
-                        {iconUrl && !imgError && (
-                            <img
-                                src={iconUrl}
-                                onLoad={() => setImgLoaded(true)}
-                                onError={() => setImgError(true)}
-                                style={{ width: 11, height: 11, objectFit: 'contain', opacity: imgLoaded ? 1 : 0 }}
-                                alt=""
-                            />
-                        )}
-                        {String(label)}
-                    </div>
-                </EdgeLabelRenderer>
-            )}
-        </>
-    );
-};
-
 // BsCallbackNode — lightweight callback node used in the BrowserScript graph view
-export const BsCallbackNode = ({ data }: { data: Record<string, unknown> }) => {
+export const BsCallbackNode = ({ data }: { data: BsCallbackNodeData }) => {
     const isSelected = data._selected;
     const anySelected = data._anySelected;
     return (

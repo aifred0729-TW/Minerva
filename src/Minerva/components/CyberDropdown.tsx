@@ -87,6 +87,7 @@ export function CyberDropdown({
                 window.removeEventListener('resize', updateMenuPosition);
             };
         }
+        return undefined;
     }, [isOpen, updateMenuPosition]);
 
     const handleSelect = (val: any, e: React.MouseEvent) => {

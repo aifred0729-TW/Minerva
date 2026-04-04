@@ -7,7 +7,8 @@ import {
     updateSleepInfoCallbackMutation
 } from './CallbackMutations';
 import {snackActions} from '../../utilities/Snackbar';
-import {useMutation, useLazyQuery, gql } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation, useLazyQuery } from "@apollo/client/react";
 import {
     CallbacksTableIDCell,
     CallbacksTableStringCell,

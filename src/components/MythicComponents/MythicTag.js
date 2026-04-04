@@ -4,7 +4,9 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import MythicTextField from './MythicTextField';
-import {useQuery, gql, useMutation} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../Minerva/lib/useQueryCompat";
 import { Select, Input, MenuItem, Link, IconButton } from '@mui/material';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -28,7 +30,7 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import Typography from '@mui/material/Typography';
 import MythicStyledTableCell from "./MythicTableCell";
 import {meState} from "../../cache";
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import {MythicDraggableDialogTitle} from "./MythicDraggableDialogTitle";
 
 const createNewTagMutationTemplate = ({target_object}) => {

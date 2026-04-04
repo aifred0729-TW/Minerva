@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../lib/useQueryCompat";
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Tag, 
@@ -322,9 +323,9 @@ const Tags = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Fetch tag types
-    useQuery(GET_TAGTYPES, {
+    useQuery<any>(GET_TAGTYPES, {
         fetchPolicy: "no-cache",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             if (mountedRef.current) {
                 setTagtypes(data.tagtype);
                 setLoading(false);
@@ -337,8 +338,8 @@ const Tags = () => {
     });
 
     // Create mutation
-    const [createTagtype] = useMutation(CREATE_TAGTYPE, {
-        onCompleted: (data) => {
+    const [createTagtype] = useMutation<any>(CREATE_TAGTYPE, {
+        onCompleted: (data: any) => {
             if (data.createTagtype.status === "success") {
                 const newTagtype = {
                     id: data.createTagtype.id,
@@ -360,8 +361,8 @@ const Tags = () => {
     });
 
     // Update mutation
-    const [updateTagtype] = useMutation(UPDATE_TAGTYPE, {
-        onCompleted: (data) => {
+    const [updateTagtype] = useMutation<any>(UPDATE_TAGTYPE, {
+        onCompleted: (data: any) => {
             if (data.updateTagtype.status === "success") {
                 setTagtypes(tagtypes.map(t => 
                     t.id === data.updateTagtype.id 
@@ -381,8 +382,8 @@ const Tags = () => {
     });
 
     // Delete mutation
-    const [deleteTagtype] = useMutation(DELETE_TAGTYPE, {
-        onCompleted: (data) => {
+    const [deleteTagtype] = useMutation<any>(DELETE_TAGTYPE, {
+        onCompleted: (data: any) => {
             if (data.deleteTagtype.status === "success") {
                 setTagtypes(tagtypes.filter(t => t.id !== data.deleteTagtype.tagtype_id));
                 snackActions.success('Tag type deleted');
@@ -396,8 +397,8 @@ const Tags = () => {
     });
 
     // Import mutation
-    const [importTagtypes] = useMutation(IMPORT_TAGTYPES, {
-        onCompleted: (data) => {
+    const [importTagtypes] = useMutation<any>(IMPORT_TAGTYPES, {
+        onCompleted: (data: any) => {
             if (data.importTagtypes.status === 'success') {
                 snackActions.success('Tag types imported successfully. Refreshing...');
                 // refetch to pick up new tagtypes
@@ -412,9 +413,9 @@ const Tags = () => {
     });
 
     // Export lazy query
-    const [exportTagtypes] = useLazyQuery(EXPORT_TAGTYPES, {
+    const [exportTagtypes] = useLazyQuery<any>(EXPORT_TAGTYPES, {
         fetchPolicy: 'no-cache',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             const finalData = data.tagtype.map((c: any) => ({ name: c.name, description: c.description, color: c.color }));
             downloadFileFromMemory(JSON.stringify(finalData, null, 2), 'tagtypes.json');
             snackActions.success('Tag types exported');

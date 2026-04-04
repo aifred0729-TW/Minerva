@@ -30,6 +30,10 @@ export const NodeSphere = React.memo(({
     const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const DOUBLE_CLICK_THRESHOLD = 400; // ms window for double-click
 
+    useEffect(() => {
+        return () => { if (clickTimerRef.current) clearTimeout(clickTimerRef.current); };
+    }, []);
+
     const r = node.radius;
 
     useFrame(({ clock }) => {
@@ -128,7 +132,7 @@ export const NodeSphere = React.memo(({
 
     const handleClick = useCallback((e: ThreeEvent<MouseEvent>) => {
         e.stopPropagation();
-        const nativeEvent = e.nativeEvent || (e as any);
+        const nativeEvent = e.nativeEvent || (e as unknown as MouseEvent);
         onSelect(node.id, { x: nativeEvent.clientX ?? 0, y: nativeEvent.clientY ?? 0 });
 
         // Double-click detection: open context menu on 2nd rapid click
@@ -545,6 +549,7 @@ export const CyberEnvironment = () => {
                 <bufferGeometry>
                     <bufferAttribute
                         attach="attributes-position"
+                        args={[particlePositions, 3]}
                         count={particleCount}
                         array={particlePositions}
                         itemSize={3}

@@ -95,6 +95,17 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
+        # MSF-RPC proxy — forward to msfrpcd on host
+        location /msf-rpc/ {
+            proxy_pass http://host.docker.internal:55553/api/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_read_timeout 120s;
+            proxy_send_timeout 120s;
+        }
+
         # Direct download endpoint
         location /direct/ {
             proxy_pass ${MYTHIC_ADDRESS}/direct/;

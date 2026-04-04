@@ -14,4 +14,5 @@ export type SearchTab =
     | 'processes'
     | 'socks'
     | 'tags'
-    | 'browsers';
+    | 'browsers'
+    | 'interactive_tasks';

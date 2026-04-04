@@ -1,16 +1,13 @@
 import type { CallbackPort, C2ParamInstance } from '../../types/tunnels';
+import { formatBytes, SENSITIVE_PARAM_NAMES } from '../../lib/utils';
+import { timeAgo } from '../../lib/time';
 
 export const loadingSound = process.env.PUBLIC_URL + '/audio/tunnel.mp3';
 
 // ============================================
-// Helpers
+// Helpers — re-export from shared libs
 // ============================================
-export const fmtBytes = (bytes: number): string => {
-    if (!bytes || bytes <= 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
-};
+export { formatBytes as fmtBytes } from '../../lib/utils';
 
 export const fmtAbsoluteTime = (isoStr: string): string => {
     if (!isoStr) return '—';
@@ -21,17 +18,7 @@ export const fmtAbsoluteTime = (isoStr: string): string => {
 
 export const fmtRelativeTime = (isoStr: string): string => {
     if (!isoStr) return '—';
-    const d = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
-    const diff = Date.now() - d.getTime();
-    if (diff < 0) return 'just now';
-    const secs = Math.floor(diff / 1000);
-    if (secs < 60) return `${secs}s ago`;
-    const mins = Math.floor(secs / 60);
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    return `${days}d ago`;
+    return timeAgo(isoStr);
 };
 
 export const PORT_TYPE_LABELS: Record<string, string> = {
@@ -67,11 +54,11 @@ export const C2_PARAM_LABELS: Record<string, string> = {
     HEADERS: 'Headers',
 };
 
-// Params that contain sensitive data (partially masked)
-export const SENSITIVE_PARAMS = new Set(['AESPSK', 'aespsk', 'proxyPass']);
+// Re-export shared SENSITIVE_PARAM_NAMES for local use
+export const SENSITIVE_PARAMS = SENSITIVE_PARAM_NAMES;
 
 export const maskValue = (name: string, value: string): string => {
-    if (SENSITIVE_PARAMS.has(name) && value.length > 8) {
+    if (SENSITIVE_PARAM_NAMES.has(name) && value.length > 8) {
         return value.slice(0, 6) + '••••';
     }
     return value;

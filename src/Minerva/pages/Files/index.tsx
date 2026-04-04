@@ -1,6 +1,6 @@
-/* eslint-disable react-hooks/rules-of-hooks */
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../../lib/useQueryCompat";
 import {
     DELETE_FILE_MUTATION,
     DELETE_FILES_BULK_MUTATION,
@@ -17,7 +17,9 @@ import { cn, b64DecodeUnicode } from '../../lib/utils';
 import type { MythicTreeNode } from '../../types/files';
 import { Folder, Terminal, Monitor, Server, Download, Upload, Image, RefreshCw, Search, Zap } from 'lucide-react';
 import { snackActions } from '../../lib/snackbar';
+import { directDownloadUrl } from '../../lib/urls';
 import { useAppStore } from '../../store';
+import { usePageVisible } from '../../lib/usePageVisible';
 import type { MachineInfo, FileMeta } from '../../types/files';
 import { uploadFileToMythic, getIPRange, type SidebarView } from './utils';
 import { DomainGroupedMachines, WelcomeScreen, MachineHeader } from './FileTable';
@@ -26,6 +28,7 @@ import { HostFileModal, ViewEditTagsModal, MediaPreviewModal, FilePreviewModal }
 
 export default function Files() {
     const { isSidebarCollapsed } = useAppStore();
+    const pageVisible = usePageVisible();
     const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null);
     const [sidebarView, setSidebarView] = useState<SidebarView>('machines');
     const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
@@ -49,18 +52,18 @@ export default function Files() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const { data: callbacksData, loading: callbacksLoading } = useQuery(GET_CALLBACKS, {
+    const { data: callbacksData, loading: callbacksLoading } = useQuery<any>(GET_CALLBACKS, {
         variables: { limit: 100, offset: 0 },
-        pollInterval: 10000
+        pollInterval: pageVisible ? 10000 : 0
     });
 
-    const { data: filesData, loading: filesLoading, refetch: refetchFiles } = useQuery(GET_MYTHIC_FILES, {
+    const { data: filesData, loading: filesLoading, refetch: refetchFiles } = useQuery<any>(GET_MYTHIC_FILES, {
         variables: { deleted: showDeleted },
-        pollInterval: 15000
+        pollInterval: pageVisible ? 15000 : 0
     });
 
-    const [deleteFile] = useMutation(DELETE_FILE_MUTATION, {
-        onCompleted: (data) => {
+    const [deleteFile] = useMutation<any>(DELETE_FILE_MUTATION, {
+        onCompleted: (data: any) => {
             if (data.deleteFile.status === 'success') {
                 snackActions.success('File deleted');
                 refetchFiles();
@@ -68,8 +71,8 @@ export default function Files() {
         }
     });
 
-    const [deleteFilesBulk] = useMutation(DELETE_FILES_BULK_MUTATION, {
-        onCompleted: (data) => {
+    const [deleteFilesBulk] = useMutation<any>(DELETE_FILES_BULK_MUTATION, {
+        onCompleted: (data: any) => {
             if (data.deleteFile.status === 'success') {
                 snackActions.success(`Deleted ${data.deleteFile.file_ids?.length ?? 0} file(s)`);
                 setSelectedFiles(new Set());
@@ -78,20 +81,20 @@ export default function Files() {
         }
     });
 
-    const [downloadBulk] = useMutation(DOWNLOAD_BULK_MUTATION, {
-        onCompleted: (data) => {
+    const [downloadBulk] = useMutation<any>(DOWNLOAD_BULK_MUTATION, {
+        onCompleted: (data: any) => {
             if (data.download_bulk.status === 'success') {
                 const fid = data.download_bulk.file_id;
-                window.open(`/direct/download/${fid}`, '_blank');
+                window.open(directDownloadUrl(fid), '_blank');
                 snackActions.success(
                     `ZIP ready — click to download`,
-                    { onClick: () => window.open(`/direct/download/${fid}`, '_blank'), autoClose: 10000 } as any
+                    { onClick: () => window.open(directDownloadUrl(fid), '_blank'), autoClose: 10000 }
                 );
             } else snackActions.error(data.download_bulk.error);
         }
     });
 
-    const [updateComment] = useMutation(UPDATE_FILE_COMMENT, {
+    const [updateComment] = useMutation<any>(UPDATE_FILE_COMMENT, {
         onCompleted: () => {
             snackActions.success('Comment updated');
             refetchFiles();
@@ -99,10 +102,10 @@ export default function Files() {
     });
 
     // ── Server-side search lazy queries ──
-    const [executeSearch, { loading: searchLoading }] = useLazyQuery(SEARCH_FILEMETA_QUERY, {
+    const [executeSearch, { loading: searchLoading }] = useLazyQuery<any>(SEARCH_FILEMETA_QUERY, {
         fetchPolicy: 'no-cache',
-        onCompleted: (data) => {
-            setSearchResults(data.filemeta.map((f: any) => ({
+        onCompleted: (data: any) => {
+            setSearchResults(data.filemeta.map((f: FileMeta) => ({
                 ...f,
                 filename_text: f.filename_text,
                 full_remote_path_text: f.full_remote_path_text,
@@ -110,9 +113,9 @@ export default function Files() {
             setSearchResultCount(data.filemeta_aggregate?.aggregate?.count ?? 0);
         },
     });
-    const [executeTreeSearch, { loading: treeSearchLoading }] = useLazyQuery(SEARCH_MYTHICTREE_QUERY, {
+    const [executeTreeSearch, { loading: treeSearchLoading }] = useLazyQuery<any>(SEARCH_MYTHICTREE_QUERY, {
         fetchPolicy: 'no-cache',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setFileBrowserResults(data.mythictree || []);
             setFileBrowserCount(data.mythictree_aggregate?.aggregate?.count ?? 0);
         },
@@ -313,7 +316,7 @@ export default function Files() {
         if (p.has('search')) setSearchQuery(p.get('search')!);
         if (p.has('host'))   setHostFilter(p.get('host')!);
         const fields = ['filename','hash','comment','uuid','tag'] as const;
-        if (p.has('field') && fields.includes(p.get('field') as any)) setSearchField(p.get('field') as any);
+        if (p.has('field') && fields.includes(p.get('field') as typeof fields[number])) setSearchField(p.get('field') as typeof fields[number]);
         if (p.has('deleted')) setShowDeleted(p.get('deleted') === 'true');
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -465,7 +468,7 @@ export default function Files() {
                             <div className="flex-1 flex flex-col overflow-hidden">
                                 <MachineHeader machine={selectedMachine} isRecentlyActive={isRecentlyActive} />
                                 <div className="flex-1 overflow-hidden">
-                                    <FileBrowser host={selectedMachine.host} callbackId={selectedMachine.primaryCallback.display_id} />
+                                    <FileBrowser host={selectedMachine.host} callbackId={selectedMachine.primaryCallback!.display_id} />
                                 </div>
                             </div>
                         ) : (

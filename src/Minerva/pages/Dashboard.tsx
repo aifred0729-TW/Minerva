@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { Terminal, Bell, RefreshCw, Eye, EyeOff, Sliders } from 'lucide-react';
-import { useQuery, useReactiveVar } from '@apollo/client';
+import { useQuery, useReactiveVar } from "@apollo/client/react";
+import { usePageVisible } from '../lib/usePageVisible';
 import { 
     ActiveCallbacksCard, 
     RecentPayloadsCard, 
@@ -92,15 +93,15 @@ function loadPerspective(): Perspective {
 }
 
 export default function Dashboard() {
-  const { __startLogout, appState, setAppState, isSidebarCollapsed } = useAppStore();
+  const { appState, setAppState, isSidebarCollapsed } = useAppStore();
+  const pageVisible = usePageVisible();
   const navigate = useNavigate();
   const me = useReactiveVar(meState);
-  // @ts-ignore
   const userId = me?.user?.user_id || me?.user?.id || 0;
 
-  const { data, loading, error, refetch } = useQuery(GET_DASHBOARD_DATA, {
+  const { data, loading, error, refetch } = useQuery<any>(GET_DASHBOARD_DATA, {
     variables: { operator_id: userId },
-    pollInterval: 10000,
+    pollInterval: pageVisible ? 10000 : 0,
   });
 
   // Perspective state
@@ -139,14 +140,14 @@ export default function Dashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const container = {
+  const container: Variants = {
     hidden: { opacity: 0, y: 20, filter: 'blur(12px)' },
-    show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { staggerChildren: 0.07, duration: 0.55, ease: [0.22, 1, 0.36, 1] } },
+    show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { staggerChildren: 0.07, duration: 0.55, ease: [0.22, 1, 0.36, 1] as [number,number,number,number] } },
     exit: { opacity: 0, scale: 1.04, filter: "blur(12px)", transition: { duration: 0.6, ease: "easeInOut" } }
-  } as any;
-  const item = {
+  };
+  const item: Variants = {
     hidden: { opacity: 0, y: 18, filter: 'blur(6px)' },
-    show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] as any } }
+    show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] as [number,number,number,number] } }
   };
 
   // Safe data extraction
@@ -168,7 +169,7 @@ export default function Dashboard() {
   const downloads = data?.filemeta_aggregate?.aggregate?.count || 0;
   const uploads = data?.uploaded_files?.aggregate?.count || 0;
   const screenshots = data?.screenshot_aggregate?.aggregate?.count || 0;
-  const activeOperation = { name: (me as any)?.user?.current_operation || "NONE", id: (me as any)?.user?.current_operation_id || 0 };
+  const activeOperation = { name: me?.user?.current_operation || "NONE", id: me?.user?.current_operation_id || 0 };
 
   // Widget renderer
   const renderWidget = (key: WidgetKey) => {
@@ -218,7 +219,9 @@ export default function Dashboard() {
                   {/* Header */}
                   <header className="flex justify-between items-center mb-8 border-b border-ghost/30 pb-6">
                     <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 border border-signal rounded-full flex items-center justify-center bg-signal text-void font-bold text-xl">M</div>
+                        <div className="w-10 h-10 flex items-center justify-center">
+                            <img src={require('../../assets/minerva.png')} alt="Minerva Logo" className="w-10 h-10 object-contain" draggable="false" />
+                        </div>
                         <div>
                             <h1 className="text-2xl font-bold tracking-widest">MINERVA</h1>
                             <p className="text-xs text-gray-400 font-mono tracking-widest">C2_OPERATIONS_CENTER</p>

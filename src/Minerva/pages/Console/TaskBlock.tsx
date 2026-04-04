@@ -1,10 +1,10 @@
-/* eslint-disable react-hooks/rules-of-hooks */
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task, TaskResponse } from '../../types/tasks';
 import type { ContextMenuState } from '../../types/console';
 import type { MythicBrowserScriptData, MythicTableDef } from '../../types/output';
-import { useSubscription, useMutation, useLazyQuery } from '@apollo/client';
+import { useSubscription, useMutation } from "@apollo/client/react";
+import { useLazyQueryCompat as useLazyQuery } from "../../lib/useQueryCompat";
 import { useNavigate } from 'react-router-dom';
 import {
     Activity,
@@ -45,7 +45,8 @@ import { TaskTokenDialog } from '../../components/TaskTokenDialog';
 import { ViewEditTagsDialog } from '../../components/MythicTag';
 import { EventTriggerContextSelectDialog } from '../../components/EventTriggerContextSelect';
 import { MythicDialog } from '../../components/MythicDialog';
-import { cn, b64DecodeUnicode } from '../../lib/utils';
+import { cn, b64DecodeUnicode, downloadBlob, downloadDataUrl } from '../../lib/utils';
+import { fileDownloadUrl } from '../../lib/urls';
 import { operatorSettingDefaults } from '../../lib/state';
 import { snackActions } from '../../lib/snackbar';
 import { useGetMythicSetting } from '../../components/MythicSavedUserSetting';
@@ -59,16 +60,116 @@ import { TaskCommentModal, TaskParamsModal, TaskStdoutStderrModal } from './moda
 import { MimikatzBlock } from './MimikatzBlock';
 import { InteractiveTaskBlock, TaskCredentialsPanel } from './InteractiveTaskBlock';
 
+const BrowserScriptTabs = ({ tabs, showMediaSetting, setExpandedScreenshot, navigate }: {
+    tabs: MythicBrowserScriptData[];
+    showMediaSetting: boolean;
+    setExpandedScreenshot: (s: { src: string; alt: string }) => void;
+    navigate: (to: string) => void;
+}) => {
+    const [activeTabIdx, setActiveTabIdx] = React.useState(0);
+    const safeIdx = Math.min(activeTabIdx, tabs.length - 1);
+    const tab = tabs[safeIdx];
+    const renderTabContent = (t: MythicBrowserScriptData) => (
+        <div className="space-y-2">
+            {t.plaintext !== undefined && t.plaintext !== '' && (
+                <TerminalPanel text={String(t.plaintext)} />
+            )}
+            {Array.isArray(t.table) && t.table.map((tbl: MythicTableDef, ti: number) => (
+                <MythicTable key={ti} tbl={tbl} />
+            ))}
+            {Array.isArray(t.process_list) && <ProcessPanel procs={t.process_list} />}
+            {Array.isArray(t.files) && <FilesPanel files={t.files} />}
+            {t.file_browser?.files && <FilesPanel files={t.file_browser.files} />}
+            {Array.isArray(t.download) && <DownloadPanel downloads={t.download} />}
+            {t.screenshot && (t.screenshot as any).agent_file_id && (
+                <img
+                    src={fileDownloadUrl((t.screenshot as any).agent_file_id)}
+                    alt={String((t.screenshot as any).filename || 'screenshot')}
+                    className="max-w-full rounded border border-white/10 cursor-zoom-in"
+                    style={{ maxHeight: '300px' }}
+                    onClick={() => setExpandedScreenshot({ src: fileDownloadUrl((t.screenshot as any).agent_file_id), alt: String((t.screenshot as any).filename || 'screenshot') })}
+                />
+            )}
+            {Array.isArray(t.screenshot) && t.screenshot.length > 0 && (
+                <ScreenshotPanel screenshots={t.screenshot}/>
+            )}
+            {showMediaSetting && Array.isArray(t.media) && t.media.map((m: any, mi: number) => {
+                const src = fileDownloadUrl(m.agent_file_id);
+                const name: string = (m.name || m.plaintext || '').toLowerCase();
+                const isAudio = /\.(mp3|ogg|wav|aac|flac|m4a)$/.test(name);
+                const isVideo = /\.(mp4|webm|ogv|mov|avi|mkv)$/.test(name);
+                const isImage = /\.(png|jpe?g|gif|bmp|svg|webp|ico)$/.test(name);
+                const isPdf = /\.pdf$/.test(name);
+                return (
+                    <div key={mi} className="space-y-1">
+                        {m.plaintext && <div className="text-gray-400 text-[10px]">{m.plaintext}</div>}
+                        {isAudio ? (
+                            <audio controls src={src} className="w-full h-8 max-w-sm" />
+                        ) : isVideo ? (
+                            <video controls src={src} className="max-w-full rounded border border-white/10" style={{maxHeight:'240px'}} />
+                        ) : isImage ? (
+                            <img src={src} alt={m.plaintext || 'image'} className="max-w-full rounded border border-white/10 cursor-pointer" style={{maxHeight:'300px'}}
+                                onClick={() => setExpandedScreenshot({ src, alt: m.plaintext || 'image' })} />
+                        ) : isPdf ? (
+                            <iframe src={src} title={m.plaintext || 'PDF'} className="w-full rounded border border-white/10" style={{height:'400px'}} />
+                        ) : (
+                            <a href={src} target="_blank" rel="noreferrer"
+                                className="text-blue-400 hover:underline text-[10px] flex items-center gap-1">
+                                <Eye size={10}/> View Media
+                            </a>
+                        )}
+                    </div>
+                );
+            })}
+            {Array.isArray(t.search) && t.search.length > 0 && (
+                <div className="space-y-1">
+                    {t.search.map((s: any, si: number) => {
+                        const label = s.plaintext || JSON.stringify(s);
+                        const query = s.search || s.plaintext || '';
+                        const searchType = s.type || 'command_and_responses';
+                        const href = `/new/search/?type=${encodeURIComponent(searchType)}&q=${encodeURIComponent(query)}`;
+                        return (
+                            <a key={si} href={href}
+                                className="flex items-center gap-1.5 text-[10px] text-blue-400 hover:text-blue-200 hover:underline transition-colors font-mono"
+                                title={s.hoverText || `Search: ${query}`}
+                                onClick={e => { e.preventDefault(); navigate(href); }}>
+                                <Search size={9} className="shrink-0" />
+                                {label}
+                            </a>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+    return (
+        <div className="border border-white/10 rounded overflow-hidden">
+            <div className="flex gap-0 flex-wrap border-b border-white/10 bg-black/30">
+                {tabs.map((t: MythicBrowserScriptData, ti: number) => (
+                    <button key={ti} onClick={() => setActiveTabIdx(ti)}
+                        className={cn('px-3 py-1.5 text-[10px] font-mono border-r border-white/10 transition-colors',
+                            ti === safeIdx ? 'bg-signal/15 text-signal border-b-2 border-b-signal' : 'text-gray-500 hover:text-white hover:bg-white/5')}>
+                        {String(t.title || `Tab ${ti+1}`)}
+                    </button>
+                ))}
+            </div>
+            <div className="p-2">
+                {renderTabContent(tab)}
+            </div>
+        </div>
+    );
+};
+
 export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot }: {
     parentTaskId: number;
     depth?: number;
     callbackHost?: string;
-    scrollRoot?: React.RefObject<HTMLDivElement>;
+    scrollRoot?: React.RefObject<HTMLDivElement | null>;
 }) => {
     const [subTaskMap, setSubTaskMap] = useState<Map<number, any>>(new Map());
-    useSubscription(STREAM_SUBTASKS, {
+    useSubscription<any>(STREAM_SUBTASKS, {
         variables: { parent_task_id: parentTaskId },
-        onData: ({ data: d }: { data: { data: Record<string, unknown> } }) => {
+        onData: ({ data: d }: any) => {
             const incoming: Task[] = (d?.data?.task_stream as Task[]) || [];
             setSubTaskMap(prev => {
                 const next = new Map(prev);
@@ -76,6 +177,7 @@ export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot
                 return next;
             });
         },
+        onError: (err) => { console.error('[STREAM_SUBTASKS] subscription error:', err); },
     });
     const subTasks = useMemo(() => [...subTaskMap.values()].sort((a, b) => a.id - b.id), [subTaskMap]);
     if (subTasks.length === 0) return null;
@@ -130,7 +232,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
     task: Task;
     callbackHost?: string;
     onFileAction?: (action: string, path: string, name: string, isDir: boolean) => void;
-    scrollRoot?: React.RefObject<HTMLDivElement>;
+    scrollRoot?: React.RefObject<HTMLDivElement | null>;
     onReveal?: () => void;
     myUsername?: string;
     collapseAllEpoch?: number;
@@ -177,16 +279,16 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
     const [totalSearchCount, setTotalSearchCount] = useState(0);
     const [currentPage, setCurrentPage] = useState(1);
     const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const [fetchPagedResponses] = useLazyQuery(GET_RESPONSES_PAGINATED, {
+    const [fetchPagedResponses] = useLazyQuery<any>(GET_RESPONSES_PAGINATED, {
         fetchPolicy: 'network-only',
-        onCompleted: (d: Record<string, unknown>) => {
+        onCompleted: (d: any) => {
             setPaginatedResults(d.response || []);
             setTotalSearchCount(d.response_aggregate?.aggregate?.count || 0);
         },
     });
-    const [fetchAllSearchResponses] = useLazyQuery(GET_RESPONSES_ALL_SEARCH, {
+    const [fetchAllSearchResponses] = useLazyQuery<any>(GET_RESPONSES_ALL_SEARCH, {
         fetchPolicy: 'network-only',
-        onCompleted: (d: Record<string, unknown>) => {
+        onCompleted: (d: any) => {
             setPaginatedResults(d.response || []);
             setTotalSearchCount(d.response_aggregate?.aggregate?.count || 0);
         },
@@ -200,6 +302,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
             setTotalSearchCount(0);
             return;
         }
+        const SEARCH_DEBOUNCE_MS = 300;
         searchDebounceRef.current = setTimeout(() => {
             const limit = effectiveStreamLimit || 50;
             if (showAllOutput || effectiveStreamLimit === 0) {
@@ -208,7 +311,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                 fetchPagedResponses({ variables: { task_id: task.id, fetchLimit: limit, offset: 0, search: `%${searchText}%` } });
                 setCurrentPage(1);
             }
-        }, 300);
+        }, SEARCH_DEBOUNCE_MS);
         return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchText, showAllOutput, task.id, responseStreamLimit]);
@@ -232,10 +335,10 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
             setLiveResponses(task.responses || []);
         }
     }, [task.id, task.responses]);
-    useSubscription(STREAM_TASK_RESPONSES, {
+    useSubscription<any>(STREAM_TASK_RESPONSES, {
         variables: { task_id: task.id },
         fetchPolicy: 'network-only',
-        onData: ({ data: d }: { data: { data: Record<string, unknown> } }) => {
+        onData: ({ data: d }: any) => {
             const incoming: TaskResponse[] = (d?.data?.response_stream as TaskResponse[]) || [];
             if (incoming.length === 0) return;
             setLiveResponses(prev => {
@@ -250,15 +353,16 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                 return next;
             });
         },
+        onError: (err) => { console.error('[STREAM_TASK_RESPONSES] subscription error:', err); },
     });
     // ── BrowserScript ──
     const [browserScriptFn, setBrowserScriptFn] = useState<Function | null>(null);
     const [browserScriptData, setBrowserScriptData] = useState<any | null>(null);
     const [viewBrowserScript, setViewBrowserScript] = useState(false);
     const commandId = task.command?.id;
-    const [fetchBrowserScript] = useLazyQuery(GET_BROWSERSCRIPT, {
+    const [fetchBrowserScript] = useLazyQuery<any>(GET_BROWSERSCRIPT, {
         fetchPolicy: 'network-only',
-        onCompleted: (d: Record<string, unknown>) => {
+        onCompleted: (d: any) => {
             const scripts = d?.browserscript || [];
             if (scripts.length === 0) { setBrowserScriptFn(null); setBrowserScriptData(null); return; }
             try {
@@ -316,9 +420,9 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
 
     // Kill task: find the job_kill command then createTask
     const [killConfirmOpen, setKillConfirmOpen] = useState(false);
-    const [getKillCmd] = useLazyQuery(GET_KILL_COMMAND, {
+    const [getKillCmd] = useLazyQuery<any>(GET_KILL_COMMAND, {
         fetchPolicy: 'network-only',
-        onCompleted: (d: Record<string, unknown>) => {
+        onCompleted: (d: any) => {
             const cmds = d?.callback_by_pk?.loadedcommands || [];
             if (cmds.length === 0) { snackActions.warning('No kill-task command loaded for this callback'); return; }
             const cmd = cmds[0].command.cmd;
@@ -334,8 +438,8 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         },
         onError: () => snackActions.error('Failed to query kill command'),
     });
-    const [createKillTask] = useMutation(CREATE_TASK_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => d.createTask?.status === 'error'
+    const [createKillTask] = useMutation<any>(CREATE_TASK_MUTATION, {
+        onCompleted: (d: any) => d.createTask?.status === 'error'
             ? snackActions.error('Kill failed: ' + d.createTask.error)
             : snackActions.success('Kill task queued'),
         onError: () => snackActions.error('Failed to create kill task'),
@@ -347,28 +451,24 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         setKillConfirmOpen(false);
     };
 
-    const [reissueTask] = useMutation(REISSUE_TASK_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => d.reissue_task.status === 'success'
+    const [reissueTask] = useMutation<any>(REISSUE_TASK_MUTATION, {
+        onCompleted: (d: any) => d.reissue_task.status === 'success'
             ? snackActions.success('Task reissued successfully')
             : snackActions.error('Reissue failed: ' + d.reissue_task.error),
         onError: () => snackActions.error('Failed to reissue task'),
     });
-    const [reissueTaskHandler] = useMutation(REISSUE_TASK_HANDLER_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => d.reissue_task_handler.status === 'success'
+    const [reissueTaskHandler] = useMutation<any>(REISSUE_TASK_HANDLER_MUTATION, {
+        onCompleted: (d: any) => d.reissue_task_handler.status === 'success'
             ? snackActions.success('Task handler reissued')
             : snackActions.warning('Reissue handler failed: ' + d.reissue_task_handler.error),
         onError: () => snackActions.error('Failed to reissue task handler'),
     });
-    const [fetchAllResponses] = useLazyQuery(GET_ALL_TASK_RESPONSES, {
+    const [fetchAllResponses] = useLazyQuery<any>(GET_ALL_TASK_RESPONSES, {
         fetchPolicy: 'network-only',
-        onCompleted: (d: Record<string, unknown>) => {
+        onCompleted: (d: any) => {
             const text = (d.response || []).reduce((acc: string, r: TaskResponse) => acc + b64DecodeUnicode(r.response || ''), '');
             const blob = new Blob([text], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = `task_${task.display_id}.txt`;
-            document.body.appendChild(a); a.click();
-            document.body.removeChild(a); URL.revokeObjectURL(url);
+            downloadBlob(blob, `task_${task.display_id}.txt`);
             snackActions.success('Output downloaded');
         },
         onError: () => snackActions.error('Failed to download output'),
@@ -385,7 +485,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
     let time = "---";
     try {
         const ts = (task as any)[taskTimestampField] || task.timestamp;
-        time = new Date(ts).toLocaleTimeString();
+        time = new Date(ts as any).toLocaleTimeString();
     } catch(e) {}
 
     let statusColor = "text-yellow-500";
@@ -412,7 +512,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         return `${mon} ${day} ${hh}:${mm}`;
     };
 
-    const buildPath = (f: Record<string, unknown>, directory: string): string => {
+    const buildPath = (f: any, directory: string): string => {
         const isWindows = /^[A-Za-z]:[\\/]/.test(directory) || directory.includes('\\');
         if (isWindows) {
             // For Windows: trust full_name if it looks absolute (has drive letter or starts with \)
@@ -428,7 +528,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         return f.name;
     };
 
-    const handleFileRowClick = (f: Record<string, unknown>, directory: string) => {
+    const handleFileRowClick = (f: any, directory: string) => {
         if (!onFileAction) return;
         const fullPath = buildPath(f, directory);
         if (!f.is_file) {
@@ -438,7 +538,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         }
     };
 
-    const handleFileRowCtx = (e: React.MouseEvent, f: Record<string, unknown>, directory: string) => {
+    const handleFileRowCtx = (e: React.MouseEvent, f: any, directory: string) => {
         if (!onFileAction) return;
         e.preventDefault();
         const fullPath = buildPath(f, directory);
@@ -550,7 +650,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                     {/* Tags */}
                     {task.tags && task.tags.length > 0 && (
                         <span className="flex items-center gap-1">
-                            {task.tags.map((tag: { tagtype: { name: string; color: string; id: number } }) => (
+                            {task.tags.map((tag: any) => (
                                 <span
                                     key={tag.id}
                                     className="inline-flex items-center gap-0.5 px-1 rounded text-[9px] font-mono font-bold"
@@ -695,11 +795,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                             try {
                                 snackActions.info('Capturing screenshot...');
                                 const dataUrl = await toPng(outputRef.current, { cacheBust: true });
-                                const a = document.createElement('a');
-                                a.href = dataUrl;
-                                a.download = `task_${task.display_id}_output.png`;
-                                document.body.appendChild(a); a.click();
-                                document.body.removeChild(a);
+                                downloadDataUrl(dataUrl, `task_${task.display_id}_output.png`);
                                 snackActions.success('Screenshot saved');
                             } catch { snackActions.error('Screenshot failed'); }
                         }}
@@ -799,8 +895,8 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                             {Array.isArray(bsd.files) && (
                                 <FilesPanel files={bsd.files}/>
                             )}
-                            {bsd.file_browser?.files && (
-                                <FilesPanel files={bsd.file_browser.files}/>
+                            {(bsd as any).file_browser?.files && (
+                                <FilesPanel files={(bsd as MythicBrowserScriptData).file_browser!.files!}/>
                             )}
                             {/* download[] — shared DownloadPanel */}
                             {Array.isArray(bsd.download) && (
@@ -811,8 +907,8 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                 <ScreenshotPanel screenshots={bsd.screenshot}/>
                             )}
                             {/* media[] — enhanced inline player with image/PDF preview (#8) */}
-                            {showMediaSetting && Array.isArray(bsd.media) && bsd.media.map((m: { agent_file_id: string; filename?: string }, i: number) => {
-                                const src = `/api/v1.4/files/download/${m.agent_file_id}`;
+                            {showMediaSetting && Array.isArray(bsd.media) && bsd.media.map((m: any, i: number) => {
+                                const src = fileDownloadUrl(m.agent_file_id);
                                 const name: string = (m.name || m.plaintext || '').toLowerCase();
                                 const isAudio = /\.(mp3|ogg|wav|aac|flac|m4a)$/.test(name);
                                 const isVideo = /\.(mp4|webm|ogv|mov|avi|mkv)$/.test(name);
@@ -843,8 +939,9 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                             {bsd.graph && (() => {
                                 type GNode = {id:string;label?:string;color?:string};
                                 type GEdge = {source:string;target:string;label?:string};
-                                const nodes: GNode[] = Array.isArray(bsd.graph.nodes) ? bsd.graph.nodes : [];
-                                const edges: GEdge[] = Array.isArray(bsd.graph.edges) ? bsd.graph.edges : [];
+                                const g = bsd.graph as Record<string, unknown>;
+                                const nodes: GNode[] = Array.isArray(g.nodes) ? g.nodes : [];
+                                const edges: GEdge[] = Array.isArray(g.edges) ? g.edges : [];
                                 if (nodes.length === 0) {
                                     return (
                                         <details className="text-[10px]">
@@ -906,7 +1003,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                             {/* search[] — clickable Mythic search links (OldReactUI parity) */}
                             {Array.isArray(bsd.search) && bsd.search.length > 0 && (
                                 <div className="space-y-1">
-                                    {bsd.search.map((s: { plaintext: string; title?: string }, si: number) => {
+                                    {bsd.search.map((s: any, si: number) => {
                                         const label = s.plaintext || JSON.stringify(s);
                                         const query = s.search || s.plaintext || '';
                                         const searchType = s.type || 'command_and_responses';
@@ -924,108 +1021,14 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                 </div>
                             )}
                             {/* tabs[] — full-featured tab switcher with nested type support */}
-                            {Array.isArray(bsd.tabs) && bsd.tabs.length > 0 && (() => {
-                                const [activeTabIdx, setActiveTabIdx] = React.useState(0);
-                                const safeIdx = Math.min(activeTabIdx, bsd.tabs.length - 1);
-                                const tab = bsd.tabs[safeIdx];
-                                const renderTabContent = (t: MythicBrowserScriptData) => (
-                                    <div className="space-y-2">
-                                        {/* plaintext */}
-                                        {t.plaintext !== undefined && t.plaintext !== '' && (
-                                            <TerminalPanel text={String(t.plaintext)} />
-                                        )}
-                                        {/* table[] */}
-                                        {Array.isArray(t.table) && t.table.map((tbl: MythicTableDef, ti: number) => (
-                                            <MythicTable key={ti} tbl={tbl} />
-                                        ))}
-                                        {/* process_list */}
-                                        {Array.isArray(t.process_list) && <ProcessPanel procs={t.process_list} />}
-                                        {/* files */}
-                                        {Array.isArray(t.files) && <FilesPanel files={t.files} />}
-                                        {t.file_browser?.files && <FilesPanel files={t.file_browser.files} />}
-                                        {/* download */}
-                                        {Array.isArray(t.download) && <DownloadPanel downloads={t.download} />}
-                                        {/* screenshot — enhanced with click-to-expand */}
-                                        {t.screenshot && t.screenshot.agent_file_id && (
-                                            <img
-                                                src={`/api/v1.4/files/download/${t.screenshot.agent_file_id}`}
-                                                alt={t.screenshot.filename || 'screenshot'}
-                                                className="max-w-full rounded border border-white/10 cursor-zoom-in"
-                                                style={{ maxHeight: '300px' }}
-                                                onClick={() => setExpandedScreenshot({ src: `/api/v1.4/files/download/${t.screenshot.agent_file_id}`, alt: t.screenshot.filename || 'screenshot' })}
-                                            />
-                                        )}
-                                        {Array.isArray(t.screenshot) && t.screenshot.length > 0 && (
-                                            <ScreenshotPanel screenshots={t.screenshot}/>
-                                        )}
-                                        {/* media — enhanced with image/PDF support */}
-                                        {showMediaSetting && Array.isArray(t.media) && t.media.map((m: { agent_file_id: string; filename?: string }, mi: number) => {
-                                            const src = `/api/v1.4/files/download/${m.agent_file_id}`;
-                                            const name: string = (m.name || m.plaintext || '').toLowerCase();
-                                            const isAudio = /\.(mp3|ogg|wav|aac|flac|m4a)$/.test(name);
-                                            const isVideo = /\.(mp4|webm|ogv|mov|avi|mkv)$/.test(name);
-                                            const isImage = /\.(png|jpe?g|gif|bmp|svg|webp|ico)$/.test(name);
-                                            const isPdf = /\.pdf$/.test(name);
-                                            return (
-                                                <div key={mi} className="space-y-1">
-                                                    {m.plaintext && <div className="text-gray-400 text-[10px]">{m.plaintext}</div>}
-                                                    {isAudio ? (
-                                                        <audio controls src={src} className="w-full h-8 max-w-sm" />
-                                                    ) : isVideo ? (
-                                                        <video controls src={src} className="max-w-full rounded border border-white/10" style={{maxHeight:'240px'}} />
-                                                    ) : isImage ? (
-                                                        <img src={src} alt={m.plaintext || 'image'} className="max-w-full rounded border border-white/10 cursor-pointer" style={{maxHeight:'300px'}}
-                                                            onClick={() => setExpandedScreenshot({ src, alt: m.plaintext || 'image' })} />
-                                                    ) : isPdf ? (
-                                                        <iframe src={src} title={m.plaintext || 'PDF'} className="w-full rounded border border-white/10" style={{height:'400px'}} />
-                                                    ) : (
-                                                        <a href={src} target="_blank" rel="noreferrer"
-                                                            className="text-blue-400 hover:underline text-[10px] flex items-center gap-1">
-                                                            <Eye size={10}/> View Media
-                                                        </a>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                        {/* search[] within a tab */}
-                                        {Array.isArray(t.search) && t.search.length > 0 && (
-                                            <div className="space-y-1">
-                                                {t.search.map((s: { plaintext: string; title?: string }, si: number) => {
-                                                    const label = s.plaintext || JSON.stringify(s);
-                                                    const query = s.search || s.plaintext || '';
-                                                    const searchType = s.type || 'command_and_responses';
-                                                    const href = `/new/search/?type=${encodeURIComponent(searchType)}&q=${encodeURIComponent(query)}`;
-                                                    return (
-                                                        <a key={si} href={href}
-                                                            className="flex items-center gap-1.5 text-[10px] text-blue-400 hover:text-blue-200 hover:underline transition-colors font-mono"
-                                                            title={s.hoverText || `Search: ${query}`}
-                                                            onClick={e => { e.preventDefault(); navigate(href); }}>
-                                                            <Search size={9} className="shrink-0" />
-                                                            {label}
-                                                        </a>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                                return (
-                                    <div className="border border-white/10 rounded overflow-hidden">
-                                        <div className="flex gap-0 flex-wrap border-b border-white/10 bg-black/30">
-                                            {bsd.tabs.map((t: MythicBrowserScriptData, ti: number) => (
-                                                <button key={ti} onClick={() => setActiveTabIdx(ti)}
-                                                    className={cn('px-3 py-1.5 text-[10px] font-mono border-r border-white/10 transition-colors',
-                                                        ti === safeIdx ? 'bg-signal/15 text-signal border-b-2 border-b-signal' : 'text-gray-500 hover:text-white hover:bg-white/5')}>
-                                                    {t.title || `Tab ${ti+1}`}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <div className="p-2">
-                                            {renderTabContent(tab)}
-                                        </div>
-                                    </div>
-                                );
-                            })()}
+                            {Array.isArray(bsd.tabs) && bsd.tabs.length > 0 && (
+                                <BrowserScriptTabs
+                                    tabs={bsd.tabs as MythicBrowserScriptData[]}
+                                    showMediaSetting={showMediaSetting}
+                                    setExpandedScreenshot={setExpandedScreenshot}
+                                    navigate={navigate}
+                                />
+                            )}
                         </div>
                     );
                 })()}
@@ -1039,7 +1042,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                         ? paginatedResults
                         : (effectiveLimit === 0 || showAllOutput ? liveResponses : liveResponses.slice(-effectiveLimit));
                     const directoryMap = new Map<string, { directory: string; host: string; files: Map<string, any> }>();
-                    const otherResponses: { id: string; content: string; parsed: unknown; isError: boolean }[] = [];
+                    const otherResponses: { id: number; content: string; parsed: unknown; isError: boolean }[] = [];
                     const isStructuredParsed = (parsed: unknown, text: string): boolean => {
                         if (Array.isArray(parsed) && parsed.length > 0) {
                             if (parsed[0]?.AdapterName !== undefined) return true;
@@ -1085,12 +1088,12 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                 directoryMap.set(dirKey, { directory: fullDir, host: parsed.host || '', files: new Map() });
                             }
                             const dirEntry = directoryMap.get(dirKey)!;
-                            parsed.files.forEach((f: Record<string, unknown>) => {
+                            parsed.files.forEach((f: any) => {
                                 const fileKey = f.full_name || f.name || `${f.name}-${f.size}`;
                                 if (!dirEntry.files.has(fileKey)) dirEntry.files.set(fileKey, f);
                             });
                         } else {
-                            otherResponses.push({ id: r.id, content, parsed, isError: !!(r as any).is_error });
+                            otherResponses.push({ id: r.id, content, parsed, isError: !!r.is_error });
                         }
                     });
                     // If any response was rendered via a built-in structured renderer, suppress plain text
@@ -1147,7 +1150,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                         <span>Modified</span>
                                     </div>
                                     <div className="space-y-0.5">
-                                        {Array.from(dirData.files.values()).map((f: Record<string, unknown>, idx: number) => {
+                                        {Array.from(dirData.files.values()).map((f: any, idx: number) => {
                                             const perms     = f.permissions || {};
                                             const permStr   = perms.permissions || '---------';
                                             const typeChar  = !f.is_file ? 'd' : (perms.symlink ? 'l' : '-');
@@ -1193,7 +1196,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                     // Windows ifconfig / network adapter output
                                     return (
                                         <div key={id} className="space-y-2">
-                                            {parsed.map((iface: Record<string, unknown>, ifIdx: number) => (
+                                            {parsed.map((iface: any, ifIdx: number) => (
                                                 <div key={ifIdx} className="border border-white/10 rounded bg-black/30 px-3 py-2">
                                                     <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                                         <Wifi size={12} className={iface.Status === 'Up' ? 'text-signal' : 'text-gray-600'} />
@@ -1243,7 +1246,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                     };
                                     // Dedup Listen/UDP rows: prefer IPv4 entry for each proto+port
                                     const seenKey = new Set<string>();
-                                    const rows: Record<string, unknown>[] = [];
+                                    const rows: any[] = [];
                                     for (const row of parsed) {
                                         const isPassive = row.state === 'Listen' || row.state === null;
                                         if (isPassive) {
@@ -1280,7 +1283,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                             <span>Proto</span><span>Local</span><span>Remote</span><span>State</span><span>PID</span>
                                         </div>
                                     );
-                                    const NetRow = ({ row }: { row: Record<string, unknown> }) => {
+                                    const NetRow = ({ row }: { row: any }) => {
                                         const stCls = row.state ? (STATE_CLS[row.state] || 'text-gray-400 border-gray-600 bg-gray-800/20') : '';
                                         const isListen = row.state === 'Listen';
                                         return (
@@ -1348,7 +1351,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                 if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.process_id !== undefined) {
                                     return (
                                         <div key={id} className="space-y-1">
-                                            {parsed.map((p: Record<string, unknown>, idx: number) => (
+                                            {parsed.map((p: any, idx: number) => (
                                                 <details key={`${id}-proc-${idx}`} className="bg-white/5 border border-white/10 rounded px-2 py-1">
                                                     <summary className="flex items-center gap-3 cursor-pointer text-white">
                                                         <span className="font-bold truncate">{p.name || "(unknown)"} (PID {p.process_id})</span>
@@ -1440,12 +1443,6 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
             )}
             </AnimatePresence>
             </div>
-            {/* Credentials harvested by this task */}
-            {task.credentials && task.credentials.length > 0 && (
-                <div className="px-4 pb-2">
-                    <TaskCredentialsPanel credentials={task.credentials} />
-                </div>
-            )}
             {/* Credentials harvested by this task */}
             {task.credentials && task.credentials.length > 0 && (
                 <div className="px-4 pb-2">

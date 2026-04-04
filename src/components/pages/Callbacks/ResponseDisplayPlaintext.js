@@ -11,7 +11,7 @@ import TextField from '@mui/material/TextField';
 import { IconButton } from '@mui/material';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import { meState } from '../../../cache';
 import CodeIcon from '@mui/icons-material/Code';
 import {GetOutputFormatAll} from "./ResponseDisplayInteractive";

@@ -9,21 +9,35 @@
 import { makeVar } from '@apollo/client';
 
 // ── Auth state ─────────────────────────────────────────────────────
-export const meState = makeVar<{
+
+/** Properties set on the user object during login. */
+export interface MythicUser {
+    id: number;
+    user_id: number;
+    username: string;
+    admin: boolean;
+    current_operation_id: number;
+    current_operation?: string;
+    view_utc_time?: boolean;
+    server_skew: number;
+    login_time: Date;
+    [key: string]: unknown;       // allow additional server-provided fields
+}
+
+export interface MeState {
     loggedIn: boolean;
     access_token: string | null;
     refresh_token: string | null;
-    user: Record<string, unknown> | null;
+    user: MythicUser | null;
     badConnection?: boolean;
-}>({
+}
+
+export const meState = makeVar<MeState>({
     loggedIn: false,
     user: null,
     access_token: null,
     refresh_token: null,
 });
-
-// ── Alert / notification count ─────────────────────────────────────
-export const alertCount = makeVar(0);
 
 // ── Task timestamp display options ─────────────────────────────────
 export const taskTimestampDisplayFieldOptions = [
@@ -55,7 +69,7 @@ export const taskingContextFieldsOptions = [
 ].sort();
 
 // ── Operator setting defaults ──────────────────────────────────────
-export const operatorSettingDefaults: Record<string, unknown> = {
+export const operatorSettingDefaults: Record<string, any> = {
     fontSize: 12,
     navBarOpen: false,
     fontFamily: "Verdana, Arial, sans-serif",

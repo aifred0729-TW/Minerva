@@ -90,7 +90,7 @@ export function useQuickHacks(): QuickHackDef[] {
     return useMemo(() => {
         if (!Array.isArray(stored) || stored.length === 0) return DEFAULT_QUICKHACKS;
         // Migrate old format: strip ramCost, ensure variables array exists, convert emoji icons to lucide names
-        return (stored as any[]).map(h => {
+        return (stored as Record<string, any>[]).map(h => {
             // Migrate: ensure steps array exists
             const steps: QuickHackStep[] = Array.isArray(h.steps) && h.steps.length > 0
                 ? h.steps

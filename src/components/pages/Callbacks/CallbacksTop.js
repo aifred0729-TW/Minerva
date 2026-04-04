@@ -1,5 +1,7 @@
 import React, {createContext} from 'react';
-import {useSubscription, gql, useQuery } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useSubscription } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import {CallbacksTable} from './CallbacksTable';
 import {CallbacksGraph} from './CallbacksGraph';
 import {getSkewedNow} from "../../utilities/Time";

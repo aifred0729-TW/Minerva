@@ -219,15 +219,4 @@ export const CREATE_TASK_BULK = gql`
   }
 `;
 
-// ─── MITRE ATT&CK ───────────────────────────────────────
-
-export const CREATE_TASK_MULTIPLE = gql`
-  mutation createMultipleTask($callback_ids: [Int!]!, $command: String!, $params: String!, $payload_type: String!){
-    createTask_multiple(callback_ids: $callback_ids, command: $command, params: $params, payload_type: $payload_type){
-      status
-      error
-    }
-  }
-`;
-
 // ─── Search: Extra fields queries ────────────────

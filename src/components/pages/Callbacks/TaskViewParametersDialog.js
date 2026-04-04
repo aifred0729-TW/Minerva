@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
-import {useQuery, gql} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import LinearProgress from '@mui/material/LinearProgress';
 import {MythicModifyStringDialog} from "../../MythicComponents/MythicDialog";
 import { meState } from '../../../cache';

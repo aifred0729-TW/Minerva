@@ -241,6 +241,7 @@ function TaskButton({ btn, label, callbackId, isDisabled }: {
             </button>
             {active && callbackId && (
                 <TaskFromUIButton
+                    {...({} as any)}
                     callback_id={callbackId}
                     ui_feature={btn.ui_feature || ''}
                     parameters={btn.parameters}
@@ -260,7 +261,7 @@ function MenuButton({ btn, label, callbackId, isDisabled }: {
 }) {
     const [dropOpen, setDropOpen] = useState(false);
     const [subModal, setSubModal] = useState<{ item: any } | null>(null);
-    const [activeTaskItem, setActiveTaskItem] = useState<unknown>(null);
+    const [activeTaskItem, setActiveTaskItem] = useState<Record<string, unknown> | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
 
     // Close dropdown on outside click
@@ -332,6 +333,7 @@ function MenuButton({ btn, label, callbackId, isDisabled }: {
             {/* TaskFromUIButton for menu task items */}
             {activeTaskItem && callbackId && (
                 <TaskFromUIButton
+                    {...({} as any)}
                     callback_id={callbackId}
                     ui_feature={activeTaskItem.ui_feature || ''}
                     parameters={activeTaskItem.parameters}
@@ -597,21 +599,19 @@ export interface MythicTableProps {
 type SortDir = 'ASC' | 'DESC' | null;
 
 export function MythicTable({ tbl, showPanel = true }: MythicTableProps) {
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const rawH: any[] = tbl.headers || [];
+    const rawH = useMemo(() => tbl.headers || [], [tbl.headers]);
     // Extract header info: name + type
     const headerInfo = useMemo(() => rawH.map((h: any) => {
         if (typeof h === 'string') return { name: h, type: 'string' };
         return { name: h.plaintext ?? String(h), type: (h.type || 'string').toLowerCase() };
     }), [rawH]);
-    const headers: string[] = headerInfo.map(h => h.name);
+    const headers: string[] = useMemo(() => headerInfo.map(h => h.name), [headerInfo]);
     const headerTypes: Record<string, string> = useMemo(() => {
         const m: Record<string, string> = {};
         headerInfo.forEach(h => { m[h.name] = h.type; });
         return m;
     }, [headerInfo]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const rows: any[] = tbl.rows || [];
+    const rows = useMemo(() => tbl.rows || [], [tbl.rows]);
 
     // ── Sort state ──
     const [sortKey, setSortKey] = useState<string | null>(null);
@@ -905,7 +905,7 @@ export function MythicTable({ tbl, showPanel = true }: MythicTableProps) {
     return (
         <>
             <OutputPanel icon={<Database size={11}/>} label={tbl.title || 'TABLE'}
-                count={hasActiveFilters ? `${sortedRows.length}/${rows.length}` as any : rows.length}>
+                count={hasActiveFilters ? `${sortedRows.length}/${rows.length}` as string | number : rows.length}>
                 {tableEl}
             </OutputPanel>
             {/* TaskFromUIButton for row_actions */}
@@ -916,6 +916,7 @@ export function MythicTable({ tbl, showPanel = true }: MythicTableProps) {
                 else if (!activeRowAction.action.parameters) Object.assign(params, row);
                 return (
                     <TaskFromUIButton
+                        {...({} as any)}
                         callback_id={callbackId}
                         ui_feature={activeRowAction.action.ui_feature || ''}
                         parameters={JSON.stringify(params)}

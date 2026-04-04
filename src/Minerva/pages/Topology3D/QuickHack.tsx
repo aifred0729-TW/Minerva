@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useSubscription } from '@apollo/client';
+import { useSubscription } from "@apollo/client/react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, X, Crosshair, Monitor, Globe, Hash }from 'lucide-react';
 import * as THREE from 'three';
@@ -12,6 +12,11 @@ import { LucideIcon } from '../../lib/iconMap';
 import { createPortal } from 'react-dom';
 import { useFrame } from '@react-three/fiber';
 import { SUBSCRIBE_TASK_STATUS_BY_ID } from '../../lib/api';
+
+const QUICKHACK_EXIT_DELAY_MS = 2_200;
+const QUICKHACK_REMOVE_DELAY_MS = 2_700;
+const QUICKHACK_TIMEOUT_EXIT_DELAY_MS = 1_700;
+const QUICKHACK_TIMEOUT_REMOVE_DELAY_MS = 2_200;
 
 const glitchStyleId = 'quickhack-glitch-keyframes';
 if (typeof document !== 'undefined' && !document.getElementById(glitchStyleId)) {
@@ -380,15 +385,16 @@ export const QuickHackOverlay = ({
     // Auto-close after completion/error/timeout — trigger exit animation first
     useEffect(() => {
         if (phase === 'completed' || phase === 'error') {
-            const exitTimer = setTimeout(() => setIsExiting(true), 2200);
-            const removeTimer = setTimeout(onClose, 2700);
+            const exitTimer = setTimeout(() => setIsExiting(true), QUICKHACK_EXIT_DELAY_MS);
+            const removeTimer = setTimeout(onClose, QUICKHACK_REMOVE_DELAY_MS);
             return () => { clearTimeout(exitTimer); clearTimeout(removeTimer); };
         }
         if (phase === 'timeout') {
-            const exitTimer = setTimeout(() => setIsExiting(true), 1700);
-            const removeTimer = setTimeout(onClose, 2200);
+            const exitTimer = setTimeout(() => setIsExiting(true), QUICKHACK_TIMEOUT_EXIT_DELAY_MS);
+            const removeTimer = setTimeout(onClose, QUICKHACK_TIMEOUT_REMOVE_DELAY_MS);
             return () => { clearTimeout(exitTimer); clearTimeout(removeTimer); };
         }
+        return undefined;
     }, [phase, onClose]);
 
     const handleIconClick = useCallback(() => {
@@ -594,9 +600,10 @@ export const QuickHackSubscriptionMonitor = ({
     onRemove: (execId: string) => void;
     intervalRef: React.MutableRefObject<Map<string, ReturnType<typeof setInterval>>>;
 }) => {
-    const { data: taskData } = useSubscription(SUBSCRIBE_TASK_STATUS_BY_ID, {
+    const { data: taskData } = useSubscription<any>(SUBSCRIBE_TASK_STATUS_BY_ID, {
         variables: { task_id: execution.taskId },
         skip: !execution.taskId,
+        onError: (err) => { console.error('[SUBSCRIBE_TASK_STATUS_BY_ID] subscription error:', err); },
     });
 
     // Detect completion from subscription

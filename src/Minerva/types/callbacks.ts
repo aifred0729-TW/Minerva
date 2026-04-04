@@ -25,8 +25,10 @@ export interface CallbackPortEntry {
 /** C2 profile reference nested in a callback */
 export interface CallbackC2Profile {
     c2profile: {
+        id?: number;
         name: string;
         is_p2p: boolean;
+        running?: boolean;
     };
 }
 
@@ -94,6 +96,42 @@ export interface Callback {
     payload: CallbackPayloadInfo;
     callbackc2profiles: CallbackC2Profile[];
     tags: CallbackTag[];
+    // ── Runtime / graph-added properties ──
+    /** True for custom graph nodes merged into callback list */
+    isCustom?: boolean;
+    /** Custom node database ID */
+    db_id?: number;
+    /** Alias for id used in graph context */
+    callback_id?: number;
+    /** Resolved payload type name */
+    payloadType?: string;
+    /** Whether the node is hidden in the graph */
+    isHidden?: boolean;
+    /** Display name (used by custom nodes) */
+    name?: string;
+    /** Loaded commands with browserscripts (from CallbackFullDetails query) */
+    loadedcommands?: Array<{
+        id: number;
+        command: {
+            id: number;
+            cmd: string;
+            version: number;
+            needs_admin: boolean;
+            help_cmd: string;
+            description: string;
+            browserscripts?: Array<Record<string, unknown>>;
+        };
+    }>;
+    /** Host-merged sessions when grouping by host */
+    _hostSessions?: Callback[];
+    /** Total session count for host-merged view */
+    _totalSessions?: number;
+    /** Whether this is a child row in table view */
+    _isChildRow?: boolean;
+    /** Host key used for grouping */
+    _hostKey?: string;
+    /** Index signature for additional dynamic properties */
+    [key: string]: unknown;
 }
 
 /**

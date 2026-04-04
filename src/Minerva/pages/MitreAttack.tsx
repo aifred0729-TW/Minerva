@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useQuery, useLazyQuery } from '@apollo/client';
+import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../lib/useQueryCompat";
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Target,
@@ -26,9 +26,9 @@ import {
     Cpu,
     Tag,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, downloadBlob } from '../lib/utils';
 import { snackActions } from '../lib/snackbar';
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import { meState } from '../lib/state';
 import { useAppStore } from '../store';
 import {
@@ -94,15 +94,6 @@ interface TechniqueInTactic extends ParsedAttack {
     hasCommand: boolean;
     hasTag: boolean;
     hasTaskByPt: boolean;
-    taskCount: number;
-    commandCount: number;
-    tagCount: number;
-    taskByPtCount: number;
-}
-
-interface __TacticData {
-    tactic: string;
-    techniques: TechniqueInTactic[];
     taskCount: number;
     commandCount: number;
     tagCount: number;
@@ -438,9 +429,9 @@ const MitreAttack = () => {
     const [selectedTagType, setSelectedTagType] = useState('');
     const [tagTypes, setTagTypes] = useState<string[]>([]);
     const [allTaskTags, setAllTaskTags] = useState<{task_id: number; tagtype: {name: string}}[]>([]);
-    const [fetchTaskTags] = useLazyQuery(GET_TASK_TAGS, {
+    const [fetchTaskTags] = useLazyQuery<any>(GET_TASK_TAGS, {
         fetchPolicy: 'network-only',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             const tags = data?.tag || [];
             setAllTaskTags(tags);
             const unique = [...new Set(tags.map((t: any) => t.tagtype?.name).filter(Boolean))] as string[];
@@ -448,9 +439,9 @@ const MitreAttack = () => {
             if (unique.length > 0 && !selectedTagType) setSelectedTagType(unique[0]);
         }
     });
-    const [fetchTaskAttacksByTag] = useLazyQuery(GET_TASK_ATTACKS_BY_TAG, {
+    const [fetchTaskAttacksByTag] = useLazyQuery<any>(GET_TASK_ATTACKS_BY_TAG, {
         fetchPolicy: 'network-only',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setTagTaskAttacks(data?.attacktask || []);
         }
     });
@@ -473,9 +464,9 @@ const MitreAttack = () => {
     }, [viewMode, fetchTaskTags]);
 
     // Fetch all MITRE techniques
-    useQuery(GET_MITRE_ATTACK, {
+    useQuery<any>(GET_MITRE_ATTACK, {
         fetchPolicy: "no-cache",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             const parsed = (data.attack || []).map((a: Attack) => parseAttack(a));
             setAttacks(parsed);
             setAttacksLoaded(true);
@@ -487,9 +478,9 @@ const MitreAttack = () => {
     });
 
     // Fetch all task attacks (unfiltered)
-    const [fetchTaskAttacks] = useLazyQuery(GET_TASK_ATTACKS, {
+    const [fetchTaskAttacks] = useLazyQuery<any>(GET_TASK_ATTACKS, {
         fetchPolicy: "network-only",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setTaskAttacks(data.attacktask || []);
         },
         onError: () => {
@@ -498,9 +489,9 @@ const MitreAttack = () => {
     });
 
     // Fetch filtered task attacks by payload type
-    const [fetchTaskAttacksFiltered] = useLazyQuery(GET_TASK_ATTACKS_FILTERED, {
+    const [fetchTaskAttacksFiltered] = useLazyQuery<any>(GET_TASK_ATTACKS_FILTERED, {
         fetchPolicy: "network-only",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setFilteredTaskAttacks(data.attacktask || []);
         },
         onError: () => {
@@ -509,16 +500,16 @@ const MitreAttack = () => {
     });
 
     // Fetch all command attacks (unfiltered)
-    useQuery(GET_COMMAND_ATTACKS, {
-        onCompleted: (data) => {
+    useQuery<any>(GET_COMMAND_ATTACKS, {
+        onCompleted: (data: any) => {
             setCommandAttacks(data.attackcommand || []);
         }
     });
 
     // Fetch filtered command attacks by payload type
-    const [fetchCommandAttacksFiltered] = useLazyQuery(GET_COMMAND_ATTACKS_FILTERED, {
+    const [fetchCommandAttacksFiltered] = useLazyQuery<any>(GET_COMMAND_ATTACKS_FILTERED, {
         fetchPolicy: "network-only",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setFilteredCommandAttacks(data.attackcommand || []);
         },
         onError: () => {
@@ -528,9 +519,7 @@ const MitreAttack = () => {
 
     // Initial fetch for tasks
     useEffect(() => {
-        // @ts-ignore
         if (me?.user?.current_operation_id) {
-            // @ts-ignore
             fetchTaskAttacks({ variables: { operation_id: me.user.current_operation_id } });
         }
     }, [me, fetchTaskAttacks]);
@@ -544,11 +533,9 @@ const MitreAttack = () => {
 
     // When task payload type filter changes
     useEffect(() => {
-        // @ts-ignore
         if (viewMode === 'tasks_by_pt' && filterTaskPayloadType !== 'all' && me?.user?.current_operation_id) {
             fetchTaskAttacksFiltered({
                 variables: {
-                    // @ts-ignore
                     operation_id: me.user.current_operation_id,
                     payload_type: filterTaskPayloadType
                 }
@@ -690,12 +677,7 @@ const MitreAttack = () => {
             selectVisibleTechniques: false,
         };
         const blob = new Blob([JSON.stringify(layer, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `mythic_attack_navigator_${viewMode}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+        downloadBlob(blob, `mythic_attack_navigator_${viewMode}.json`);
         snackActions.success(`Exported ${highlightedTechniques.length} techniques to ATT&CK Navigator`);
     }, [tacticsData, viewMode]);
 

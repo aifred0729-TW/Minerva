@@ -3,7 +3,8 @@ import Button from '@mui/material/Button';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
-import {gql, useMutation} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
 import { snackActions } from '../../utilities/Snackbar';
 import {DragAndDropFileUpload} from "../Callbacks/TaskParametersDialogRow";
 

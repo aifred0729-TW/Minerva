@@ -14,27 +14,6 @@ export const SUBSCRIBE_NEW_CALLBACKS = gql`
     }
 `;
 
-// Subscription for real-time event notifications
-export const SUBSCRIBE_EVENTS_NOTIFICATIONS = gql`
-    subscription EventFeedNotificationSubscription($fromNow: timestamp!) {
-        operationeventlog_stream(
-            cursor: {initial_value: {timestamp: $fromNow}, ordering: ASC},
-            batch_size: 1,
-            where: {deleted: {_eq: false}}
-        ) {
-            operator {
-                username
-            }
-            id
-            message
-            level
-            resolved
-            source
-            warning
-        }
-    }
-`;
-
 // Subscription for alert count badge
 export const SUBSCRIBE_ALERT_COUNT = gql`
     subscription OperationAlertCounts {

@@ -1,0 +1,23 @@
+# Metasploit Framework — MSF-RPC Daemon
+# Usage: docker compose -f docker-compose.metasploit.yml up -d
+#
+# Default RPC credentials (override via .env or environment):
+#   MSFRPC_USER=msf
+#   MSFRPC_PASS=minerva_msf
+#   MSFRPC_PORT=55553
+
+services:
+  metasploit:
+    image: metasploitframework/metasploit-framework:latest
+    container_name: minerva_msf
+    entrypoint: ["./msfrpcd", "-U", "${MSFRPC_USER:-msf}", "-P", "${MSFRPC_PASS:-minerva_msf}", "-p", "${MSFRPC_PORT:-55553}", "-S", "-f", "-a", "0.0.0.0"]
+    ports:
+      - "${MSFRPC_PORT:-55553}:${MSFRPC_PORT:-55553}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - msf_data:/home/msf/.msf4
+    restart: unless-stopped
+
+volumes:
+  msf_data:

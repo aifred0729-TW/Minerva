@@ -1,5 +1,7 @@
 import React from 'react';
-import {gql, useMutation, useQuery} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import { snackActions } from '../../utilities/Snackbar';
 import {exportPayloadConfigQuery} from "./PayloadsTableRow";
 import {MythicModifyStringDialog} from "../../MythicComponents/MythicDialog";

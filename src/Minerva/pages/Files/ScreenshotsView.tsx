@@ -16,6 +16,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import type { FileMeta } from '../../types/files';
 import { formatTimeAgo, b64DecodeUnicode, formatBytes } from './utils';
+import { directDownloadUrl } from '../../lib/urls';
 import { ConfirmDeleteDialog, TagsDisplay, BulkActionBar, CommentCell } from './FileTable';
 
 export const ScreenshotCard = ({
@@ -45,7 +46,7 @@ export const ScreenshotCard = ({
             </AnimatePresence>
             {/* Thumbnail */}
             <div className="relative aspect-video cursor-pointer overflow-hidden" onClick={onOpenSlideshow}>
-                <img src={`/direct/download/${file.agent_file_id}`} alt={filename}
+                <img src={directDownloadUrl(file.agent_file_id)} alt={filename}
                     className="w-full h-full object-cover" loading="lazy" />
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
                     <Eye size={22} className="text-white" />
@@ -200,8 +201,7 @@ export const ScreenshotSlideshowModal = ({
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    });
 
     if (!file) return null;
 
@@ -220,7 +220,7 @@ export const ScreenshotSlideshowModal = ({
                 <ChevronLeft size={24} className="text-white" />
             </button>
             {/* Image */}
-            <img src={`/direct/download/${file.agent_file_id}`}
+            <img src={directDownloadUrl(file.agent_file_id)}
                 alt={b64DecodeUnicode(file.filename_text)}
                 className="max-w-[90vw] max-h-[80vh] object-contain rounded shadow-2xl"
                 onClick={e => e.stopPropagation()} />

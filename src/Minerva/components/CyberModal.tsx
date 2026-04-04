@@ -58,7 +58,7 @@ export function CyberModal({
         <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-signal/50 to-transparent opacity-50 blur-sm"></div>
 
         {/* Subtle Background Noise/Texture */}
-        <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
+        <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22300%22%3E%3Cfilter%20id%3D%22n%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%220.65%22%20numOctaves%3D%223%22%20stitchTiles%3D%22stitch%22%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20filter%3D%22url(%23n)%22%2F%3E%3C%2Fsvg%3E')]"></div>
 
         <div className="relative z-10 flex flex-col max-h-[90vh]">
             {/* Header */}
@@ -67,7 +67,7 @@ export function CyberModal({
                     <div className="flex items-center gap-3">
                         {icon && (
                             <div className="text-signal/80 p-2 bg-signal/5 rounded-lg border border-signal/10">
-                                {React.cloneElement(icon as React.ReactElement<any>, { size: 18 })}
+                                {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { size: 18 }) : icon}
                             </div>
                         )}
                         <div>

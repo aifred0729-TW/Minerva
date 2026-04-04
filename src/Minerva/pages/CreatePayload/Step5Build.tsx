@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useMutation, useSubscription } from '@apollo/client';
+import { useMutation, useSubscription } from "@apollo/client/react";
 import { CREATE_PAYLOAD_MUTATION, BUILD_SUBSCRIPTION } from './queries';
 import { Disc, CheckCircle, AlertTriangle, Terminal, Cpu, Radio, FileText, ArrowRight, Check, Circle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
+import { TASK_UPLOAD_URL, directDownloadUrl } from '../../lib/urls';
+import { getAuthHeaders } from '../../lib/auth';
+
+const BUILD_SUCCESS_REDIRECT_DELAY_MS = 2_000;
 
 interface Step5Props {
     config: any;
@@ -53,13 +57,10 @@ const uploadFile = async (file: File, comment: string): Promise<string | null> =
     formData.append("file", file);
     formData.append("comment", comment);
     try {
-        const response = await fetch('/api/v1.4/task_upload_file_webhook', {
+        const response = await fetch(TASK_UPLOAD_URL, {
             method: 'POST',
             body: formData,
-            headers: {
-                "Authorization": `Bearer ${localStorage.getItem("access_token")}`,
-                "MythicSource": "web"
-            }
+            headers: getAuthHeaders()
         });
         const data = await response.json();
         if (data.status === "success" || data.agent_file_id) return data.agent_file_id;
@@ -97,7 +98,7 @@ const processParamValue = async (param: any, contextStr: string) => {
     }
 
     if (param.parameter_type === "FileMultiple" && Array.isArray(val)) {
-        const newValues = [];
+        const newValues: any[] = [];
         for (const item of val) {
             if (item instanceof File) {
                 const uuid = await uploadFile(item, `Uploaded as ${contextStr} parameter: ${param.name}`);
@@ -113,7 +114,7 @@ const processParamValue = async (param: any, contextStr: string) => {
         try {
             const parsed = JSON.parse(val);
             if (typeof parsed === 'object' && parsed !== null) val = parsed;
-        } catch (e) {}
+        } catch { /* val stays as string if not valid JSON */ }
     }
 
     if (param.parameter_type === "Dictionary" && Array.isArray(val)) {
@@ -193,26 +194,27 @@ export function Step5Build({ config }: Step5Props) {
     const [filename, setFilename] = useState(`${config.payloadType}.bin`);
     const [description, setDescription] = useState(`Created via Minerva`);
     const [isBuilding, setIsBuilding] = useState(false);
-    const [buildResult, setBuildResult] = useState<unknown>(null);
+    const [buildResult, setBuildResult] = useState<any>(null);
     const [buildUUID, setBuildUUID] = useState<string | null>(null);
     const [buildFromNow] = useState(() => new Date().toISOString());
-    const [livePayloadData, setLivePayloadData] = useState<unknown>(null);
+    const [livePayloadData, setLivePayloadData] = useState<any>(null);
     const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
     const [showErrorDetails, setShowErrorDetails] = useState(false);
     const redirectTimerRef = useRef<any>(null);
 
-    const [createPayload] = useMutation(CREATE_PAYLOAD_MUTATION);
+    const [createPayload] = useMutation<any>(CREATE_PAYLOAD_MUTATION);
 
-    useSubscription(BUILD_SUBSCRIPTION, {
+    useSubscription<any>(BUILD_SUBSCRIPTION, {
         variables: { fromNow: buildFromNow },
         skip: !buildUUID,
-        onData: ({ data }) => {
+        onData: ({ data }: { data: any } ) => {
             const stream = data?.data?.payload_stream;
             if (!stream || stream.length === 0) return;
             const payload = stream[0];
             if (payload.uuid !== buildUUID) return;
             setLivePayloadData({ ...payload });
-        }
+        },
+        onError: (err) => { console.error('[BUILD_SUBSCRIPTION] subscription error:', err); },
     });
 
     useEffect(() => {
@@ -238,7 +240,7 @@ export function Step5Build({ config }: Step5Props) {
         const phase = livePayloadData?.build_phase;
         if (phase === 'success') {
             if (!redirectTimerRef.current) {
-                redirectTimerRef.current = setTimeout(() => navigate('/payloads'), 2000);
+                redirectTimerRef.current = setTimeout(() => navigate('/payloads'), BUILD_SUCCESS_REDIRECT_DELAY_MS);
             }
         }
         return () => {
@@ -251,10 +253,11 @@ export function Step5Build({ config }: Step5Props) {
         setBuildResult(null);
         setLivePayloadData(null);
         setBuildUUID(null);
+        if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
         redirectTimerRef.current = null;
 
         try {
-            const buildParameters = [];
+            const buildParameters: any[] = [];
             for (const p of config.buildParameters) {
                 if (!shouldHide(p, config.buildParameters, config.os)) {
                     let processedValue = await processParamValue(p, "build");
@@ -274,7 +277,7 @@ export function Step5Build({ config }: Step5Props) {
                 }
             }
 
-            const c2Profiles = [];
+            const c2Profiles: any[] = [];
             for (const p of config.c2Profiles) {
                 const visibleParams = p.c2profileparameters.filter((param: any) => !shouldHide(param, p.c2profileparameters, config.os));
                 const params: any = {};
@@ -313,7 +316,7 @@ export function Step5Build({ config }: Step5Props) {
                 setBuildResult(data.createPayload);
                 setBuildUUID(data.createPayload.uuid);
             }
-        } catch (e: unknown) {
+        } catch (e: any) {
             setBuildResult({ status: 'error', error: e.message || "Unknown error occurred" });
         } finally {
             setIsBuilding(false);
@@ -451,7 +454,7 @@ export function Step5Build({ config }: Step5Props) {
                                 <div className="p-3 border-t border-green-500/20 bg-green-900/10 flex items-center gap-2">
                                     <CheckCircle size={14} className="text-green-400" />
                                     <span className="text-xs font-mono text-green-400 flex-1">PAYLOAD_READY</span>
-                                    <a href={`/direct/download/${fileId}`} target="_blank" rel="noreferrer"
+                                    <a href={directDownloadUrl(fileId)} target="_blank" rel="noreferrer"
                                         className="text-xs font-mono text-signal border border-signal px-3 py-1 hover:bg-signal hover:text-void transition-colors">
                                         DOWNLOAD
                                     </a>

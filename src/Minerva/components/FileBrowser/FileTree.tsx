@@ -13,6 +13,7 @@ import {
     AlertCircle,
 }from 'lucide-react';
 import { cn, b64DecodeUnicode } from '../../lib/utils';
+import { directDownloadUrl } from '../../lib/urls';
 import type { FileNode, ContextMenuItemDef } from '../../types/files';
 
 interface ContextMenuState {
@@ -311,7 +312,7 @@ export const DownloadHistoryModal = ({
                                         <div className="text-[9px] text-gray-500 font-mono">{f.agent_file_id}</div>
                                     </div>
                                     <a
-                                        href={`/direct/download/${f.agent_file_id}`}
+                                        href={directDownloadUrl(f.agent_file_id)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-blue-400 transition-opacity"

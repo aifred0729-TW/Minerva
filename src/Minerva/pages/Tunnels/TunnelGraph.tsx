@@ -1,6 +1,7 @@
 import React from 'react';
 import {
     Handle,
+    Position,
     Node,
     Edge,
     EdgeProps,
@@ -40,15 +41,34 @@ const TnHandles = () => (
     <>
         {(['top','bottom','left','right'] as const).map(p => (
             <React.Fragment key={p}>
-                <Handle type="source" position={p as any} id={`s-${p}`} style={CENTER} />
-                <Handle type="target" position={p as any} id={`t-${p}`} style={CENTER} />
+                <Handle type="source" position={p as Position} id={`s-${p}`} style={CENTER} />
+                <Handle type="target" position={p as Position} id={`t-${p}`} style={CENTER} />
             </React.Fragment>
         ))}
     </>
 );
 
+// ── Node data type definitions ──────────────────────────────────────────────
+interface TnZoneNodeData {
+    zoneIndex?: number; w: number; h: number; color: string;
+    label: string; segment?: string;
+    [key: string]: unknown;
+}
+interface TnMythicNodeData { activePorts: number; [key: string]: unknown; }
+interface TnAgentNodeData {
+    display_id: number; host: string; ip: string;
+    user?: string; active: boolean; idx?: number;
+    tunnels?: Array<{ type: string; port: number }>;
+    [key: string]: unknown;
+}
+interface TnPortNodeData {
+    portType: string; localPort: number; sublabel?: string;
+    bytesRx: number; bytesTx: number; idx?: number;
+    [key: string]: unknown;
+}
+
 /** Zone background strip — minimal CP2077 info panel */
-const TnZoneNode = ({ data }: { data: Record<string, unknown> }) => (
+const TnZoneNode = ({ data }: { data: TnZoneNodeData }) => (
     <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -121,7 +141,7 @@ const TnZoneNode = ({ data }: { data: Record<string, unknown> }) => (
 );
 
 /** MYTHIC — CP2077 minimal cyberpunk C2 node */
-const TnMythicNode = ({ data }: { data: Record<string, unknown> }) => (
+const TnMythicNode = ({ data }: { data: TnMythicNodeData }) => (
     <motion.div
         initial={{ opacity: 0, scale: 0.7 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -180,7 +200,7 @@ const TnMythicNode = ({ data }: { data: Record<string, unknown> }) => (
 );
 
 /** Agent / callback */
-const TnAgentNode = ({ data }: { data: Record<string, unknown> }) => {
+const TnAgentNode = ({ data }: { data: TnAgentNodeData }) => {
     const dead = !data.active;
     const c    = dead ? '#ef4444' : '#22c55e';
     return (
@@ -211,7 +231,7 @@ const TnAgentNode = ({ data }: { data: Record<string, unknown> }) => {
                         </div>
                     </div>
                     <div style={{ height: 1, background: '#00000030', margin: '4px 0 3px' }} />
-                    <div style={{ fontSize: 8, color: '#000000bb', fontWeight: 700, letterSpacing: '0.08em', truncate: true } as any}
+                    <div style={{ fontSize: 8, color: '#000000bb', fontWeight: 700, letterSpacing: '0.08em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                         title={data.host}>
                         {(data.host || data.ip || '?').slice(0, 14)}
                     </div>
@@ -249,9 +269,9 @@ const TnAgentNode = ({ data }: { data: Record<string, unknown> }) => {
                             {data.user}
                         </div>
                     )}
-                    {data.tunnels?.length > 0 && (
+                    {(data.tunnels?.length ?? 0) > 0 && (
                         <div style={{ display: 'flex', gap: 2, marginTop: 3, flexWrap: 'wrap' }}>
-                            {data.tunnels.map((t: any, i: number) => {
+                            {data.tunnels!.map((t: any, i: number) => {
                                 const tc = TN_COLOR[t.type] || '#9ca3af';
                                 return (
                                     <span key={i} style={{
@@ -270,7 +290,7 @@ const TnAgentNode = ({ data }: { data: Record<string, unknown> }) => {
 };
 
 /** Port endpoint — CLIENT / OPERATOR / RPFWD SRC / LOCAL FWD */
-const TnPortNode = ({ data }: { data: Record<string, unknown> }) => {
+const TnPortNode = ({ data }: { data: TnPortNodeData }) => {
     const c   = TN_COLOR[data.portType] || '#94a3b8';
     const lbl = TN_LABEL[data.portType] || (data.portType as string).toUpperCase();
     return (
@@ -312,23 +332,6 @@ const TnPortNode = ({ data }: { data: Record<string, unknown> }) => {
         </motion.div>
     );
 };
-
-/** INTERNET / SHELL / generic target */
-const __TnTargetNode = ({ data }: { data: Record<string, unknown> }) => (
-    <motion.div className="relative"
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, delay: 0.65 + (data.idx ?? 0) * 0.07, ease: [0.22, 1, 0.36, 1] }}
-    >
-        <div className="relative bg-[#050505] border border-gray-700/40 px-2.5 py-2 w-[90px] font-mono">
-            <div className="absolute top-0 right-0 w-1.5 h-1.5 border-t border-r border-gray-600/50" />
-            <div className="absolute bottom-0 left-0 w-1.5 h-1.5 border-b border-l border-gray-600/50" />
-            <TnHandles />
-            <Globe size={10} className="text-gray-500 mx-auto mb-1 block" />
-            <span className="text-gray-400 text-[10px] tracking-wider block text-center font-bold uppercase">{data.label}</span>
-        </div>
-    </motion.div>
-);
 
 /** SVG edge with animated particle stream */
 const TnFlowEdge = ({ sourceX, sourceY, targetX, targetY, data }: EdgeProps) => {
@@ -391,7 +394,6 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
     const MY  = 240;    // mythic y
     const AY  = 420;    // agent row y
     const PY  = 60;     // port-source row y
-    const __TY  = 570;    // target row y
     const HS  = 180;    // horizontal spacing
     const NHW = 74;     // half mythic node-width (148/2)
 

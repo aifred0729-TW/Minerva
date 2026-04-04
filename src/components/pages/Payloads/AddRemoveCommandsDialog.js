@@ -9,7 +9,8 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
 import CardHeader from '@mui/material/CardHeader';
-import {gql, useQuery} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import { CardContent } from '@mui/material';
 import {classes, StyledButton, StyledDivider} from '../../MythicComponents/MythicTransferList';
 

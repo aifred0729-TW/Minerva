@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { TopoNode, TopoEdge, SubnetZone } from '../../types/topology';
+import type { TopoNode, TopoNodeData, TopoEdge, SubnetZone } from '../../types/topology';
 import { isCallbackAlive } from '../../lib/utils';
 
 export const CORE_COLOR       = new THREE.Color('#22d3ee');   // cyan
@@ -33,16 +33,16 @@ export function ipToSubnet(ip: string): string | null {
     return m ? `${m[1]}.0/24` : null;
 }
 
-export function getOSLabel(data: Record<string, unknown>): string {
-    const os = (data?.os || data?.operating_system || '').toLowerCase();
+export function getOSLabel(data: TopoNodeData): string {
+    const os = String(data?.os || data?.operating_system || '').toLowerCase();
     if (os.includes('windows')) return 'WIN';
     if (os.includes('linux'))   return 'LNX';
     if (os.includes('mac'))     return 'MAC';
     return 'UNK';
 }
 
-export function getOSFullLabel(data: Record<string, unknown>): string {
-    const os = (data?.os || data?.operating_system || '').toLowerCase();
+export function getOSFullLabel(data: TopoNodeData): string {
+    const os = String(data?.os || data?.operating_system || '').toLowerCase();
     if (os.includes('windows')) return 'Windows';
     if (os.includes('linux'))   return 'Linux';
     if (os.includes('mac'))     return 'macOS';
@@ -72,16 +72,16 @@ export function extractPrimaryIP(ip: any): string {
 }
 
 /** Get privilege/integrity display string */
-export function getPrivilegeLabel(data: Record<string, unknown>): string {
-    const il = data?.integrity_level;
+export function getPrivilegeLabel(data: TopoNodeData): string {
+    const il = data?.integrity_level as number | string | undefined;
     if (il === 4 || il === 'SYSTEM') return 'SYSTEM';
     if (il === 3 || il === 'High')   return 'Admin';
     if (il === 2 || il === 'Medium') return 'User';
     if (il === 1 || il === 'Low')    return 'Low';
     // Fallback: check user field for hints
-    const user = (data?.user || '').toLowerCase();
+    const user = String(data?.user || '').toLowerCase();
     if (user === 'root' || user === 'system' || user.includes('nt authority')) return 'SYSTEM';
-    if (data?.user) return data.user;
+    if (data?.user) return String(data.user);
     return '';
 }
 

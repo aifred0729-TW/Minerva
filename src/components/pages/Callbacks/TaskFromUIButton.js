@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
-import {gql, useMutation, useQuery, useLazyQuery } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation, useLazyQuery } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import {snackActions} from '../../utilities/Snackbar';
 import { MythicDialog } from '../../MythicComponents/MythicDialog';
 import {MythicSelectFromListDialog} from '../../MythicComponents/MythicSelectFromListDialog';

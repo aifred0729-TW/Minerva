@@ -1,5 +1,7 @@
 import React, {} from 'react';
-import { gql, useSubscription, useQuery } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useSubscription } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import {EventGroupInstancesTableMaterialReactTable} from "./EventGroupInstancesTable";
 
 const get_eventgroups = gql`

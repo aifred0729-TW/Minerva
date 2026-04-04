@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
-import { useSubscription, useMutation } from '@apollo/client';
+import { useSubscription, useMutation } from "@apollo/client/react";
 import { Terminal, CheckCircle, CornerDownLeft, WrapText, Palette, Search, XCircle, Key, Copy} from 'lucide-react';
 import { STREAM_INTERACTIVE_SUBTASKS, CREATE_INTERACTIVE_TASK_MUTATION } from '../../lib/api';
 import Anser from 'anser';
@@ -85,7 +85,7 @@ export const InteractiveTaskBlock = ({ taskId, task, liveResponses, callbackDisp
     // ── Stream sent interactive sub-tasks ─────────────────────
     const [subTasks, setSubTasks] = useState<any[]>([]);
     const prevTaskIdRef = useRef(taskId);
-    useSubscription(STREAM_INTERACTIVE_SUBTASKS, {
+    useSubscription<any>(STREAM_INTERACTIVE_SUBTASKS, {
         variables: { parent_task_id: taskId },
         fetchPolicy: 'no-cache',
         onData: ({ data: d }: any) => {
@@ -104,6 +104,7 @@ export const InteractiveTaskBlock = ({ taskId, task, liveResponses, callbackDisp
                 );
             }
         },
+        onError: (err) => { console.error('[STREAM_INTERACTIVE_SUBTASKS] subscription error:', err); },
     });
 
     // ── Merge + sort responses and sent inputs ─────────────────
@@ -135,7 +136,7 @@ export const InteractiveTaskBlock = ({ taskId, task, liveResponses, callbackDisp
     const outputContainerRef = useRef<HTMLDivElement>(null);
 
     // ── Mutation ────────────────────────────────────────────────
-    const [createInteractiveTask] = useMutation(CREATE_INTERACTIVE_TASK_MUTATION, {
+    const [createInteractiveTask] = useMutation<any>(CREATE_INTERACTIVE_TASK_MUTATION, {
         onError: (err: Error) => snackActions.error(err.message),
         update: (_: any, { data }: any) => {
             if (data?.createTask?.status === 'error') snackActions.error(data.createTask.error);

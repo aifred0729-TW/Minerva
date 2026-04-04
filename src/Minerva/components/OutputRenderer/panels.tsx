@@ -19,6 +19,7 @@ import {
     Info,
 }from 'lucide-react';
 import { OutputPanel, OutputCallbackContext, ACCENT, AMBER, PURPLE, ARCH_COLOR } from './core';
+import { fileDownloadUrl } from '../../lib/urls';
 import type { MythicScreenshot, MythicDownload } from '../../types/output';
 import { TaskFromUIButton } from '../TaskFromUIButton';
 import { DatabasePanel } from './graph';
@@ -194,6 +195,7 @@ export function ProcessPanel({ procs }: { procs: any[] }) {
         {/* TaskFromUIButton for process actions */}
         {activeProcessAction && callbackId && (
             <TaskFromUIButton
+                {...({} as any)}
                 callback_id={callbackId}
                 ui_feature={activeProcessAction.uifeature}
                 parameters={JSON.stringify({ process_id: activeProcessAction.proc.process_id ?? activeProcessAction.proc.pid, architecture: activeProcessAction.proc.architecture ?? activeProcessAction.proc.arch ?? '' })}
@@ -258,9 +260,9 @@ export function FilesPanel({ files }: { files: any[] }) {
                                                     ));
                                                 }
                                                 // Single ACE / generic permissions object
-                                                const acc = (p as any).account;
+                                                const acc = (p as Record<string, unknown>).account;
                                                 return acc
-                                                    ? <span title={JSON.stringify(p)} style={{ color: '#8ab' }}>{acc}</span>
+                                                    ? <span title={JSON.stringify(p)} style={{ color: '#8ab' }}>{String(acc)}</span>
                                                     : <span title={JSON.stringify(p)} style={{ color: '#555' }}>{JSON.stringify(p)}</span>;
                                             }
                                             return String(p);
@@ -347,7 +349,7 @@ export function ScreenshotPanel({ screenshots }: { screenshots: MythicScreenshot
                     .filter(Boolean)
                     .map((scr, i) => {
                         const idx = viewMode === 'single' ? currentIdx : i;
-                        const src = `/api/v1.4/files/download/${scr.agent_file_id}`;
+                        const src = fileDownloadUrl(scr.agent_file_id);
                         const alt = scr.plaintext || `Screenshot ${idx + 1}`;
                         return (
                             <div key={idx}>
@@ -408,7 +410,7 @@ export function DownloadPanel({ downloads }: { downloads: MythicDownload[] }) {
         <OutputPanel icon={<Database size={11}/>} label="DOWNLOADS" accent={AMBER} count={downloads.length}>
             <div className="space-y-2">
                 {downloads.map((dl, i) => {
-                    const href = `/api/v1.4/files/download/${dl.agent_file_id}`;
+                    const href = fileDownloadUrl(dl.agent_file_id);
                     const fname = dl.name || dl.plaintext || 'file';
                     return (
                         <div key={i}
@@ -456,8 +458,8 @@ export function MediaPanel({ agentFileId, filename }: { agentFileId: string; fil
     const [rawBytes, setRawBytes] = useState<Uint8Array | null>(null);
     const [textContent, setTextContent] = useState('');
     const [loading, setLoading] = useState(true);
-    const [__mimeType, setMimeType] = useState('');
-    const src = `/api/v1.4/files/download/${agentFileId}`;
+    const [, setMimeType] = useState('');
+    const src = fileDownloadUrl(agentFileId);
     const ext = (filename || '').split('.').pop()?.toLowerCase() || '';
     const isImage = ['png','jpg','jpeg','gif','bmp','webp','svg','ico'].includes(ext);
     const isAudio = ['mp3','wav','ogg','flac','m4a','aac'].includes(ext);

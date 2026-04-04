@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useMutation, useApolloClient } from '@apollo/client';
+import { useMutation, useApolloClient } from "@apollo/client/react";
 import { Key, Copy, Lock, Activity } from 'lucide-react';
 import { CHECK_EXISTING_CREDENTIAL, CREATE_CREDENTIAL_MUT } from '../../lib/api';
 import { cn } from '../../lib/utils';
@@ -94,7 +94,7 @@ export const MimikatzBlock = ({ content, taskId, taskDisplayId, callbackHost }: 
     content: string; taskId: number; taskDisplayId: number; callbackHost: string;
 }) => {
     const client = useApolloClient();
-    const [createCred] = useMutation(CREATE_CREDENTIAL_MUT);
+    const [createCred] = useMutation<any>(CREATE_CREDENTIAL_MUT);
     const [vaultState, setVaultState] = useState<'idle'|'saving'|'saved'>('idle');
     const [savedCount, setSavedCount] = useState(0);
     const [skippedCount, setSkippedCount] = useState(0);
@@ -137,7 +137,7 @@ export const MimikatzBlock = ({ content, taskId, taskDisplayId, callbackHost }: 
                         variables: { account, realm, credential: c.credential, type: c.credType },
                         fetchPolicy: 'no-cache',
                     });
-                    if (checkData?.credential?.length > 0) {
+                    if ((checkData as any)?.credential?.length > 0) {
                         skipped++;
                         continue; // already exists, skip
                     }

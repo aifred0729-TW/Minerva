@@ -14,7 +14,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter as Router } from 'react-router-dom';
-import { ApolloProvider } from '@apollo/client';
+import { ApolloProvider } from "@apollo/client/react";
 
 import MinervaApp from './Minerva/App';
 import { apolloClient } from './Minerva/lib/apollo';

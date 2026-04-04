@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery, useLazyQuery } from '@apollo/client';
+import { useQuery, useLazyQuery } from "@apollo/client/react";
 import { GET_PAYLOAD_TYPES, GET_EXISTING_PAYLOADS, GET_PAYLOAD_INSTANCE_PARAMS } from './queries';
 import { ChevronRight, Disc, Check, Monitor, Command, Terminal, Smartphone, Server, Globe, Database } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -79,11 +79,11 @@ const PayloadCreationWizard = () => {
             : null
     );
     // Data Fetching
-    const { data: payloadTypesData, loading: loadingTypes } = useQuery(GET_PAYLOAD_TYPES);
+    const { data: payloadTypesData, loading: loadingTypes } = useQuery<any>(GET_PAYLOAD_TYPES);
 
     // Lazy queries for "Continue from Existing"
-    const [getExistingPayloads, { data: existingPayloadsData }] = useLazyQuery(GET_EXISTING_PAYLOADS, { fetchPolicy: "network-only" });
-    const [getPayloadInstanceParams] = useLazyQuery(GET_PAYLOAD_INSTANCE_PARAMS, { fetchPolicy: "network-only" });
+    const [getExistingPayloads, { data: existingPayloadsData }] = useLazyQuery<any>(GET_EXISTING_PAYLOADS, { fetchPolicy: "network-only" });
+    const [getPayloadInstanceParams] = useLazyQuery<any>(GET_PAYLOAD_INSTANCE_PARAMS, { fetchPolicy: "network-only" });
 
     // Derived Data
     const [availableOS, setAvailableOS] = useState<string[]>([]);

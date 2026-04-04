@@ -1,5 +1,6 @@
 import React, {useEffect} from 'react';
-import {gql, useLazyQuery, useSubscription} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useLazyQuery, useSubscription } from "@apollo/client/react";
 import {snackActions} from '../../utilities/Snackbar';
 import {ResponseDisplayScreenshot} from './ResponseDisplayScreenshot';
 import {ResponseDisplayPlaintext} from './ResponseDisplayPlaintext';

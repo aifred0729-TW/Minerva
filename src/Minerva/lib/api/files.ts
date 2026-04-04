@@ -374,23 +374,6 @@ export const DELETE_TAG_MUTATION = gql`
     }
 `;
 
-export const GET_TREE_TAGS = gql`
-    query GetTreeTags($mythictree_id: Int!) {
-        tag(where: {mythictree_id: {_eq: $mythictree_id}}, order_by: {tagtype: {name: asc}}) {
-            id source url data
-            tagtype { id name color description }
-        }
-    }
-`;
-
-export const CREATE_TREE_TAG = gql`
-    mutation CreateTreeTag($mythictree_id: Int!, $tagtype_id: Int!, $source: String!, $url: String!, $data: jsonb!) {
-        createTag(mythictree_id: $mythictree_id, tagtype_id: $tagtype_id, source: $source, url: $url, data: $data) {
-            id status error
-        }
-    }
-`;
-
 export const GET_C2_PROFILES_FOR_HOSTING = gql`
     query GetC2Profiles {
         c2profile(where: {deleted: {_eq: false}, container_running: {_eq: true}, is_p2p: {_eq: false}}, order_by: {name: asc}) {

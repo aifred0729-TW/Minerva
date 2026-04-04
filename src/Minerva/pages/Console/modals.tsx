@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import { XCircle } from 'lucide-react';
 import { GET_TASK_COMMENT_QUERY, GET_TASK_PARAMS_QUERY, GET_TASK_STDOUT_STDERR_QUERY, UPDATE_TASK_COMMENT_MUTATION } from '../../lib/api';
 import { snackActions } from '../../lib/snackbar';
@@ -27,12 +28,12 @@ export const InlineModal = ({ title, onClose, children }: { title: string; onClo
 // Task Comment Modal
 export const TaskCommentModal = ({ taskId, onClose }: { taskId: number; onClose: () => void }) => {
     const [comment, setComment] = useState('');
-    const { loading } = useQuery(GET_TASK_COMMENT_QUERY, {
+    const { loading } = useQuery<any>(GET_TASK_COMMENT_QUERY, {
         variables: { task_id: taskId },
-        onCompleted: (d: Record<string, unknown>) => setComment(d.task_by_pk?.comment || ''),
+        onCompleted: (d: any) => setComment(d.task_by_pk?.comment || ''),
         fetchPolicy: 'network-only',
     });
-    const [updateComment, { loading: saving }] = useMutation(UPDATE_TASK_COMMENT_MUTATION);
+    const [updateComment, { loading: saving }] = useMutation<any>(UPDATE_TASK_COMMENT_MUTATION);
     const handleSave = () => {
         updateComment({ variables: { task_id: taskId, comment } })
             .then(() => { snackActions.success('Comment saved'); onClose(); })
@@ -68,9 +69,9 @@ export const TaskCommentModal = ({ taskId, onClose }: { taskId: number; onClose:
 // Task Parameters Modal
 export const TaskParamsModal = ({ taskId, onClose }: { taskId: number; onClose: () => void }) => {
     const [text, setText] = useState('');
-    const { loading } = useQuery(GET_TASK_PARAMS_QUERY, {
+    const { loading } = useQuery<any>(GET_TASK_PARAMS_QUERY, {
         variables: { task_id: taskId },
-        onCompleted: (d: Record<string, unknown>) => {
+        onCompleted: (d: any) => {
             const t = d.task_by_pk;
             if (!t) { setText('Task not found'); return; }
             let s = `Original Parameters:\n${t.original_params ?? '(none)'}`;
@@ -103,9 +104,9 @@ export const TaskParamsModal = ({ taskId, onClose }: { taskId: number; onClose: 
 // Task Stdout/Stderr Modal
 export const TaskStdoutStderrModal = ({ taskId, onClose }: { taskId: number; onClose: () => void }) => {
     const [text, setText] = useState('');
-    const { loading } = useQuery(GET_TASK_STDOUT_STDERR_QUERY, {
+    const { loading } = useQuery<any>(GET_TASK_STDOUT_STDERR_QUERY, {
         variables: { task_id: taskId },
-        onCompleted: (d: Record<string, unknown>) => {
+        onCompleted: (d: any) => {
             const t = d.task_by_pk;
             if (!t) { setText('Task not found'); return; }
             const hasContent = (t.stdout && t.stdout.trim()) || (t.stderr && t.stderr.trim());

@@ -147,24 +147,6 @@ export const HIDE_CALLBACKS_BULK = gql`
   }
 `;
 
-export const GET_CALLBACKS_FOR_BULK_TASK = gql`
-  query GetCallbacksForBulkTask($payloadtype_id: Int!) {
-    callback(where: {active: {_eq: true}, payload: {payloadtype: {id: {_eq: $payloadtype_id}}}}, order_by: {id: asc}) {
-      id
-      host
-      user
-      process_name
-      description
-      integrity_level
-      pid
-      display_id
-      last_checkin
-      ip
-      payload { payloadtype { agent_type } }
-    }
-  }
-`;
-
 export const CALLBACK_CONTEXT_SUBSCRIPTION = gql`
   subscription CallbackMetadataForTasking($callback_id: Int!){
     callback_stream(batch_size: 1, cursor: {initial_value: {timestamp: "1970-01-01"}}, where: {id: {_eq: $callback_id} }){
@@ -244,19 +226,6 @@ export const GET_CALLBACK_C2_PATHS = gql`
         active
       }
       c2profile { name is_p2p }
-    }
-  }
-`;
-
-export const GET_ALL_C2_PATHS = gql`
-  query GetAllC2Paths {
-    callbackgraphedge(where: {end_timestamp: {_is_null: true}}) {
-      id
-      source_id
-      destination_id
-      c2profile { name is_p2p }
-      source { id display_id host active }
-      destination { id display_id host active }
     }
   }
 `;

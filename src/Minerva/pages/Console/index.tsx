@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useApolloClient } from '@apollo/client';
+import { useMutation, useApolloClient } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
+import { usePageVisible } from '../../lib/usePageVisible';
 import { useAppStore } from '../../store';
 import {
     Terminal, Folder, Activity, Info, Lock, Unlock, MessageSquare,
@@ -29,6 +31,7 @@ export default function Console() {
     const navigate = useNavigate();
     const client = useApolloClient();
     const { isSidebarCollapsed, consoleTabs, openConsoleTab, closeConsoleTab } = useAppStore();
+    const pageVisible = usePageVisible();
     const [activeTab, setActiveTab] = useState<'info' | 'files' | 'processes'>('info');
     const [showCallbackMenu, setShowCallbackMenu] = useState(false);
     const [menuPos, setMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
@@ -50,32 +53,32 @@ export default function Console() {
         return () => document.removeEventListener('mousedown', handler);
     }, [showCallbackMenu]);
 
-    const { data, loading, error } = useQuery(GET_CALLBACK_DETAILS, {
+    const { data, loading, error } = useQuery<any>(GET_CALLBACK_DETAILS, {
         variables: { display_id: parseInt(id || '0') },
-        pollInterval: 5000
+        pollInterval: pageVisible ? 5000 : 0
     });
 
-    const { data: allCallbacksData } = useQuery(GET_ALL_CALLBACKS_BY_DOMAIN, {
-        pollInterval: 15000
+    const { data: allCallbacksData } = useQuery<any>(GET_ALL_CALLBACKS_BY_DOMAIN, {
+        pollInterval: pageVisible ? 15000 : 0
     });
 
-    const [hideCallback] = useMutation(HIDE_CALLBACK_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => d.updateCallback?.status === 'success'
+    const [hideCallback] = useMutation<any>(HIDE_CALLBACK_MUTATION, {
+        onCompleted: (d: any) => d.updateCallback?.status === 'success'
             ? snackActions.success('Callback hidden')
             : snackActions.error(d.updateCallback?.error || 'Failed'),
     });
-    const [lockCallback] = useMutation(LOCK_CALLBACK_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => d.updateCallback?.status === 'success'
+    const [lockCallback] = useMutation<any>(LOCK_CALLBACK_MUTATION, {
+        onCompleted: (d: any) => d.updateCallback?.status === 'success'
             ? snackActions.success('Callback lock state updated')
             : snackActions.error(d.updateCallback?.error || 'Failed'),
     });
-    const [updateDescription] = useMutation(UPDATE_CALLBACK_DESCRIPTION_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => d.updateCallback?.status === 'success'
+    const [updateDescription] = useMutation<any>(UPDATE_CALLBACK_DESCRIPTION_MUTATION, {
+        onCompleted: (d: any) => d.updateCallback?.status === 'success'
             ? snackActions.success('Description updated')
             : snackActions.error(d.updateCallback?.error || 'Failed'),
     });
 
-    const [createTask] = useMutation(CREATE_TASK_MUTATION);
+    const [createTask] = useMutation<any>(CREATE_TASK_MUTATION);
 
     const handleExitCallback = async () => {
         if (!callback) return;
@@ -85,7 +88,7 @@ export default function Console() {
                 variables: { callback_id: callback.id },
                 fetchPolicy: 'network-only',
             });
-            const exitCmds = exitData?.callback_by_pk?.loadedcommands || [];
+            const exitCmds = (exitData as any)?.callback_by_pk?.loadedcommands || [];
             if (exitCmds.length === 0) {
                 snackActions.warning('No exit command loaded for this callback');
                 return;
@@ -349,7 +352,7 @@ export default function Console() {
                             ].map(tab => (
                                 <button
                                     key={tab.id}
-                                    onClick={() => setActiveTab(tab.id as any)}
+                                    onClick={() => setActiveTab(tab.id as 'info' | 'files' | 'processes')}
                                     className={cn(
                                         "flex-1 py-3 text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition-colors duration-200",
                                         activeTab === tab.id 

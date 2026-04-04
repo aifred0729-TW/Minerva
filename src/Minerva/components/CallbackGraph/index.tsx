@@ -1,17 +1,15 @@
 import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react';
 import type { Callback, CallbackGraphEdge } from '../../types/callbacks';
 import { useNavigate } from 'react-router-dom';
-import { createPortal } from 'react-dom';
 import {
     ReactFlow, Background, useNodesState, useEdgesState,
     getConnectedEdges, Node, Edge,
     Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
+import { useMutation, useLazyQuery } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import { toSvg, toPng } from 'html-to-image';
-import { MythicDialog } from '../MythicDialog';
-import { EventTriggerContextSelectDialog } from '../EventTriggerContextSelect';
 import {
     GET_CALLBACK_GRAPH_EDGES, GET_CALLBACKS,
     HIDE_CALLBACK_MUTATION, LOCK_CALLBACK_MUTATION,
@@ -23,7 +21,6 @@ import {
     GET_CUSTOM_GRAPH_EDGES, CREATE_CUSTOM_GRAPH_EDGE,
     DELETE_CUSTOM_GRAPH_EDGE, GET_CALLBACK_GRAPH_EDGES_ALL,
     GET_LINK_COMMANDS_FOR_CALLBACK, CREATE_TASK_MUTATION,
-    GET_CALLBACKS_WITH_BROWSERSCRIPTS,
     GET_LINK_FOCUS, SET_LINK_FOCUS, CLEAR_LINK_FOCUS,
 } from '../../lib/api';
 import {
@@ -31,67 +28,77 @@ import {
     prepareUpdateNodeData, generateNextId, generateUniqueId,
     parseEdgeStorageResults, serializeEdgeData, generateEdgeUniqueId,
 } from '../../lib/customGraphNodeService';
-import { dbg, getErrorMessage } from '../../lib/utils';
+import { dbg, getErrorMessage, downloadDataUrl } from '../../lib/utils';
+import { usePageVisible } from '../../lib/usePageVisible';
+import { useLocalStorageState, typedStringSerializer, boolSerializer, boolInverseSerializer } from '../../lib/hooks';
 import {
-    Terminal,
     Share2,
-    Shield,
     Network,
-    Monitor,
-    Lock,
-    Unlock,
-    Eye,
-    EyeOff,
-    Edit,
-    Info,
-    GitBranch,
     X,
-    ChevronRight,
     Plus,
     SlidersHorizontal,
-    ArrowLeftRight,
-    ArrowUpDown,
-    Zap,
-    Wifi,
-    Link2,
-    RefreshCw,
-    CheckSquare,
-    Square,
-    ChevronDown,
-    Camera,
-    Trash2,
-    FileImage,
+    EyeOff,
     Code,
     Crosshair,
 }from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { snackActions } from '../../lib/snackbar';
-import { CyberModal } from '../CyberModal';
-import { isCallbackAlive } from '../../lib/utils';
+import { GraphModals } from './GraphModals';
+import { GraphConfigPanel } from './GraphConfigPanel';
+import { GraphContextMenus } from './GraphContextMenus';
+import { BrowserScriptView } from './components/BrowserScriptView';
 import { nodeTypes, edgeTypes, elk, getElkLayoutedElements } from './layout';
 
+import { buildGraphData } from './buildGraphData';
+
 const log = (...args: unknown[]) => dbg('graph', ...args);
+
+// ── Layout constants ──
+const GROUP_PAD = 30;
+const NODE_WIDTH = 275;
+const NODE_HEIGHT = 100;
 
 interface CallbackGraphProps {
     filterCallbackIds?: number[];
 }
 
+/** Edge data stored alongside xyflow edges */
+interface GraphEdgeData {
+    origAnimated?: boolean;
+    origStyle?: React.CSSProperties;
+    commandName?: string;
+    scriptName?: string;
+    [key: string]: unknown;
+}
+
+/** Node data stored alongside xyflow nodes */
+interface GraphNodeData {
+    displayId?: number;
+    host?: string;
+    display_id?: number;
+    isCustom?: boolean;
+    isDimmed?: boolean;
+    isHighlighted?: boolean;
+    groupBy?: string;
+    [key: string]: unknown;
+}
+
 export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
-    const { data: callbacksData, loading: callbacksLoading, error: __callbacksError, refetch } = useQuery(GET_CALLBACKS, { pollInterval: 10000 });
-    const { data: edgesData, loading: __edgesLoading, error: __edgesError, refetch: refetchEdges } = useQuery(GET_CALLBACK_GRAPH_EDGES, { pollInterval: 10000 });
-    const { data: p2pData, refetch: refetchP2P } = useQuery(GET_P2P_PROFILES_AND_CALLBACKS, { fetchPolicy: "network-only" });
-    const { data: allC2Data, refetch: refetchAllC2 } = useQuery(GET_C2_PROFILES, { fetchPolicy: "network-only" });
+    const pageVisible = usePageVisible();
+    const { data: callbacksData, loading: callbacksLoading, refetch } = useQuery<any>(GET_CALLBACKS, { pollInterval: pageVisible ? 10000 : 0 });
+    const { data: edgesData, refetch: refetchEdges } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES, { pollInterval: pageVisible ? 10000 : 0 });
+    const { data: p2pData, refetch: refetchP2P } = useQuery<any>(GET_P2P_PROFILES_AND_CALLBACKS, { fetchPolicy: "network-only" });
+    const { data: allC2Data, refetch: refetchAllC2 } = useQuery<any>(GET_C2_PROFILES, { fetchPolicy: "network-only" });
 
     // Mutations
-    const [hideCallback] = useMutation(HIDE_CALLBACK_MUTATION);
-    const [lockCallback] = useMutation(LOCK_CALLBACK_MUTATION);
-    const [updateDescription] = useMutation(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
-    const [addEdge] = useMutation(ADD_EDGE_MUTATION);
-    const [removeEdge] = useMutation(REMOVE_EDGE_MUTATION);
-    const [createTask] = useMutation(CREATE_TASK_MUTATION);
+    const [hideCallback] = useMutation<any>(HIDE_CALLBACK_MUTATION);
+    const [lockCallback] = useMutation<any>(LOCK_CALLBACK_MUTATION);
+    const [updateDescription] = useMutation<any>(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
+    const [addEdge] = useMutation<any>(ADD_EDGE_MUTATION);
+    const [removeEdge] = useMutation<any>(REMOVE_EDGE_MUTATION);
+    const [createTask] = useMutation<any>(CREATE_TASK_MUTATION);
 
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
+    const [nodes, setNodes, onNodesChange] = useNodesState([] as Node<Record<string, unknown>>[]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge<Record<string, unknown>>[]);
     const viewportRef = useRef({ x: 0, y: 0, zoom: 1 });
     // Track selected node IDs for edge-highlight feature
     const selectedNodeIds = useRef<Set<string>>(new Set());
@@ -108,8 +115,8 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     const [setParentModal, setSetParentModal] = useState<any | null>(null);
     // ── Link Focus (global, persisted in agentstorage) ──────────────────────
     const autoLinkedCallbacksRef = useRef<Set<string>>(new Set());
-    const [selectedProfile, setSelectedProfile] = useState<unknown>(null);
-    const [selectedDestination, setSelectedDestination] = useState<unknown>(null);
+    const [selectedProfile, setSelectedProfile] = useState<Record<string, unknown> | null>(null);
+    const [selectedDestination, setSelectedDestination] = useState<Record<string, unknown> | null>(null);
     const [edgeLabel, setEdgeLabel] = useState("");
     const [isP2PConnection, setIsP2PConnection] = useState(true);
     
@@ -118,6 +125,9 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     const [editCustomNodeModal, setEditCustomNodeModal] = useState<any | null>(null);
     const [customNodes, setCustomNodes] = useState<any[]>([]);
     const [customEdges, setCustomEdges] = useState<any[]>([]);
+    const customEdgesRef = useRef<any[]>([]);
+    // Keep ref in sync for non-setter reads
+    useEffect(() => { customEdgesRef.current = customEdges; }, [customEdges]);
     const [customNodeForm, setCustomNodeForm] = useState({
         host: '',
         os: 'Windows',
@@ -133,266 +143,57 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
 
     // ── Graph Config State (with localStorage persistence) ──
     const [showConfigPanel, setShowConfigPanel] = useState(false);
-    const [layoutDir, setLayoutDir] = useState<'LR' | 'TB'>(() => {
-        try { return (localStorage.getItem('mg_layoutDir') as 'LR' | 'TB') || 'LR'; } catch { return 'LR'; }
-    });
-    const [showAllEdges, setShowAllEdges] = useState(() => {
-        try { return localStorage.getItem('mg_showAllEdges') === 'true'; } catch { return false; }
-    });
-    const [groupBy, setGroupBy] = useState(() => {
-        try { return localStorage.getItem('mg_groupBy') || 'None'; } catch { return 'None'; }
-    });
-    const [nodeLabels, setNodeLabels] = useState<string[]>(() => {
-        try { const s = localStorage.getItem('mg_nodeLabels'); return s ? JSON.parse(s) : ['host', 'ip']; } catch { return ['host', 'ip']; }
-    });
-    const [packetFlowView, setPacketFlowView] = useState(() => {
-        try { return localStorage.getItem('mg_packetFlowView') !== 'false'; } catch { return true; }
-    });
-    const [mergeByHost, setMergeByHost] = useState(() => {
-        try { return localStorage.getItem('mg_mergeByHost') !== 'false'; } catch { return true; }
-    });
+    const [layoutDir, setLayoutDir] = useLocalStorageState<'LR' | 'TB'>('mg_layoutDir', 'LR', typedStringSerializer<'LR' | 'TB'>());
+    const [showAllEdges, setShowAllEdges] = useLocalStorageState('mg_showAllEdges', false, boolSerializer);
+    const [groupBy, setGroupBy] = useLocalStorageState('mg_groupBy', 'None', typedStringSerializer<string>());
+    const [nodeLabels, setNodeLabels] = useLocalStorageState<string[]>('mg_nodeLabels', ['host', 'ip']);
+    const [packetFlowView, setPacketFlowView] = useLocalStorageState('mg_packetFlowView', true, boolInverseSerializer);
+    const [mergeByHost, setMergeByHost] = useLocalStorageState('mg_mergeByHost', true, boolInverseSerializer);
     // Task for Edge state
-    const [taskForEdgeModal, setTaskForEdgeModal] = useState<unknown>(null);
-    const [taskForEdgeCommand, setTaskForEdgeCommand] = useState<unknown>(null);
+    const [taskForEdgeModal, setTaskForEdgeModal] = useState<Record<string, unknown> | null>(null);
+    const [taskForEdgeCommand, setTaskForEdgeCommand] = useState<Record<string, unknown> | null>(null);
     const [taskForEdgeParams, setTaskForEdgeParams] = useState('');
     const [taskingForEdge, setTaskingForEdge] = useState(false);
 
     // ── Eventing dialog ──
-    const [showEventingDialog, setShowEventingDialog] = useState<unknown>(null);
+    const [showEventingDialog, setShowEventingDialog] = useState<Callback | null>(null);
     // ── Edge & pane context menus ──
-    const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edge: CallbackGraphEdge } | null>(null);
+    const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; edge: any } | null>(null);
     const [paneContextMenu, setPaneContextMenu] = useState<{ x: number; y: number } | null>(null);
     // ── Manually Remove Edge dialog ──
     const [removeEdgeModal, setRemoveEdgeModal] = useState<any[] | null>(null);
     // ── Manually Add Edge (P2P) dialog ──
-    const [manuallyAddEdgeModal, setManuallyAddEdgeModal] = useState<unknown>(null);
-    const [addEdgeSelectedProfile, setAddEdgeSelectedProfile] = useState<unknown>(null);
-    const [addEdgeSelectedDest, setAddEdgeSelectedDest] = useState<unknown>(null);
+    const [manuallyAddEdgeModal, setManuallyAddEdgeModal] = useState<Record<string, unknown> | null>(null);
+    const [addEdgeSelectedProfile, setAddEdgeSelectedProfile] = useState<Record<string, unknown> | null>(null);
+    const [addEdgeSelectedDest, setAddEdgeSelectedDest] = useState<Record<string, unknown> | null>(null);
     const [addEdgeDestOptions, setAddEdgeDestOptions] = useState<any[]>([]);
     // ── Graph view mode ──
     const [graphViewMode, setGraphViewMode] = useState<'CALLBACKS' | 'BROWSERSCRIPTS'>('CALLBACKS');
     // ── Download refs ──
     const graphContainerRef = useRef<HTMLDivElement>(null);
-    const bsContainerRef = useRef<HTMLDivElement>(null);
-    // ── BrowserScript view state ──
-    const [bsHiddenNodeIds, setBsHiddenNodeIds] = useState<Set<string>>(new Set());
-    const [bsContextMenu, setBsContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
-    const [bsLayoutDir, setBsLayoutDir] = useState<'LR' | 'TB'>('LR');
-    const [bsSelectedNodeIds, setBsSelectedNodeIds] = useState<Set<string>>(new Set());
-    const [bsEdgeCtxMenu, setBsEdgeCtxMenu] = useState<{ x: number; y: number; edgeId: string } | null>(null);
-    const [bsPaneCtxMenu, setBsPaneCtxMenu] = useState<{ x: number; y: number } | null>(null);
-    const [bsElkData, setBsElkData] = useState<{ nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] }>({ nodes: [], edges: [] });
-    const [bsGroupBy, setBsGroupBy] = useState<string>('None');
-    const [bsShowLargeGraph, setBsShowLargeGraph] = useState(false);
-
-    // Persist graph config to localStorage
-    useEffect(() => { localStorage.setItem('mg_layoutDir', layoutDir); }, [layoutDir]);
-    useEffect(() => { localStorage.setItem('mg_showAllEdges', String(showAllEdges)); }, [showAllEdges]);
-    useEffect(() => { localStorage.setItem('mg_groupBy', groupBy); }, [groupBy]);
-    useEffect(() => { localStorage.setItem('mg_nodeLabels', JSON.stringify(nodeLabels)); }, [nodeLabels]);
-    useEffect(() => { localStorage.setItem('mg_packetFlowView', String(packetFlowView)); }, [packetFlowView]);
-    useEffect(() => { localStorage.setItem('mg_mergeByHost', String(mergeByHost)); }, [mergeByHost]);
 
     // All-edges query (non-active edges, skip when not needed) — must come AFTER showAllEdges state declaration
-    const { data: allEdgesData } = useQuery(GET_CALLBACK_GRAPH_EDGES_ALL, {
-        pollInterval: 15000,
+    const { data: allEdgesData } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES_ALL, {
+        pollInterval: pageVisible ? 15000 : 0,
         skip: !showAllEdges
     });
     // Lazy query for link commands when Task-for-Edge dialog opens
-    const [getLinkCommands, { data: linkCommandsData, loading: linkCommandsLoading }] = useLazyQuery(GET_LINK_COMMANDS_FOR_CALLBACK, { fetchPolicy: 'network-only' });
-
-    // Browserscript relationship data (loaded on demand when BROWSERSCRIPTS view is active)
-    const { data: bsData, refetch: __refetchBS } = useQuery(GET_CALLBACKS_WITH_BROWSERSCRIPTS, {
-        fetchPolicy: 'network-only',
-        skip: graphViewMode !== 'BROWSERSCRIPTS',
-        pollInterval: graphViewMode === 'BROWSERSCRIPTS' ? 10000 : 0,
-    });
-
-    // Build raw (unpositioned) nodes/edges from bsData — just structure, no layout
-    const bsRawData = React.useMemo(() => {
-        if (!bsData?.callback) return { nodes: [], edges: [] };
-        const rawNodes: Record<string, unknown>[] = [];
-        const rawEdges: Record<string, unknown>[] = [];
-        const scriptIds = new Set<string>();
-        bsData.callback.forEach((cb: Callback) => {
-            const cbNodeId = `cb-${cb.id}`;
-            const payloadType = cb.payload?.payloadtype?.name || 'agent';
-            rawNodes.push({
-                id: cbNodeId,
-                type: 'bsCallbackNode',
-                position: { x: 0, y: 0 },
-                data: {
-                    displayId: cb.display_id,
-                    host: cb.host || cb.ip || '',
-                    user: cb.user || '',
-                    ip: cb.ip || '',
-                    domain: cb.domain || '',
-                    os: cb.os || '',
-                    payloadType,
-                    buttons: [
-                        { type: 'interact', label: 'Interact', displayId: cb.display_id },
-                    ],
-                },
-            });
-            const scripts: Record<string, unknown>[] = [];
-            (cb.loadedcommands || []).forEach((lc: Record<string, unknown>) => {
-                (lc.command?.browserscripts || []).forEach((bs: Record<string, unknown>) => {
-                    scripts.push({ ...bs, _payloadType: payloadType });
-                });
-            });
-            scripts.forEach((bs: Record<string, unknown>) => {
-                const bsNodeId = `bs-${bs.id}`;
-                if (!scriptIds.has(bsNodeId)) {
-                    scriptIds.add(bsNodeId);
-                    rawNodes.push({
-                        id: bsNodeId,
-                        type: 'browserscriptNode',
-                        position: { x: 0, y: 0 },
-                        data: {
-                            label: bs.name,
-                            name: bs.name,
-                            command: bs.command?.cmd || '',
-                            agentIcon: bs._payloadType,
-                            // overlay_img: agent icon as JSX (rendered in BrowserscriptNode)
-                            overlay_img: bs._payloadType ? (
-                                <img src={`/static/${bs._payloadType}_dark.svg`} alt=""
-                                    style={{ width: 14, height: 14, objectFit: 'contain' }}
-                                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                            ) : null,
-                        },
-                    });
-                }
-                rawEdges.push({
-                    id: `e-${cbNodeId}-${bsNodeId}-${bs.id}`,
-                    source: cbNodeId,
-                    target: bsNodeId,
-                    label: bs.command?.cmd || '',
-                    style: { stroke: '#22c55e44', strokeWidth: 1 },
-                    animated: false,
-                    data: { commandName: bs.command?.cmd || '', scriptName: bs.name || '' },
-                });
-            });
-        });
-        return { nodes: rawNodes, edges: rawEdges };
-    }, [bsData]);
-
-    // Run ELK layout whenever raw data or layout direction changes
-    useEffect(() => {
-        if (bsRawData.nodes.length === 0) { setBsElkData({ nodes: [], edges: [] }); return; }
-        let cancelled = false;
-        const elkNodes = bsRawData.nodes.map((n: Record<string, unknown>) => ({
-            id: n.id,
-            width: n.type === 'bsCallbackNode' ? 120 : 140,
-            height: n.type === 'bsCallbackNode' ? 80 : 64,
-        }));
-        const nodeIdSet = new Set(bsRawData.nodes.map((n: Record<string, unknown>) => n.id));
-        const elkEdges = bsRawData.edges
-            .filter((e: Record<string, unknown>) => nodeIdSet.has(e.source) && nodeIdSet.has(e.target))
-            .map((e: Record<string, unknown>) => ({ id: e.id, sources: [e.source], targets: [e.target] }));
-        const elkDirection = bsLayoutDir === 'LR' ? 'RIGHT' : 'DOWN';
-        elk.layout({
-            id: 'bs-root',
-            layoutOptions: {
-                'elk.algorithm': 'layered',
-                'elk.direction': elkDirection,
-                'elk.layered.spacing.nodeNodeBetweenLayers': '80',
-                'elk.spacing.nodeNode': '40',
-            },
-            children: elkNodes,
-            edges: elkEdges,
-        }).then((result: Record<string, unknown>) => {
-            if (cancelled) return;
-            const posMap = new Map<string, { x: number; y: number }>();
-            (result.children || []).forEach((n: Record<string, unknown>) => { posMap.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 }); });
-            setBsElkData({
-                nodes: bsRawData.nodes.map((n: Record<string, unknown>) => ({ ...n, position: posMap.get(n.id) ?? n.position })),
-                edges: bsRawData.edges,
-            });
-        }).catch(() => {
-            if (!cancelled) setBsElkData(bsRawData);
-        });
-        return () => { cancelled = true; };
-    }, [bsRawData, bsLayoutDir]);
-
-    // BrowserScript graph with hidden-node filtering applied (uses ELK-laid-out data)
-    const bsVisibleGraphData = React.useMemo(() => {
-        if (bsHiddenNodeIds.size === 0) return bsElkData;
-        const visibleIds = new Set(
-            bsElkData.nodes.filter((n: Record<string, unknown>) => !bsHiddenNodeIds.has(n.id)).map((n: Record<string, unknown>) => n.id)
-        );
-        return {
-            nodes: bsElkData.nodes.filter((n: Record<string, unknown>) => !bsHiddenNodeIds.has(n.id)),
-            edges: bsElkData.edges.filter((e: Record<string, unknown>) => visibleIds.has(e.source) && visibleIds.has(e.target)),
-        };
-    }, [bsElkData, bsHiddenNodeIds]);
-
-    // Add selection visual feedback on top of visible data
-    const bsDisplayData = React.useMemo(() => {
-        const { nodes, edges } = bsVisibleGraphData;
-        if (bsSelectedNodeIds.size === 0) return { nodes, edges };
-        const selNodes = nodes.filter((n: Record<string, unknown>) => bsSelectedNodeIds.has(n.id));
-        const connectedEdges = getConnectedEdges(selNodes, edges);
-        const connectedEdgeIds = new Set(connectedEdges.map((e: Record<string, unknown>) => e.id));
-        return {
-            nodes: nodes.map((n: Record<string, unknown>) => ({
-                ...n,
-                data: { ...n.data, _selected: bsSelectedNodeIds.has(n.id), _anySelected: true },
-            })),
-            edges: edges.map((e: Record<string, unknown>) => ({
-                ...e,
-                style: connectedEdgeIds.has(e.id)
-                    ? { stroke: '#22c55e', strokeWidth: 2, opacity: 1 }
-                    : { stroke: '#22c55e22', strokeWidth: 1, opacity: 0.2 },
-            })),
-        };
-    }, [bsVisibleGraphData, bsSelectedNodeIds]);
-
-    // BrowserScript group_by overlay: compute bounding GroupBoundNode overlays
-    const bsFinalDisplayData = React.useMemo(() => {
-        const { nodes, edges } = bsDisplayData;
-        if (bsGroupBy === 'None') return { nodes: nodes.filter((n: Record<string, unknown>) => n.type !== 'groupBound'), edges };
-        const PAD = 28, NODE_W = 120, NODE_H = 80;
-        const bounds = new Map<string, { mnX: number; mnY: number; mxX: number; mxY: number }>();
-        nodes.forEach((n: Record<string, unknown>) => {
-            if (n.type === 'groupBound') return;
-            const val = n.type === 'bsCallbackNode' ? String((n.data as any)[bsGroupBy] ?? '(none)') : null;
-            if (!val) return;
-            const b = bounds.get(val) ?? { mnX: Infinity, mnY: Infinity, mxX: -Infinity, mxY: -Infinity };
-            b.mnX = Math.min(b.mnX, n.position.x);
-            b.mnY = Math.min(b.mnY, n.position.y);
-            b.mxX = Math.max(b.mxX, n.position.x + NODE_W);
-            b.mxY = Math.max(b.mxY, n.position.y + NODE_H);
-            bounds.set(val, b);
-        });
-        const groupNodes: Node[] = [];
-        bounds.forEach((b, gv) => {
-            if (b.mnX === Infinity) return;
-            groupNodes.push({
-                id: `bs-group-${gv}`,
-                type: 'groupBound',
-                position: { x: b.mnX - PAD, y: b.mnY - PAD },
-                style: { width: b.mxX - b.mnX + PAD * 2, height: b.mxY - b.mnY + PAD * 2, zIndex: -10, pointerEvents: 'none' },
-                data: { groupBy: bsGroupBy, groupValue: gv },
-                selectable: false, draggable: false,
-            });
-        });
-        return { nodes: [...groupNodes, ...nodes.filter((n: Record<string, unknown>) => n.type !== 'groupBound')], edges };
-    }, [bsDisplayData, bsGroupBy]);
+    const [getLinkCommands, { data: linkCommandsData, loading: linkCommandsLoading }] = useLazyQuery<any>(GET_LINK_COMMANDS_FOR_CALLBACK, { fetchPolicy: 'network-only' });
 
     // GraphQL for custom nodes - use polling for real-time updates
-    const { data: customNodesData, refetch: refetchCustomNodes } = useQuery(GET_CUSTOM_GRAPH_NODES, {
-        pollInterval: 15000,
+    const { data: customNodesData, refetch: refetchCustomNodes } = useQuery<any>(GET_CUSTOM_GRAPH_NODES, {
+        pollInterval: pageVisible ? 15000 : 0,
         fetchPolicy: 'cache-and-network',
         nextFetchPolicy: 'cache-first'
     });
 
     // ── Link Focus: global persistent state via agentstorage ────────────────
-    const { data: linkFocusData } = useQuery(GET_LINK_FOCUS, {
-        pollInterval: 10000,
+    const { data: linkFocusData } = useQuery<any>(GET_LINK_FOCUS, {
+        pollInterval: pageVisible ? 10000 : 0,
         fetchPolicy: 'network-only',
     });
-    const [setLinkFocusMutation] = useMutation(SET_LINK_FOCUS);
-    const [clearLinkFocusMutation] = useMutation(CLEAR_LINK_FOCUS);
+    const [setLinkFocusMutation] = useMutation<any>(SET_LINK_FOCUS);
+    const [clearLinkFocusMutation] = useMutation<any>(CLEAR_LINK_FOCUS);
 
     // Derive focus state from live query
     const { linkFocusNodeId, linkFocusNodeLabel } = useMemo(() => {
@@ -423,17 +224,17 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     }, [clearLinkFocusMutation]);
 
     // GraphQL for custom edges - use polling for real-time updates
-    const { data: customEdgesData, refetch: refetchCustomEdges } = useQuery(GET_CUSTOM_GRAPH_EDGES, {
-        pollInterval: 15000,
+    const { data: customEdgesData, refetch: refetchCustomEdges } = useQuery<any>(GET_CUSTOM_GRAPH_EDGES, {
+        pollInterval: pageVisible ? 15000 : 0,
         fetchPolicy: 'cache-and-network',
         nextFetchPolicy: 'cache-first'
     });
 
-    const [createCustomNodeMutation] = useMutation(CREATE_CUSTOM_GRAPH_NODE);
-    const [updateCustomNodeMutation] = useMutation(UPDATE_CUSTOM_GRAPH_NODE);
-    const [deleteCustomNodeMutation] = useMutation(DELETE_CUSTOM_GRAPH_NODE);
-    const [createCustomEdgeMutation] = useMutation(CREATE_CUSTOM_GRAPH_EDGE);
-    const [deleteCustomEdgeMutation] = useMutation(DELETE_CUSTOM_GRAPH_EDGE);
+    const [createCustomNodeMutation] = useMutation<any>(CREATE_CUSTOM_GRAPH_NODE);
+    const [updateCustomNodeMutation] = useMutation<any>(UPDATE_CUSTOM_GRAPH_NODE);
+    const [deleteCustomNodeMutation] = useMutation<any>(DELETE_CUSTOM_GRAPH_NODE);
+    const [createCustomEdgeMutation] = useMutation<any>(CREATE_CUSTOM_GRAPH_EDGE);
+    const [deleteCustomEdgeMutation] = useMutation<any>(DELETE_CUSTOM_GRAPH_EDGE);
 
     // Sync custom nodes from GraphQL (agentstorage)
     useEffect(() => {
@@ -445,7 +246,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 const parsedNodes = parseAgentStorageResults(customNodesData.agentstorage);
                 log(' Parsed nodes:', parsedNodes);
                 
-                const nodes = parsedNodes.map((node: Record<string, unknown>) => ({
+                const nodes = parsedNodes.map((node: any) => ({
                     id: `custom-${node.id}`,
                     db_id: node.id,
                     display_id: node.id, // Add display_id for compatibility
@@ -671,7 +472,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         }
     };
     
-    const openEditCustomNode = (node: Record<string, unknown>) => {
+    const openEditCustomNode = (node: any) => {
         setEditCustomNodeModal(node);
         setCustomNodeForm({
             host: node.host,
@@ -732,7 +533,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         }
     };
     
-    const handleDeleteCustomNode = async (node: Record<string, unknown>) => {
+    const handleDeleteCustomNode = async (node: any) => {
         try {
             const unique_id = generateUniqueId(node.db_id);
             
@@ -744,8 +545,8 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
 
             if (result.data?.delete_agentstorage?.affected_rows > 0) {
                 // Remove edges connected to this custom node (local only)
-                setCustomEdges(
-                    customEdges.filter(
+                setCustomEdges(prev =>
+                    prev.filter(
                         (edge) => edge.source !== node.id && edge.target !== node.id
                     )
                 );
@@ -779,20 +580,33 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 snackActions.error('Invalid import data format');
                 return;
             }
+
+            // ── Input validation ──
+            const MAX_IMPORT_NODES = 200;
+            const MAX_STRING_LEN = 500;
+            if (importObj.customNodes.length > MAX_IMPORT_NODES) {
+                snackActions.error(`Import limited to ${MAX_IMPORT_NODES} nodes`);
+                return;
+            }
+            const sanitise = (v: unknown, fallback: string) => {
+                if (typeof v !== 'string') return fallback;
+                return v.slice(0, MAX_STRING_LEN).replace(/[<>"']/g, '');
+            };
             
             // Create each imported node in the DB
             let createdCount = 0;
             const existingNodes = customNodesData?.agentstorage ? parseAgentStorageResults(customNodesData.agentstorage) : [];
             let importNextId = generateNextId(existingNodes);
             for (const node of importObj.customNodes) {
+                if (typeof node !== 'object' || node === null) continue;
                 try {
                     const { unique_id, data } = prepareCreateNodeData({
-                        hostname: node.host || node.hostname || 'Imported Node',
-                        ip_address: node.ip || node.ip_address || '0.0.0.0',
-                        operating_system: node.os || node.operating_system || 'Unknown',
-                        architecture: node.architecture || 'x64',
-                        username: node.user || node.username || undefined,
-                        description: node.description || undefined,
+                        hostname: sanitise(node.host || node.hostname, 'Imported Node'),
+                        ip_address: sanitise(node.ip || node.ip_address, '0.0.0.0'),
+                        operating_system: sanitise(node.os || node.operating_system, 'Unknown'),
+                        architecture: sanitise(node.architecture, 'x64'),
+                        username: sanitise(node.user || node.username, '') || undefined,
+                        description: sanitise(node.description, '') || undefined,
                         hidden: false,
                     }, importNextId++);
                     await createCustomNodeMutation({ variables: { unique_id, data } });
@@ -802,11 +616,16 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 }
             }
             
-            // Import custom edges (local merge)
+            // Import custom edges (local merge — validate shape)
             if (importObj.customEdges && Array.isArray(importObj.customEdges)) {
-                const existingEdgeIds = new Set(customEdges.map((e: Record<string, unknown>) => e.id));
-                const newEdges = importObj.customEdges.filter((e: Record<string, unknown>) => !existingEdgeIds.has(e.id));
-                setCustomEdges([...customEdges, ...newEdges]);
+                const validEdges = importObj.customEdges.filter(
+                    (e: unknown) => typeof e === 'object' && e !== null && typeof (e as Record<string, unknown>).id === 'string'
+                );
+                setCustomEdges(prev => {
+                    const existingEdgeIds = new Set(prev.map((e: Record<string, unknown>) => e.id));
+                    const newEdges = validEdges.filter((e: Record<string, unknown>) => !existingEdgeIds.has(e.id));
+                    return [...prev, ...newEdges];
+                });
             }
             
             await refetchCustomNodes();
@@ -865,9 +684,9 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     username: sourceNode.user !== 'N/A' ? sourceNode.user : undefined,
                     description: sourceNode.description,
                     hidden: sourceNode.isHidden,
-                    parent_id: isDestCustom ? selectedDestination.db_id : selectedDestination.id,
+                    parent_id: (isDestCustom ? selectedDestination.db_id : selectedDestination.id) as string | number,
                     parent_type: isDestCustom ? 'custom' : 'callback',
-                    c2profile: selectedProfile.name
+                    c2profile: selectedProfile.name as string
                 });
                 
                 log('[handleSetParent] Updating with parent_id:', isDestCustom ? selectedDestination.db_id : selectedDestination.display_id);
@@ -911,8 +730,10 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 
                 log('[handleSetParent] Saving edge to database:', newEdge);
                 
-                // Delete ALL existing edges from this callback (query from current edges data)
-                const existingEdgesFromCallback = customEdges.filter(e => e.source === String(setParentModal.id));
+                // Delete ALL existing edges from this callback (read from ref, not setter)
+                const existingEdgesFromCallback = customEdgesRef.current.filter(
+                    (e: Record<string, unknown>) => e.source === String(setParentModal.id)
+                );
                 log('[handleSetParent] Found', existingEdgesFromCallback.length, 'existing edges to remove');
                 
                 for (const edge of existingEdgesFromCallback) {
@@ -927,14 +748,11 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     }
                 }
                 
-                // Small delay to ensure deletion completes
-                await new Promise(resolve => setTimeout(resolve, 100));
-                
                 // Save to database
                 const result = await createCustomEdgeMutation({
                     variables: {
                         unique_id: generateEdgeUniqueId(edgeId),
-                        data: serializeEdgeData(newEdge)
+                        data: serializeEdgeData(newEdge as any)
                     }
                 });
                 
@@ -958,7 +776,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             // First, remove any existing edges where this callback is the source
             if (edgesData?.callbackgraphedge) {
                 const existingEdges = edgesData.callbackgraphedge.filter(
-                    (e: Record<string, unknown>) => e.source?.id === setParentModal.id && !e.end_timestamp
+                    (e: any) => e.source?.id === setParentModal.id && !e.end_timestamp
                 );
                 
                 // Remove each existing edge
@@ -1012,7 +830,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         // Then check database edges
         if (!edgesData?.callbackgraphedge) return null;
         return edgesData.callbackgraphedge.find(
-            (e: Record<string, unknown>) => e.source?.id === callbackId && !e.end_timestamp
+            (e: any) => e.source?.id === callbackId && !e.end_timestamp
         );
     }, [edgesData, customEdges]);
 
@@ -1039,7 +857,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 
                 // Update the custom node to remove parent connection
                 const { unique_id, data } = prepareUpdateNodeData({
-                    id: callback.db_id,
+                    id: callback.db_id as number,
                     hostname: callback.host,
                     ip_address: callback.ip,
                     operating_system: callback.os,
@@ -1120,8 +938,8 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         selectedNodeIds.current.clear();
         setEdges(eds => eds.map(e => ({
             ...e,
-            animated: (e.data as any)?.origAnimated ?? e.animated,
-            style: (e.data as any)?.origStyle ? { ...(e.data as any).origStyle } : e.style,
+            animated: (e.data as GraphEdgeData)?.origAnimated ?? e.animated,
+            style: (e.data as GraphEdgeData)?.origStyle ? { ...(e.data as GraphEdgeData).origStyle } : e.style,
         })));
         setNodes(nds => nds.map(n => ({
             ...n,
@@ -1182,7 +1000,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     ...e,
                     animated: true,
                     style: {
-                        ...((e.data as any)?.origStyle || e.style),
+                        ...((e.data as GraphEdgeData)?.origStyle || e.style),
                         strokeWidth: 3,
                         opacity: 1,
                         filter: 'drop-shadow(0 0 4px #22c55e)',
@@ -1193,7 +1011,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 ...e,
                 animated: false,
                 style: {
-                    ...((e.data as any)?.origStyle || e.style),
+                    ...((e.data as GraphEdgeData)?.origStyle || e.style),
                     opacity: 0.12,
                 },
             };
@@ -1254,287 +1072,18 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             }, 3000); // Allow 3 seconds for initial animations
             return () => clearTimeout(timeout);
         }
+        return undefined;
     }, [callbacksData, isInitialRender]);
 
     // Transform data to React Flow format
     const graphData = useMemo(() => {
-        // Get callbacks array safely (empty array if loading/undefined)
-        const callbacks = callbacksData?.callback || [];
-        
-        // Only return empty if BOTH are truly empty (not during loading)
-        // If we have previous data and current is empty, return previous to prevent flickering
-        if (callbacks.length === 0 && customNodes.length === 0) {
-            // If we have cached data, return it during loading/refetch
-            if (prevGraphDataRef.current.nodes.length > 0) {
-                return prevGraphDataRef.current;
-            }
-            return { nodes: [], edges: [] };
-        }
-
-        // Filter callbacks based on showHiddenNodes toggle
-        let visibleCallbacks = showHiddenNodes 
-            ? [...callbacks]
-            : callbacks.filter((c: Callback) => c.active !== false);
-
-        // Apply filterCallbackIds (from Callbacks.tsx column filters)
-        if (filterCallbackIds && filterCallbackIds.size > 0) {
-            visibleCallbacks = visibleCallbacks.filter((c: Callback) => filterCallbackIds.has(String(c.display_id)));
-        }
-
-        // Apply groupBy sorting so related callbacks cluster together in layout
-        if (groupBy !== 'None') {
-            visibleCallbacks = [...visibleCallbacks].sort((a: Callback, b: Callback) => {
-                const av = String(a[groupBy] ?? '');
-                const bv = String(b[groupBy] ?? '');
-                return av.localeCompare(bv);
-            });
-        }
-        
-        // ── Merge by host: group callbacks per machine, keep best representative ──
-        let mergedCallbacks = visibleCallbacks;
-        // Maps merged representative id → all original callback ids (for edge remapping)
-        const mergedIdMap = new Map<string, string[]>();
-        if (mergeByHost && visibleCallbacks.length > 0) {
-            const privLevel = (c: Callback) => {
-                const il = Number(c.integrity_level ?? 0);
-                if (il >= 4) return 4; // SYSTEM / root
-                if (il === 3) return 3; // Admin
-                if (il === 2) return 2; // User
-                return 1;
-            };
-            const byHost = new Map<string, any[]>();
-            for (const c of visibleCallbacks) {
-                const key = (c.host || '').toLowerCase();
-                if (!byHost.has(key)) byHost.set(key, []);
-                byHost.get(key)!.push(c);
-            }
-            mergedCallbacks = [];
-            for (const [, group] of byHost) {
-                // Sort: alive first → highest privilege → newest
-                group.sort((a: Callback, b: Callback) => {
-                    const aAlive = isCallbackAlive(a) ? 1 : 0;
-                    const bAlive = isCallbackAlive(b) ? 1 : 0;
-                    if (bAlive !== aAlive) return bAlive - aAlive;
-                    const ap = privLevel(a), bp = privLevel(b);
-                    if (bp !== ap) return bp - ap;
-                    return Number(b.display_id ?? 0) - Number(a.display_id ?? 0);
-                });
-                const rep = { ...group[0], _hostSessions: group };
-                mergedCallbacks.push(rep);
-                mergedIdMap.set(String(rep.id), group.map((c: Callback) => String(c.id)));
-            }
-        }
-
-        const allCallbacks = [...mergedCallbacks, ...customNodes];
-
-        const flowNodes: Node[] = allCallbacks.map((c: Callback, index: number) => {
-            const nodeId = String(c.id);
-            const isNewNode = !seenNodeIds.current.has(nodeId);
-
-            // Calculate animation delay: only animate on initial render or for new nodes
-            let animationDelay = 0;
-            if (isInitialRender) {
-                // During initial render, stagger all nodes from center outward
-                animationDelay = 0.3 + (index * 0.08); // 0.8/0.15 -> 0.3/0.08
-            } else if (isNewNode) {
-                // New nodes after initial render get a quick animation
-                animationDelay = 0.1;
-            }
-
-            // Mark node as seen
-            seenNodeIds.current.add(nodeId);
-
-            return {
-                id: nodeId,
-                type: 'custom',
-                sourcePosition: Position.Bottom,
-                targetPosition: Position.Top,
-                position: { x: 0, y: 0 },
-                data: {
-                    callback_id: c.id,
-                    display_id: c.display_id,
-                    db_id: c.db_id, // For custom nodes
-                    user: c.user,
-                    host: c.host,
-                    ip: c.isCustom ? c.ip : (() => { try { return JSON.parse(c.ip)[0] } catch(e) { return c.ip } })(),
-                    integrity_level: c.integrity_level,
-                    payloadType: c.payloadType || c.payload?.payloadtype?.name || '',
-                    os: c.os,
-                    last_checkin: c.last_checkin,
-                    pid: c.pid,
-                    architecture: c.architecture,
-                    domain: c.domain,
-                    description: c.description,
-                    locked: c.locked,
-                    sleep_info: c.sleep_info,
-                    animationDelay: animationDelay,
-                    isNewNode: isNewNode || isInitialRender,
-                    label: `${c.isCustom ? 'Custom Node' : 'Callback'} ${c.display_id}`,
-                    onContextMenu: handleContextMenu,
-                    isCustom: c.isCustom || false,
-                    process_name: c.process_name || '',
-                    // C2 profiles for this callback (for edge labels)
-                    c2profiles: c.callbackc2profiles?.map((cp: { c2profile: { name: string; is_p2p: boolean } }) => cp.c2profile?.name).filter(Boolean) || [],
-                    // Configurable node labels to display
-                    nodeLabels: nodeLabels,
-                    // Host-merged sessions (only present when mergeByHost is on)
-                    hostSessions: c._hostSessions || null,
-                },
-            };
+        const result = buildGraphData({
+            callbacksData, edgesData, allEdgesData, showAllEdges, packetFlowView,
+            nodeLabels, groupBy, filterCallbackIds, handleContextMenu, isInitialRender,
+            customNodes, showHiddenNodes, customEdges, mergeByHost,
+            seenNodeIds: seenNodeIds.current,
+            prevGraphData: prevGraphDataRef.current,
         });
-
-        // Add "Minerva" root node
-        flowNodes.push({
-            id: 'root',
-            type: 'root',
-            sourcePosition: Position.Bottom,
-            targetPosition: Position.Top,
-            data: { label: 'Minerva C2' },
-            position: { x: 400, y: 50 },
-        });
-
-        const flowEdges: Edge[] = [];
-        
-        // Add edges from database
-        // In Mythic: e.source = child (further from root), e.destination = parent (closer to root)
-        // packetFlowView=true (default): arrows show packet flow child→root (egress direction)
-        // packetFlowView=false: arrows show connection direction parent→child (connection view)
-        const activeEdgesSource = showAllEdges ? allEdgesData : edgesData;
-        if (activeEdgesSource?.callbackgraphedge) {
-            activeEdgesSource.callbackgraphedge.forEach((e: Record<string, unknown>) => {
-                const isActive = !e.end_timestamp;
-                if ((!showAllEdges && !isActive) || !e.source || !e.destination) return;
-                // packetFlowView: show how packets flow (child sends to parent = egress)
-                const [edgeSrc, edgeTgt] = packetFlowView
-                    ? [String(e.source.id), String(e.destination.id)]  // child→parent (packet egress)
-                    : [String(e.destination.id), String(e.source.id)]; // parent→child (connection view)
-                flowEdges.push({
-                    id: `e${e.destination.id}-${e.source.id}`,
-                    source: edgeSrc,
-                    target: edgeTgt,
-                    type: 'c2label',
-                    animated: isActive,
-                    style: {
-                        stroke: isActive ? '#22c55e' : '#ef4444',
-                        strokeWidth: 2,
-                        strokeDasharray: isActive ? undefined : '6,4',
-                        opacity: isActive ? 1 : 0.6,
-                    },
-                    label: e.c2profile?.name || 'Linked',
-                    data: {
-                        origStyle: {
-                            stroke: isActive ? '#22c55e' : '#ef4444',
-                            strokeWidth: 2,
-                            strokeDasharray: isActive ? undefined : '6,4',
-                            opacity: isActive ? 1 : 0.6,
-                        },
-                        origAnimated: isActive,
-                    }
-                });
-            });
-        }
-        
-        // Add custom edges (for custom nodes)
-        // Custom edges follow same convention: e.source = child, e.target = parent
-        // Swap to parent→child for left→right layout
-        customEdges.forEach((e: Record<string, unknown>) => {
-            flowEdges.push({
-                id: e.id,
-                source: String(e.target), // parent (closer to root, on left)
-                target: String(e.source), // child (further from root, on right)
-                animated: false,
-                style: { stroke: '#ffffff', strokeWidth: 2 }, // White straight line
-                // No markerEnd — no arrow, just a straight line
-                label: e.c2profile || 'Custom',
-                data: {
-                    origStyle: { stroke: '#ffffff', strokeWidth: 2 },
-                    origAnimated: false,
-                }
-            });
-        });
-
-        // When mergeByHost is active, remap edges so they point to representative nodes
-        if (mergeByHost && mergedIdMap.size > 0) {
-            // Build reverse map: original callback id → representative id
-            const childToRep = new Map<string, string>();
-            for (const [repId, childIds] of mergedIdMap) {
-                for (const cid of childIds) {
-                    if (cid !== repId) childToRep.set(cid, repId);
-                }
-            }
-            // Remap edge endpoints and deduplicate
-            const seen = new Set<string>();
-            for (let i = flowEdges.length - 1; i >= 0; i--) {
-                const e = flowEdges[i];
-                if (childToRep.has(e.source)) e.source = childToRep.get(e.source)!;
-                if (childToRep.has(e.target)) e.target = childToRep.get(e.target)!;
-                // Remove self-loops and duplicates
-                const key = `${e.source}->${e.target}`;
-                if (e.source === e.target || seen.has(key)) {
-                    flowEdges.splice(i, 1);
-                } else {
-                    seen.add(key);
-                }
-            }
-        }
-
-        // Get all visible node IDs (excluding root)
-        const visibleNodeIds = new Set(flowNodes.filter(n => n.id !== 'root').map(n => n.id));
-        
-        // Find nodes that have a parent connection to another VISIBLE callback
-        // After direction swap: source=parent, target=child
-        // So target nodes are the ones WITH a parent
-        const nodesWithParent = new Set(
-            flowEdges
-                .filter(e => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target) && e.source !== e.target)
-                .map(e => e.target)
-        );
-
-        // Only add Minerva connection for nodes that DON'T have a parent connection
-        flowNodes
-            .filter(n => n.id !== 'root')
-            .forEach((n) => {
-                // Skip if this node already has a parent (is a source in any edge to another visible node)
-                if (nodesWithParent.has(n.id)) {
-                    return;
-                }
-
-                // Check if recent checkin (< 5s)
-                let isRecent = false;
-                let timestamp = '';
-                if (n.data?.last_checkin) {
-                    try {
-                        const lastCheckin = String(n.data.last_checkin);
-                        const timeStr = lastCheckin.endsWith('Z') ? lastCheckin : `${lastCheckin}Z`;
-                        timestamp = timeStr;
-                        const last = new Date(timeStr).getTime();
-                        const now = new Date().getTime();
-                        const diff = (now - last) / 1000;
-                        if (diff < 5) isRecent = true;
-                    } catch(e) {}
-                }
-
-                // Get C2 profile names for this callback
-                const c2Profiles = Array.isArray(n.data?.c2profiles) ? n.data.c2profiles : [];
-                const c2Label = c2Profiles.length > 0 ? c2Profiles.join(', ') : '';
-
-                flowEdges.push({
-                    id: `root-${n.id}`,
-                    source: 'root',
-                    target: n.id,
-                    type: 'pulse',
-                    animated: false,
-                    style: { stroke: '#ffffff', strokeWidth: 2 },
-                    label: c2Label,
-                    labelStyle: { fill: '#a0aec0', fontSize: 11, fontWeight: 500 },
-                    labelBgStyle: { fill: 'rgba(0, 0, 0, 0.6)', fillOpacity: 0.8 },
-                    labelBgPadding: [5, 3] as [number, number],
-                    data: { active: isRecent, timestamp: timestamp, highIntegrity: Number(n.data?.integrity_level || 0) > 2, origStyle: { stroke: '#ffffff', strokeWidth: 2 }, origAnimated: false }
-                });
-            });
-
-        const result = { nodes: flowNodes, edges: flowEdges };
-        // Cache the result for use during loading/refetch states
         prevGraphDataRef.current = result;
         return result;
     }, [callbacksData, edgesData, allEdgesData, showAllEdges, packetFlowView, nodeLabels, groupBy, filterCallbackIds, handleContextMenu, isInitialRender, customNodes, showHiddenNodes, customEdges, mergeByHost]);
@@ -1554,7 +1103,11 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         if (graphData.nodes.length === 0) return;
         let cancelled = false;
 
-        getElkLayoutedElements(graphData.nodes, graphData.edges, layoutDir).then(({ nodes: layoutedNodes, edges: layoutedEdges }) => {
+        getElkLayoutedElements(graphData.nodes, graphData.edges, layoutDir).catch((err) => {
+            if (!cancelled) console.error('[Minerva] ELK layout failed:', err);
+        }).then((result) => {
+            if (!result) return;
+            const { nodes: layoutedNodes, edges: layoutedEdges } = result;
             if (cancelled) return;
 
             // Detect topology changes
@@ -1574,16 +1127,15 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             // Compute group bounding-box overlay nodes when groupBy is active
             const computeGroupNodes = (finalNodes: Node[]): Node[] => {
                 if (groupBy === 'None') return finalNodes.filter(n => n.type !== 'groupBound');
-                const PAD = 30, NODE_W = 275, NODE_H = 100;
                 const bounds = new Map<string, { mnX: number; mnY: number; mxX: number; mxY: number }>();
                 finalNodes.forEach(n => {
                     if (n.id === 'root' || n.type === 'groupBound' || !n.data) return;
-                    const gv = String((n.data as any)[groupBy] ?? '(none)');
+                    const gv = String((n.data as GraphNodeData)[groupBy] ?? '(none)');
                     const b = bounds.get(gv) ?? { mnX: Infinity, mnY: Infinity, mxX: -Infinity, mxY: -Infinity };
                     b.mnX = Math.min(b.mnX, n.position.x);
                     b.mnY = Math.min(b.mnY, n.position.y);
-                    b.mxX = Math.max(b.mxX, n.position.x + NODE_W);
-                    b.mxY = Math.max(b.mxY, n.position.y + NODE_H);
+                    b.mxX = Math.max(b.mxX, n.position.x + NODE_WIDTH);
+                    b.mxY = Math.max(b.mxY, n.position.y + NODE_HEIGHT);
                     bounds.set(gv, b);
                 });
                 const groupNodes: Node[] = [];
@@ -1592,8 +1144,8 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     groupNodes.push({
                         id: `group-${gv}`,
                         type: 'groupBound',
-                        position: { x: b.mnX - PAD, y: b.mnY - PAD },
-                        style: { width: b.mxX - b.mnX + PAD * 2, height: b.mxY - b.mnY + PAD * 2, zIndex: -10, pointerEvents: 'none' as any },
+                        position: { x: b.mnX - GROUP_PAD, y: b.mnY - GROUP_PAD },
+                        style: { width: b.mxX - b.mnX + GROUP_PAD * 2, height: b.mxY - b.mnY + GROUP_PAD * 2, zIndex: -10, pointerEvents: 'none' as const },
                         data: { groupBy, groupValue: gv },
                         selectable: false,
                         draggable: false,
@@ -1602,8 +1154,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 return [...groupNodes, ...finalNodes.filter(n => n.type !== 'groupBound')];
             };
 
-            // @ts-ignore
-            setNodes(() => {
+            setNodes((_prev: Node[]) => {
                 // Apply ELK positions, then restore any user-dragged positions on top
                 const resolved = layoutedNodes.map(n => {
                     const dragged = userDraggedPositionsRef.current.get(n.id);
@@ -1611,8 +1162,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 });
                 return computeGroupNodes(resolved);
             });
-            // @ts-ignore
-            setEdges(layoutedEdges as Edge[]);
+            setEdges((_prev: Edge[]) => layoutedEdges);
         });
         return () => { cancelled = true; };
     }, [graphData, layoutDir, groupBy, setNodes, setEdges]);
@@ -1654,7 +1204,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     }, []);
 
     // ── Pane context menu handler ──
-    const onPaneContextMenu = useCallback((e: React.MouseEvent) => {
+    const onPaneContextMenu = useCallback((e: MouseEvent | React.MouseEvent) => {
         e.preventDefault();
         setPaneContextMenu({ x: e.clientX, y: e.clientY });
         setContextMenu(null);
@@ -1670,10 +1220,10 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     }, [clearGraphSelection]);
 
     // ── Manually Remove Edge ──
-    const handleOpenRemoveEdge = useCallback((callback: Callback) => {
+    const handleOpenRemoveEdge = useCallback((callback: any) => {
         const callbackId = callback.callback_id ?? callback.id;
         const activeEdges = (edgesData?.callbackgraphedge || []).filter(
-            (e: Record<string, unknown>) => !e.end_timestamp && (e.source?.id === callbackId || e.destination?.id === callbackId)
+            (e: any) => !e.end_timestamp && (e.source?.id === callbackId || e.destination?.id === callbackId)
         );
         if (activeEdges.length === 0) {
             snackActions.info('No active edges for this callback');
@@ -1717,10 +1267,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         try {
             snackActions.info('Generating SVG...');
             const dataUrl = await toSvg(el, { backgroundColor: '#050505' });
-            const link = document.createElement('a');
-            link.download = 'network_topology.svg';
-            link.href = dataUrl;
-            link.click();
+            downloadDataUrl(dataUrl, 'network_topology.svg');
         } catch (e: unknown) {
             snackActions.error('SVG export failed: ' + getErrorMessage(e));
         }
@@ -1733,69 +1280,10 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         try {
             snackActions.info('Generating image...');
             const dataUrl = await toPng(el, { backgroundColor: '#050505', pixelRatio: 2 });
-            const link = document.createElement('a');
-            link.download = 'network_topology.png';
-            link.href = dataUrl;
-            link.click();
+            downloadDataUrl(dataUrl, 'network_topology.png');
         } catch (e: unknown) {
             snackActions.error('Download failed: ' + getErrorMessage(e));
         }
-    }, []);
-
-    // ── Download BrowserScript view as SVG ──
-    const handleBsDownloadSvg = useCallback(async () => {
-        const el = bsContainerRef.current;
-        if (!el) return;
-        try {
-            snackActions.info('Generating SVG...');
-            const dataUrl = await toSvg(el, { backgroundColor: '#050505' });
-            const link = document.createElement('a');
-            link.download = 'browserscript_graph.svg';
-            link.href = dataUrl;
-            link.click();
-        } catch (e: unknown) {
-            snackActions.error('SVG export failed: ' + getErrorMessage(e));
-        }
-    }, []);
-
-    // ── BrowserScript node context-menu handler ──
-    // ── BrowserScript view event handlers ──────────────────────────────────
-    const onBsNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
-        setBsContextMenu(null);
-        setBsEdgeCtxMenu(null);
-        setBsPaneCtxMenu(null);
-        setBsSelectedNodeIds(prev => {
-            const next = new Set(prev);
-            if (event.shiftKey) {
-                // Shift+click: toggle
-                if (next.has(node.id)) { next.delete(node.id); } else { next.add(node.id); }
-            } else {
-                // Single click: select only this, or deselect if already sole selection
-                if (next.size === 1 && next.has(node.id)) { next.clear(); } else { next.clear(); next.add(node.id); }
-            }
-            return next;
-        });
-    }, []);
-
-    const onBsEdgeContextMenu = useCallback((event: React.MouseEvent, edge: Edge) => {
-        event.preventDefault();
-        setBsEdgeCtxMenu({ x: event.clientX, y: event.clientY, edgeId: edge.id });
-        setBsContextMenu(null);
-        setBsPaneCtxMenu(null);
-    }, []);
-
-    const onBsPaneContextMenu = useCallback((event: React.MouseEvent) => {
-        event.preventDefault();
-        setBsPaneCtxMenu({ x: event.clientX, y: event.clientY });
-        setBsContextMenu(null);
-        setBsEdgeCtxMenu(null);
-    }, []);
-
-    const onBsNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
-        event.preventDefault();
-        setBsContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
-        setBsEdgeCtxMenu(null);
-        setBsPaneCtxMenu(null);
     }, []);
 
     return (
@@ -1890,124 +1378,15 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
 
                 {/* Config Panel */}
                 {showConfigPanel && (
-                    <div className="bg-black/95 border border-signal/40 rounded p-3 w-64 flex flex-col gap-3 backdrop-blur-xl shadow-xl shadow-black/60 text-xs font-mono">
-                        <div className="text-signal font-bold tracking-widest border-b border-signal/20 pb-2">GRAPH_CONFIG</div>
-
-                        {/* Layout Direction */}
-                        <div className="flex flex-col gap-1">
-                            <span className="text-gray-400 text-[11px]">LAYOUT_DIRECTION</span>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setLayoutDir('LR')}
-                                    className={`flex items-center gap-1 px-3 py-1.5 border rounded flex-1 justify-center ${layoutDir === 'LR' ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-500 hover:border-signal/30 hover:text-signal/60'}`}
-                                >
-                                    <ArrowLeftRight size={12} /> LR
-                                </button>
-                                <button
-                                    onClick={() => setLayoutDir('TB')}
-                                    className={`flex items-center gap-1 px-3 py-1.5 border rounded flex-1 justify-center ${layoutDir === 'TB' ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-500 hover:border-signal/30 hover:text-signal/60'}`}
-                                >
-                                    <ArrowUpDown size={12} /> TB
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Edge Visibility */}
-                        <div className="flex flex-col gap-1">
-                            <span className="text-gray-400 text-[11px]">EDGE_VISIBILITY</span>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setShowAllEdges(false)}
-                                    className={`flex items-center gap-1 px-3 py-1.5 border rounded flex-1 justify-center ${!showAllEdges ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-500 hover:border-signal/30 hover:text-signal/60'}`}
-                                >
-                                    <Wifi size={12} /> ACTIVE
-                                </button>
-                                <button
-                                    onClick={() => setShowAllEdges(true)}
-                                    className={`flex items-center gap-1 px-3 py-1.5 border rounded flex-1 justify-center ${showAllEdges ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-500 hover:border-signal/30 hover:text-signal/60'}`}
-                                >
-                                    <RefreshCw size={12} /> ALL
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Packet Flow View */}
-                        <div className="flex items-center justify-between">
-                            <span className="text-gray-400 text-[11px]">PACKET_FLOW_VIEW</span>
-                            <button
-                                onClick={() => setPacketFlowView(p => !p)}
-                                className={`flex items-center gap-1 px-3 py-1.5 border rounded ${packetFlowView ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-500 hover:border-signal/30 hover:text-signal/60'}`}
-                            >
-                                <Zap size={12} />
-                                {packetFlowView ? 'ON' : 'OFF'}
-                            </button>
-                        </div>
-
-                        {/* Merge By Host */}
-                        <div className="flex items-center justify-between">
-                            <span className="text-gray-400 text-[11px]">MERGE_BY_HOST</span>
-                            <button
-                                onClick={() => setMergeByHost(p => !p)}
-                                className={`flex items-center gap-1 px-3 py-1.5 border rounded ${mergeByHost ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-500 hover:border-signal/30 hover:text-signal/60'}`}
-                            >
-                                <Monitor size={12} />
-                                {mergeByHost ? 'ON' : 'OFF'}
-                            </button>
-                        </div>
-
-                        {/* Group By */}
-                        <div className="flex flex-col gap-1">
-                            <span className="text-gray-400 text-[11px]">GROUP_BY</span>
-                            <div className="relative">
-                                <select
-                                    value={groupBy}
-                                    onChange={e => setGroupBy(e.target.value)}
-                                    className="w-full bg-black border border-signal/30 text-signal text-xs font-mono px-2 py-1.5 rounded appearance-none pr-6 focus:outline-none focus:border-signal/60"
-                                >
-                                    {['None','host','user','ip','domain','os','process_name'].map(v => (
-                                        <option key={v} value={v}>{v.toUpperCase()}</option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-signal/60 pointer-events-none" />
-                            </div>
-                        </div>
-
-                        {/* Node Labels */}
-                        <div className="flex flex-col gap-1">
-                            <span className="text-gray-400 text-[11px]">NODE_LABELS</span>
-                            <div className="flex flex-wrap gap-1">
-                                {['host','ip','display_id','user','domain','os','pid','description','architecture'].map(lbl => {
-                                    const active = nodeLabels.includes(lbl);
-                                    return (
-                                        <button
-                                            key={lbl}
-                                            onClick={() => setNodeLabels(prev => active ? prev.filter(x => x !== lbl) : [...prev, lbl])}
-                                            className={`flex items-center gap-1 px-2 py-1 border rounded text-[10px] ${active ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-600 hover:border-signal/30 hover:text-signal/50'}`}
-                                        >
-                                            {active ? <CheckSquare size={10} /> : <Square size={10} />}
-                                            {lbl}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        {/* Download */}
-                        <div className="border-t border-signal/10 pt-2 flex flex-col gap-1">
-                            <button
-                                onClick={handleDownloadPNG}
-                                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-black border border-white/10 text-gray-400 hover:border-signal/40 hover:text-signal rounded text-[11px] font-mono transition-colors"
-                            >
-                                <Camera size={12} /> DOWNLOAD PNG
-                            </button>
-                            <button
-                                onClick={handleDownloadSVG}
-                                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-black border border-white/10 text-gray-400 hover:border-blue-400/40 hover:text-blue-400 rounded text-[11px] font-mono transition-colors"
-                            >
-                                <FileImage size={12} /> DOWNLOAD SVG
-                            </button>
-                        </div>
-                    </div>
+                    <GraphConfigPanel
+                        layoutDir={layoutDir} setLayoutDir={setLayoutDir}
+                        showAllEdges={showAllEdges} setShowAllEdges={setShowAllEdges}
+                        packetFlowView={packetFlowView} setPacketFlowView={setPacketFlowView}
+                        mergeByHost={mergeByHost} setMergeByHost={setMergeByHost}
+                        groupBy={groupBy} setGroupBy={setGroupBy}
+                        nodeLabels={nodeLabels} setNodeLabels={setNodeLabels}
+                        onDownloadPNG={handleDownloadPNG} onDownloadSVG={handleDownloadSVG}
+                    />
                 )}
             </div>
             
@@ -2077,279 +1456,22 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             </ReactFlow>
             )}
 
-            {graphViewMode === 'BROWSERSCRIPTS' && (
-            <div ref={bsContainerRef} className="absolute inset-0">
-
-            {/* Large graph guard — ≥50 nodes hidden by default */}
-            {bsElkData.nodes.length >= 50 && !bsShowLargeGraph ? (
-                <div className="absolute inset-0 flex items-center justify-center z-10">
-                    <div className="border border-yellow-500/40 bg-black/90 px-8 py-6 text-center font-mono">
-                        <div className="text-yellow-400 text-sm mb-1">LARGE_GRAPH_DETECTED</div>
-                        <div className="text-gray-500 text-xs mb-4">{bsElkData.nodes.length} nodes · {bsElkData.edges.length} edges</div>
-                        <button
-                            onClick={() => setBsShowLargeGraph(true)}
-                            className="px-4 py-2 bg-cyan-500/20 border border-cyan-500/50 text-cyan-400 text-xs hover:bg-cyan-500/30 transition-colors">
-                            SHOW_GRAPH
-                        </button>
-                    </div>
-                </div>
-            ) : (
-            <ReactFlow
-                nodes={bsFinalDisplayData.nodes}
-                edges={bsFinalDisplayData.edges}
-                nodeTypes={nodeTypes}
-                proOptions={{ hideAttribution: true }}
-                fitView
-                fitViewOptions={{ padding: 0.4, minZoom: 0.05, maxZoom: 2 }}
-                className="bg-transparent"
-                minZoom={0.05}
-                maxZoom={4}
-                zoomOnScroll={true}
-                panOnScroll={true}
-                zoomOnDoubleClick={false}
-                onNodeClick={onBsNodeClick}
-                onNodeDoubleClick={(_e, node) => {
-                    if (node.id.startsWith('cb-')) {
-                        navigate(`/console/${(node.data as any).displayId}`);
-                    }
+            <BrowserScriptView
+                active={graphViewMode === 'BROWSERSCRIPTS'}
+                onRemoveEdge={(cbInfo) => {
+                    handleOpenRemoveEdge(cbInfo);
                 }}
-                onNodeContextMenu={onBsNodeContextMenu}
-                onEdgeContextMenu={onBsEdgeContextMenu}
-                onPaneContextMenu={onBsPaneContextMenu}
-                onPaneClick={() => {
-                    setBsContextMenu(null);
-                    setBsEdgeCtxMenu(null);
-                    setBsPaneCtxMenu(null);
-                    setBsSelectedNodeIds(new Set());
+                onAddP2PEdge={(cbInfo) => {
+                    setManuallyAddEdgeModal(cbInfo);
+                    setAddEdgeSelectedProfile(null);
+                    setAddEdgeSelectedDest(null);
+                    setAddEdgeDestOptions([]);
                 }}
-            >
-                <Background color="#111" gap={20} className="opacity-30" />
-                {bsFinalDisplayData.nodes.filter((n: Record<string, unknown>) => n.type !== 'groupBound').length === 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="text-gray-600 text-sm font-mono border border-gray-800 px-6 py-4 bg-black/60">
-                            {bsHiddenNodeIds.size > 0 ? 'ALL_NODES_HIDDEN' : 'NO_BROWSERSCRIPTS_LOADED'}
-                        </div>
-                    </div>
-                )}
-            </ReactFlow>
-            )}
-
-            {/* BS Floating Controls Toolbar */}
-            <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-1.5 pointer-events-auto">
-                <button
-                    onClick={handleBsDownloadSvg}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-black/90 border border-cyan-500/30 text-cyan-400 text-xs font-mono hover:bg-cyan-500/10 hover:border-cyan-500/50 rounded transition-colors"
-                    title="Export SVG">
-                    <FileImage size={11} /> SVG
-                </button>
-                <button
-                    onClick={() => setBsLayoutDir(d => d === 'LR' ? 'TB' : 'LR')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-black/90 border border-cyan-500/30 text-cyan-400 text-xs font-mono hover:bg-cyan-500/10 hover:border-cyan-500/50 rounded transition-colors"
-                    title={bsLayoutDir === 'LR' ? 'Switch to Top-Bottom' : 'Switch to Left-Right'}>
-                    {bsLayoutDir === 'LR' ? <ArrowUpDown size={11} /> : <ArrowLeftRight size={11} />}
-                    {bsLayoutDir === 'LR' ? 'TB' : 'LR'}
-                </button>
-                {bsHiddenNodeIds.size > 0 && (
-                    <button
-                        onClick={() => setBsHiddenNodeIds(new Set())}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-black/90 border border-cyan-500/30 text-cyan-400 text-xs font-mono hover:bg-cyan-500/10 hover:border-cyan-500/50 rounded transition-colors"
-                        title="Revert all hidden">
-                        <Eye size={11} /> REVERT
-                    </button>
-                )}
-                <div className="relative">
-                    <select
-                        value={bsGroupBy}
-                        onChange={e => setBsGroupBy(e.target.value)}
-                        className="w-full bg-black/90 border border-cyan-500/30 text-cyan-400 text-xs font-mono px-2 py-1.5 rounded appearance-none pr-5 focus:outline-none focus:border-cyan-500/60"
-                        title="Group by field">
-                        {['None','host','user','ip','domain','os'].map(v => (
-                            <option key={v} value={v}>{v === 'None' ? 'GROUP_BY' : v.toUpperCase()}</option>
-                        ))}
-                    </select>
-                    <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-cyan-400/60 pointer-events-none" />
-                </div>
-            </div>
-
-            {/* Node context menu */}
-            {bsContextMenu && createPortal(
-                <div
-                    style={{ position: 'fixed', top: bsContextMenu.y, left: bsContextMenu.x, zIndex: 9999 }}
-                    className="bg-[#0a0a0a] border border-cyan-500/30 rounded shadow-lg py-1 min-w-[180px]"
-                    onClick={e => e.stopPropagation()}
-                >
-                    {/* Resolve node data & callback info */}
-                    {(() => {
-                        const nd = bsFinalDisplayData.nodes.find((n: Record<string, unknown>) => n.id === bsContextMenu.nodeId)?.data;
-                        const isCbNode = bsContextMenu.nodeId.startsWith('cb-');
-                        const cbIntId = isCbNode ? parseInt(bsContextMenu.nodeId.replace('cb-', ''), 10) : null;
-                        const cbInfo = (isCbNode && cbIntId != null)
-                            ? { callback_id: cbIntId, display_id: nd?.displayId, host: nd?.host || '' }
-                            : null;
-                        return (
-                            <>
-                                {/* Header */}
-                                {nd && (
-                                    <div className="px-3 py-1.5 border-b border-cyan-500/10 mb-0.5">
-                                        <div className="text-[10px] font-mono text-cyan-500/50">
-                                            {isCbNode ? `CALLBACK #${nd.displayId}` : nd.name || nd.label || 'SCRIPT'}
-                                        </div>
-                                        {isCbNode && nd.host && <div className="text-[10px] font-mono text-gray-600">{nd.host}</div>}
-                                    </div>
-                                )}
-                                {/* data.buttons[] — dynamic action buttons */}
-                                {nd?.buttons?.map((btn: { name?: string; type?: string; ui_feature?: string }, i: number) => {
-                                    if (btn.type === 'interact') return (
-                                        <button key={i}
-                                            className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 flex items-center gap-2"
-                                            onClick={() => { navigate(`/console/${btn.displayId}`); setBsContextMenu(null); }}>
-                                            <Terminal size={11} /> {btn.label || 'Interact'}
-                                        </button>
-                                    );
-                                    return null;
-                                })}
-                                {/* Hide / Show controls */}
-                                <div className="h-px bg-white/10 my-0.5" />
-                                <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 flex items-center gap-2"
-                                    onClick={() => {
-                                        setBsHiddenNodeIds(prev => { const s = new Set(prev); s.add(bsContextMenu.nodeId); return s; });
-                                        setBsContextMenu(null);
-                                    }}>
-                                    <EyeOff size={11} /> Hide Node
-                                </button>
-                                {bsSelectedNodeIds.size > 0 && (
-                                    <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 flex items-center gap-2"
-                                        onClick={() => {
-                                            const toHide = new Set<string>(
-                                                bsVisibleGraphData.nodes
-                                                    .filter((n: Record<string, unknown>) => !bsSelectedNodeIds.has(n.id))
-                                                    .map((n: Record<string, unknown>) => n.id)
-                                            );
-                                            setBsHiddenNodeIds(prev => new Set([...prev, ...toHide]));
-                                            setBsSelectedNodeIds(new Set());
-                                            setBsContextMenu(null);
-                                        }}>
-                                        <Eye size={11} /> Show Only Selected
-                                    </button>
-                                )}
-                                {bsHiddenNodeIds.size > 0 && (
-                                    <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 flex items-center gap-2"
-                                        onClick={() => { setBsHiddenNodeIds(new Set()); setBsContextMenu(null); }}>
-                                        <Eye size={11} /> Revert Hidden
-                                    </button>
-                                )}
-                                {/* Edge operations — only for callback nodes (cb-*) */}
-                                {cbInfo && (
-                                    <>
-                                        <div className="h-px bg-white/10 my-0.5" />
-                                        {/* Remove Edge */}
-                                        <button
-                                            className="w-full text-left px-3 py-1.5 text-xs font-mono text-orange-400 hover:bg-orange-900/20 hover:text-orange-300 flex items-center gap-2"
-                                            onClick={() => {
-                                                handleOpenRemoveEdge(cbInfo);
-                                                setBsContextMenu(null);
-                                            }}>
-                                            <Trash2 size={11} /> Remove Edge
-                                        </button>
-                                        {/* Add P2P Edge */}
-                                        <button
-                                            className="w-full text-left px-3 py-1.5 text-xs font-mono text-cyan-400 hover:bg-cyan-900/20 hover:text-cyan-300 flex items-center gap-2"
-                                            onClick={() => {
-                                                setManuallyAddEdgeModal(cbInfo);
-                                                setAddEdgeSelectedProfile(null);
-                                                setAddEdgeSelectedDest(null);
-                                                setAddEdgeDestOptions([]);
-                                                setBsContextMenu(null);
-                                            }}>
-                                            <Plus size={11} /> Add P2P Edge
-                                        </button>
-                                        {/* Task for Edge (Link) */}
-                                        <button
-                                            className="w-full text-left px-3 py-1.5 text-xs font-mono text-blue-400 hover:bg-blue-900/20 hover:text-blue-300 flex items-center gap-2"
-                                            onClick={() => {
-                                                setTaskForEdgeModal(cbInfo);
-                                                getLinkCommands({ variables: { callback_id: cbInfo.callback_id } });
-                                                setBsContextMenu(null);
-                                            }}>
-                                            <Link2 size={11} /> Task for Edge
-                                        </button>
-                                    </>
-                                )}
-                                {/* Cancel */}
-                                <div className="h-px bg-white/10 my-0.5" />
-                                <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-500 hover:bg-white/5 hover:text-gray-400 flex items-center gap-2"
-                                    onClick={() => setBsContextMenu(null)}>
-                                    <X size={11} /> Cancel
-                                </button>
-                            </>
-                        );
-                    })()}
-                </div>,
-                document.body
-            )}
-
-            {/* Edge context menu */}
-            {bsEdgeCtxMenu && createPortal(
-                <div
-                    style={{ position: 'fixed', top: bsEdgeCtxMenu.y, left: bsEdgeCtxMenu.x, zIndex: 9999 }}
-                    className="bg-[#0a0a0a] border border-cyan-500/30 rounded shadow-lg py-1 min-w-[160px]"
-                >
-                    {/* data.buttons[] — dynamic action buttons from edge data */}
-                    {(() => {
-                        const ed = bsFinalDisplayData.edges.find((e: Record<string, unknown>) => e.id === bsEdgeCtxMenu.edgeId);
-                        if (ed?.data?.commandName) return (
-                            <div className="px-3 py-1 text-[10px] font-mono text-cyan-500/60 border-b border-cyan-500/10 mb-0.5">
-                                CMD: {ed.data.commandName}
-                            </div>
-                        );
-                        return null;
-                    })()}
-                    <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 flex items-center gap-2"
-                        onClick={() => {
-                            setBsHiddenNodeIds(prev => {
-                                const edge = bsVisibleGraphData.edges.find((e: Record<string, unknown>) => e.id === bsEdgeCtxMenu.edgeId);
-                                if (!edge) return prev;
-                                const s = new Set(prev);
-                                s.add(edge.source); s.add(edge.target);
-                                return s;
-                            });
-                            setBsEdgeCtxMenu(null);
-                        }}>
-                        <EyeOff size={11} /> Hide Edge Nodes
-                    </button>
-                    <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-gray-400 flex items-center gap-2"
-                        onClick={() => setBsEdgeCtxMenu(null)}>
-                        <X size={11} /> Cancel
-                    </button>
-                </div>,
-                document.body
-            )}
-
-            {/* Pane context menu (right-click empty space) */}
-            {bsPaneCtxMenu && createPortal(
-                <div
-                    style={{ position: 'fixed', top: bsPaneCtxMenu.y, left: bsPaneCtxMenu.x, zIndex: 9999 }}
-                    className="bg-[#0a0a0a] border border-cyan-500/30 rounded shadow-lg py-1 min-w-[160px]"
-                >
-                    <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 flex items-center gap-2"
-                        onClick={() => { setBsSelectedNodeIds(new Set()); setBsPaneCtxMenu(null); }}>
-                        <CheckSquare size={11} /> Unselect All
-                    </button>
-                    {bsHiddenNodeIds.size > 0 && (
-                        <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 flex items-center gap-2"
-                            onClick={() => { setBsHiddenNodeIds(new Set()); setBsPaneCtxMenu(null); }}>
-                            <Eye size={11} /> Revert All Hidden
-                        </button>
-                    )}
-                    <button className="w-full text-left px-3 py-1.5 text-xs font-mono text-gray-300 hover:bg-cyan-500/10 hover:text-gray-400 flex items-center gap-2"
-                        onClick={() => setBsPaneCtxMenu(null)}>
-                        <X size={11} /> Cancel
-                    </button>
-                </div>,
-                document.body
-            )}
-            </div>
-            )}
+                onTaskForEdge={(cbInfo) => {
+                    setTaskForEdgeModal(cbInfo);
+                    getLinkCommands({ variables: { callback_id: cbInfo.callback_id } });
+                }}
+            />
             
             {/* Status Overlay */}
             <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-2">
@@ -2366,1280 +1488,110 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 )}
             </div>
 
-            {/* Context Menu Portal */}
-            {contextMenu && createPortal(
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="fixed z-[9999] bg-black/95 border border-signal/40 shadow-lg shadow-signal/20 w-56 backdrop-blur-xl"
-                    style={{ 
-                        top: contextMenu.y, 
-                        left: contextMenu.x,
-                        transform: contextMenu.x > window.innerWidth - 250 ? 'translateX(-100%)' : 'none'
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    {/* Header */}
-                    <div className="px-3 py-2 border-b border-signal/20 flex items-center justify-between">
-                        <span className="text-xs font-mono text-signal font-bold">
-                            {contextMenu.callback.isCustom ? 'CUSTOM_NODE_' : 'CALLBACK_'}{contextMenu.callback.display_id}
-                        </span>
-                        {contextMenu.callback.locked && (
-                            <Lock size={12} className="text-red-500" />
-                        )}
-                    </div>
+            <GraphContextMenus
+                contextMenu={contextMenu}
+                setContextMenu={setContextMenu}
+                edgeContextMenu={edgeContextMenu}
+                setEdgeContextMenu={setEdgeContextMenu}
+                paneContextMenu={paneContextMenu}
+                setPaneContextMenu={setPaneContextMenu}
+                linkFocusNodeId={linkFocusNodeId}
+                edgesData={edgesData}
+                setEdges={setEdges}
+                setNodes={setNodes}
+                removeEdgeMutation={removeEdge}
+                onEditCustomNode={openEditCustomNode}
+                onClearLinkFocus={handleClearLinkFocus}
+                onSetLinkFocus={handleSetLinkFocus}
+                onSetParent={openSetParent}
+                getParentEdge={getParentEdge}
+                onDisconnectParent={handleDisconnectParent}
+                onDeleteCustomNode={handleDeleteCustomNode}
+                onNavigateConsole={(displayId) => navigate(`/console/${displayId}`)}
+                onOpenDetails={openDetails}
+                onEditDescription={openEditDescription}
+                onLockToggle={handleLockToggle}
+                onHide={handleHide}
+                onTaskForEdge={(cb, callbackId) => {
+                    setTaskForEdgeModal(cb);
+                    getLinkCommands({ variables: { callback_id: callbackId } });
+                }}
+                onRemoveEdge={handleOpenRemoveEdge}
+                onAddP2PEdge={(cb) => {
+                    setManuallyAddEdgeModal(cb);
+                    setAddEdgeSelectedProfile(null);
+                    setAddEdgeSelectedDest(null);
+                    setAddEdgeDestOptions([]);
+                }}
+                onTriggerEventing={(cb) => setShowEventingDialog(cb)}
+            />
 
-                    <div className="p-1 flex flex-col">
-                        {contextMenu.callback.isCustom ? (
-                            /* Custom Node Options */
-                            <>
-                                {/* Edit Custom Node */}
-                                <button 
-                                    onClick={() => openEditCustomNode(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
-                                >
-                                    <Edit size={14} className="text-gray-500 group-hover:text-signal" /> 
-                                    <span>Edit Node</span>
-                                </button>
-
-                                <div className="h-px bg-white/10 my-1" />
-
-                                {/* Link Focus */}
-                                {linkFocusNodeId === String(contextMenu.callback.id) ? (
-                                    <button
-                                        onClick={() => { handleClearLinkFocus(); setContextMenu(null); }}
-                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-amber-900/30 text-xs text-left text-amber-400 hover:text-amber-300 transition-colors group"
-                                    >
-                                        <Crosshair size={14} className="text-amber-400" />
-                                        <span>Clear Link Focus</span>
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={() => {
-                                            handleSetLinkFocus(String(contextMenu.callback.id), contextMenu.callback.host || contextMenu.callback.description || `Node ${contextMenu.callback.display_id}`);
-                                            setContextMenu(null);
-                                        }}
-                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-amber-900/20 text-xs text-left text-amber-500/80 hover:text-amber-400 transition-colors group"
-                                    >
-                                        <Crosshair size={14} className="text-amber-500/80" />
-                                        <span>Set as Link Focus</span>
-                                    </button>
-                                )}
-
-                                {/* Set Parent Edge */}
-                                <button 
-                                    onClick={() => openSetParent(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
-                                >
-                                    <GitBranch size={14} className="text-blue-500" /> 
-                                    <span>Link to Parent</span>
-                                </button>
-
-                                {/* Disconnect from Parent - only show if has parent */}
-                                {getParentEdge(contextMenu.callback.id) && (
-                                    <button 
-                                        onClick={() => handleDisconnectParent(contextMenu.callback)} 
-                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
-                                    >
-                                        <X size={14} className="text-orange-500" /> 
-                                        <span>Disconnect from Parent</span>
-                                    </button>
-                                )}
-
-                                <div className="h-px bg-white/10 my-1" />
-
-                                {/* Delete Custom Node */}
-                                <button 
-                                    onClick={() => handleDeleteCustomNode(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors group"
-                                >
-                                    <X size={14} className="text-red-500" /> 
-                                    <span>Delete Node</span>
-                                </button>
-                            </>
-                        ) : (
-                            /* Regular Callback Options */
-                            <>
-                                {/* Interact */}
-                                <button
-                                    onClick={() => { navigate(`/console/${contextMenu.callback.display_id}`); setContextMenu(null); }}
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-signal hover:text-white transition-colors group font-semibold"
-                                >
-                                    <Terminal size={14} className="text-signal" />
-                                    <span>Interact (Console)</span>
-                                </button>
-
-                                <div className="h-px bg-white/10 my-1" />
-
-                                {/* View Details */}
-                                <button 
-                                    onClick={() => openDetails(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
-                                >
-                                    <Info size={14} className="text-gray-500 group-hover:text-signal" /> 
-                                    <span>View Details</span>
-                                    <ChevronRight size={12} className="ml-auto text-gray-600" />
-                                </button>
-
-                                {/* Edit Description */}
-                                <button 
-                                    onClick={() => openEditDescription(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
-                                >
-                                    <Edit size={14} className="text-gray-500 group-hover:text-signal" /> 
-                                    <span>Edit Description</span>
-                                </button>
-
-                                {/* Lock/Unlock */}
-                                <button 
-                                    onClick={() => handleLockToggle(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors group"
-                                >
-                                    {contextMenu.callback.locked ? (
-                                        <>
-                                            <Unlock size={14} className="text-gray-500 group-hover:text-signal" /> 
-                                            <span>Unlock Callback</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Lock size={14} className="text-gray-500 group-hover:text-signal" /> 
-                                            <span>Lock Callback</span>
-                                        </>
-                                    )}
-                                </button>
-
-                                <div className="h-px bg-white/10 my-1" />
-
-                                {/* Link Focus */}
-                                {linkFocusNodeId === String(contextMenu.callback.id) ? (
-                                    <button
-                                        onClick={() => { handleClearLinkFocus(); setContextMenu(null); }}
-                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-amber-900/30 text-xs text-left text-amber-400 hover:text-amber-300 transition-colors group"
-                                    >
-                                        <Crosshair size={14} className="text-amber-400" />
-                                        <span>Clear Link Focus</span>
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={() => {
-                                            handleSetLinkFocus(String(contextMenu.callback.id), contextMenu.callback.host || `#${contextMenu.callback.display_id}`);
-                                            setContextMenu(null);
-                                        }}
-                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-amber-900/20 text-xs text-left text-amber-500/80 hover:text-amber-400 transition-colors group"
-                                    >
-                                        <Crosshair size={14} className="text-amber-500/80" />
-                                        <span>Set as Link Focus</span>
-                                    </button>
-                                )}
-
-                                {/* Set Parent Edge */}
-                                <button 
-                                    onClick={() => openSetParent(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
-                                >
-                                    <GitBranch size={14} className="text-blue-500" /> 
-                                    <span>Link to Parent</span>
-                                </button>
-
-                                {/* Disconnect from Parent - only show if has parent */}
-                                {getParentEdge(contextMenu.callback.id) && (
-                                    <button 
-                                        onClick={() => handleDisconnectParent(contextMenu.callback)} 
-                                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
-                                    >
-                                        <X size={14} className="text-orange-500" /> 
-                                        <span>Disconnect from Parent</span>
-                                    </button>
-                                )}
-
-                                <div className="h-px bg-white/10 my-1" />
-
-                                {/* Hide Callback */}
-                                <button 
-                                    onClick={() => handleHide(contextMenu.callback)} 
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors group"
-                                >
-                                    <EyeOff size={14} className="text-red-500" /> 
-                                    <span>Hide Callback</span>
-                                </button>
-
-                                <div className="h-px bg-white/10 my-1" />
-
-                                {/* Task for Edge (Link) */}
-                                <button
-                                    onClick={() => {
-                                        setTaskForEdgeModal(contextMenu.callback);
-                                        getLinkCommands({ variables: { callback_id: contextMenu.callback.callback_id } });
-                                        setContextMenu(null);
-                                    }}
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
-                                >
-                                    <Link2 size={14} className="text-blue-400" />
-                                    <span>Task for Edge</span>
-                                </button>
-
-                                {/* Remove Edge */}
-                                <button
-                                    onClick={() => handleOpenRemoveEdge(contextMenu.callback)}
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
-                                >
-                                    <Trash2 size={14} className="text-orange-500" />
-                                    <span>Remove Edge</span>
-                                </button>
-
-                                {/* Add P2P Edge */}
-                                <button
-                                    onClick={() => {
-                                        setManuallyAddEdgeModal(contextMenu.callback);
-                                        setAddEdgeSelectedProfile(null);
-                                        setAddEdgeSelectedDest(null);
-                                        setAddEdgeDestOptions([]);
-                                        setContextMenu(null);
-                                    }}
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-cyan-900/30 text-xs text-left text-cyan-400 hover:text-cyan-300 transition-colors group"
-                                >
-                                    <Plus size={14} className="text-cyan-500" />
-                                    <span>Add P2P Edge</span>
-                                </button>
-
-                                <div className="h-px bg-white/10 my-1" />
-
-                                {/* Trigger Eventing */}
-                                <button
-                                    onClick={() => {
-                                        setShowEventingDialog(contextMenu.callback);
-                                        setContextMenu(null);
-                                    }}
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-purple-900/30 text-xs text-left text-purple-400 hover:text-purple-300 transition-colors group"
-                                >
-                                    <Zap size={14} className="text-purple-400" />
-                                    <span>Trigger Eventing</span>
-                                </button>
-                            </>
-                        )}
-                    </div>
-                </motion.div>,
-                document.body
-            )}
-
-            {/* Edge Context Menu */}
-            {edgeContextMenu && createPortal(
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.1 }}
-                    className="fixed z-[9999] bg-black/95 border border-white/20 w-44 backdrop-blur-xl rounded shadow-2xl overflow-hidden"
-                    style={{ top: edgeContextMenu.y, left: edgeContextMenu.x }}
-                    onClick={e => e.stopPropagation()}
-                >
-                    <div className="p-1">
-                        {/* Remove DB edge */}
-                        {edgeContextMenu.edge.id?.startsWith('e') && !edgeContextMenu.edge.id?.startsWith('edge-') && (() => {
-                            const parts = edgeContextMenu.edge.id.replace(/^e/, '').split('-');
-                            const destId = Number(parts[0]);
-                            const srcId = Number(parts[1]);
-                            const dbEdge = edgesData?.callbackgraphedge?.find((e: Record<string, unknown>) =>
-                                !e.end_timestamp && e.destination?.id === destId && e.source?.id === srcId
-                            );
-                            if (!dbEdge) return null;
-                            return (
-                                <button
-                                    key="remove"
-                                    onClick={async () => {
-                                        try {
-                                            await removeEdge({ variables: { edge_id: dbEdge.id } });
-                                            snackActions.success('Edge removed');
-                                        } catch (err: unknown) {
-                                            snackActions.error('Failed: ' + err.message);
-                                        }
-                                        setEdgeContextMenu(null);
-                                    }}
-                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors w-full rounded"
-                                >
-                                    <Trash2 size={13} className="text-orange-500" />
-                                    <span>Remove Edge</span>
-                                </button>
-                            );
-                        })()}
-                        <button
-                            onClick={() => {
-                                setEdges(eds => eds.filter(e => e.id !== edgeContextMenu.edge.id));
-                                setEdgeContextMenu(null);
-                            }}
-                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors w-full rounded"
-                        >
-                            <EyeOff size={13} className="text-gray-500" />
-                            <span>Hide Edge (local)</span>
-                        </button>
-                    </div>
-                </motion.div>,
-                document.body
-            )}
-
-            {/* Pane Context Menu */}
-            {paneContextMenu && createPortal(
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.1 }}
-                    className="fixed z-[9999] bg-black/95 border border-white/20 w-44 backdrop-blur-xl rounded shadow-2xl overflow-hidden"
-                    style={{ top: paneContextMenu.y, left: paneContextMenu.x }}
-                    onClick={e => e.stopPropagation()}
-                >
-                    <div className="p-1">
-                        <button
-                            onClick={() => {
-                                setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, isDimmed: false } })));
-                                setPaneContextMenu(null);
-                            }}
-                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-signal/10 text-xs text-left text-gray-300 hover:text-signal transition-colors w-full rounded"
-                        >
-                            <Eye size={13} className="text-gray-500" />
-                            <span>Unselect All</span>
-                        </button>
-
-                    </div>
-                </motion.div>,
-                document.body
-            )}
-
-            {/* Edit Description Modal */}
-            <AnimatePresence>
-                {editDescriptionModal && (
-                    <CyberModal 
-                        title="EDIT_DESCRIPTION" 
-                        onClose={() => setEditDescriptionModal(null)}
-                        icon={<Edit />}
-                    >
-                        <div className="space-y-4">
-                            <div className="text-xs text-gray-400 font-mono mb-2">
-                                Callback #{editDescriptionModal.display_id} - {editDescriptionModal.host}
-                            </div>
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">DESCRIPTION</label>
-                                <input 
-                                    type="text" 
-                                    value={newDescription} 
-                                    onChange={(e) => setNewDescription(e.target.value)} 
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono"
-                                    autoFocus
-                                />
-                            </div>
-                            <div className="flex justify-end gap-3">
-                                <button onClick={() => setEditDescriptionModal(null)} className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                <button 
-                                    onClick={handleSaveDescription}
-                                    className="px-6 py-2 bg-signal text-void font-bold font-mono text-sm hover:bg-white transition-colors"
-                                >
-                                    SAVE
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
-
-            {/* Custom Node Modal */}
-            <AnimatePresence>
-                {showCustomNodeModal && (
-                    <CyberModal 
-                        title="CREATE_CUSTOM_NODE" 
-                        onClose={() => setShowCustomNodeModal(false)}
-                        icon={<Plus />}
-                    >
-                        <div className="space-y-4">
-                            <div className="text-xs text-gray-400 mb-4">
-                                Create a custom node to represent external systems or planned targets in the topology.
-                            </div>
-                            
-                            {/* Hostname */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">HOSTNAME *</label>
-                                <input 
-                                    type="text" 
-                                    value={customNodeForm.host}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, host: e.target.value})}
-                                    placeholder="TARGET-PC-01"
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                />
-                            </div>
-                            
-                            {/* OS */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">OPERATING SYSTEM *</label>
-                                <select
-                                    value={customNodeForm.os}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, os: e.target.value})}
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                >
-                                    <option value="Windows">Windows</option>
-                                    <option value="Linux">Linux</option>
-                                    <option value="macOS">macOS</option>
-                                    <option value="Unknown">Unknown</option>
-                                </select>
-                            </div>
-                            
-                            {/* IP */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">IP ADDRESS *</label>
-                                <input 
-                                    type="text" 
-                                    value={customNodeForm.ip}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, ip: e.target.value})}
-                                    placeholder="192.168.1.100"
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                />
-                            </div>
-                            
-                            {/* Architecture */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">ARCHITECTURE</label>
-                                <select
-                                    value={customNodeForm.architecture}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, architecture: e.target.value})}
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                >
-                                    <option value="x64">x64</option>
-                                    <option value="x86">x86</option>
-                                    <option value="arm64">ARM64</option>
-                                </select>
-                            </div>
-                            
-                            {/* User */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">USER</label>
-                                <input 
-                                    type="text" 
-                                    value={customNodeForm.user}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, user: e.target.value})}
-                                    placeholder="Administrator"
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                />
-                            </div>
-                            
-                            {/* Description */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">DESCRIPTION</label>
-                                <textarea 
-                                    value={customNodeForm.description}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, description: e.target.value})}
-                                    placeholder="Target system details..."
-                                    rows={3}
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm resize-none"
-                                />
-                            </div>
-                            
-                            <div className="flex justify-end gap-3 pt-4">
-                                <button 
-                                    onClick={() => setShowCustomNodeModal(false)}
-                                    className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm"
-                                >
-                                    CANCEL
-                                </button>
-                                <button 
-                                    onClick={handleCreateCustomNode}
-                                    className="px-6 py-2 bg-signal text-void font-bold font-mono text-sm hover:bg-white transition-colors"
-                                >
-                                    CREATE
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
-
-            {/* Edit Custom Node Modal */}
-            <AnimatePresence>
-                {editCustomNodeModal && (
-                    <CyberModal 
-                        title="EDIT_CUSTOM_NODE" 
-                        onClose={() => setEditCustomNodeModal(null)}
-                        icon={<Edit />}
-                    >
-                        <div className="space-y-4">
-                            <div className="text-xs text-gray-400 mb-4">
-                                Edit custom node #{editCustomNodeModal.display_id} - {editCustomNodeModal.host}
-                            </div>
-                            
-                            {/* Hostname */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">HOSTNAME *</label>
-                                <input 
-                                    type="text" 
-                                    value={customNodeForm.host}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, host: e.target.value})}
-                                    placeholder="TARGET-PC-01"
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                />
-                            </div>
-                            
-                            {/* OS */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">OPERATING SYSTEM *</label>
-                                <select
-                                    value={customNodeForm.os}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, os: e.target.value})}
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                >
-                                    <option value="Windows">Windows</option>
-                                    <option value="Linux">Linux</option>
-                                    <option value="macOS">macOS</option>
-                                    <option value="Unknown">Unknown</option>
-                                </select>
-                            </div>
-                            
-                            {/* IP */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">IP ADDRESS *</label>
-                                <input 
-                                    type="text" 
-                                    value={customNodeForm.ip}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, ip: e.target.value})}
-                                    placeholder="192.168.1.100"
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                />
-                            </div>
-                            
-                            {/* Architecture */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">ARCHITECTURE</label>
-                                <select
-                                    value={customNodeForm.architecture}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, architecture: e.target.value})}
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                >
-                                    <option value="x64">x64</option>
-                                    <option value="x86">x86</option>
-                                    <option value="arm64">ARM64</option>
-                                </select>
-                            </div>
-                            
-                            {/* User */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">USER</label>
-                                <input 
-                                    type="text" 
-                                    value={customNodeForm.user}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, user: e.target.value})}
-                                    placeholder="Administrator"
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm"
-                                />
-                            </div>
-                            
-                            {/* Description */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">DESCRIPTION</label>
-                                <textarea 
-                                    value={customNodeForm.description}
-                                    onChange={(e) => setCustomNodeForm({...customNodeForm, description: e.target.value})}
-                                    placeholder="Target system details..."
-                                    rows={3}
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-sm resize-none"
-                                />
-                            </div>
-                            
-                            <div className="flex justify-end gap-3 pt-4">
-                                <button 
-                                    onClick={() => setEditCustomNodeModal(null)}
-                                    className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm"
-                                >
-                                    CANCEL
-                                </button>
-                                <button 
-                                    onClick={handleUpdateCustomNode}
-                                    className="px-6 py-2 bg-signal text-void font-bold font-mono text-sm hover:bg-white transition-colors"
-                                >
-                                    UPDATE
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
-
-            {/* Export/Import Custom Nodes Modal */}
-            <AnimatePresence>
-                {showExportImportModal && (
-                    <CyberModal 
-                        title="SHARE_CUSTOM_NODES" 
-                        onClose={() => {
-                            setShowExportImportModal(false);
-                            setImportData('');
-                        }}
-                        icon={<Share2 />}
-                    >
-                        <div className="space-y-4">
-                            <div className="text-xs text-gray-400 mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded">
-                                <div className="flex items-start gap-2">
-                                    <Info size={14} className="text-cyan-400 mt-0.5 shrink-0" />
-                                    <div>
-                                        <div className="font-bold text-cyan-400 mb-1">GraphQL Server Storage</div>
-                                        <div>Custom nodes are stored on the Mythic server and synchronized in real-time across all clients. Export for backup or migration purposes.</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            {/* Export Section */}
-                            <div className="border-t border-gray-800 pt-4">
-                                <label className="block text-xs font-mono text-gray-500 mb-2 flex items-center gap-2">
-                                    <span>EXPORT_DATA</span>
-                                    <span className="text-[11px] text-gray-600">({customNodes.length} nodes, {customEdges.length} edges)</span>
-                                </label>
-                                <textarea 
-                                    value={exportData}
-                                    readOnly
-                                    rows={8}
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal font-mono text-xs resize-none"
-                                    placeholder="Export data will appear here..."
-                                />
-                                <button 
-                                    onClick={handleCopyExportData}
-                                    className="w-full mt-2 px-4 py-2 bg-purple-500/20 border border-purple-500/50 text-purple-400 hover:bg-purple-500/30 font-mono text-sm transition-colors"
-                                >
-                                    COPY_TO_CLIPBOARD
-                                </button>
-                            </div>
-                            
-                            {/* Import Section */}
-                            <div className="border-t border-gray-800 pt-4">
-                                <label className="block text-xs font-mono text-gray-500 mb-2">IMPORT_DATA</label>
-                                <textarea 
-                                    value={importData}
-                                    onChange={(e) => setImportData(e.target.value)}
-                                    rows={8}
-                                    placeholder="Paste exported data here..."
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-xs resize-none"
-                                />
-                                <button 
-                                    onClick={handleImportCustomNodes}
-                                    disabled={!importData.trim()}
-                                    className="w-full mt-2 px-4 py-2 bg-signal/20 border border-signal/50 text-signal hover:bg-signal/30 font-mono text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    IMPORT_NODES
-                                </button>
-                            </div>
-                            
-                            <div className="flex justify-end pt-2">
-                                <button 
-                                    onClick={() => {
-                                        setShowExportImportModal(false);
-                                        setImportData('');
-                                    }}
-                                    className="px-6 py-2 text-gray-400 hover:text-white font-mono text-sm"
-                                >
-                                    CLOSE
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
-
-            {/* Set Parent Modal */}
-            <AnimatePresence>
-                {setParentModal && (
-                    <CyberModal 
-                        title="LINK_TO_PARENT" 
-                        onClose={() => setSetParentModal(null)}
-                        icon={<GitBranch />}
-                    >
-                        <div className="space-y-4">
-                            <div className="text-xs text-gray-400 font-mono mb-2">
-                                Link {setParentModal.isCustom ? 'Custom Node' : 'Callback'} #{setParentModal.display_id} ({setParentModal.host}) to another node.
-                            </div>
-
-                            {/* Destination Callback Selection - Show ALL active callbacks and custom nodes */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">TARGET_NODE</label>
-                                <div className="grid gap-2 max-h-48 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                    {filteredCallbacksForParent.length > 0 ? (
-                                        filteredCallbacksForParent.map((callback: Callback) => {
-                                            const ip = callback.isCustom ? callback.ip : (() => { try { return JSON.parse(callback.ip)[0] } catch(e) { return callback.ip } })();
-                                            return (
-                                                <button
-                                                    key={callback.id}
-                                                    onClick={() => setSelectedDestination(callback)}
-                                                    className={`flex items-center gap-3 px-3 py-2.5 border text-left text-xs font-mono transition-colors ${
-                                                        selectedDestination?.id === callback.id 
-                                                            ? 'border-signal bg-signal/10 text-signal' 
-                                                            : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:bg-white/5'
-                                                    }`}
-                                                >
-                                                    <div className={`w-2 h-2 rounded-full ${callback.isCustom ? 'bg-cyan-500' : (callback.integrity_level > 2 ? 'bg-yellow-500' : 'bg-signal')}`} />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="font-bold">#{callback.display_id}</span>
-                                                            <span className="text-gray-500">@</span>
-                                                            <span className="truncate">{callback.host}</span>
-                                                            {callback.isCustom && (
-                                                                <span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-1 py-0.5 rounded border border-cyan-500/30">CUSTOM</span>
-                                                            )}
-                                                        </div>
-                                                        <div className="text-[11px] text-gray-600 flex items-center gap-2">
-                                                            <span>{callback.user}</span>
-                                                            <span>•</span>
-                                                            <span>{ip}</span>
-                                                            {callback.description && (
-                                                                <>
-                                                                    <span>•</span>
-                                                                    <span className="italic truncate">{callback.description}</span>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <span className="text-[11px] uppercase text-gray-600 border border-gray-700 px-1.5 py-0.5">
-                                                        {callback.isCustom ? 'CUSTOM' : callback.payload?.payloadtype?.name}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })
-                                    ) : (
-                                        <div className="text-gray-500 text-xs font-mono p-3 text-center">
-                                            NO_OTHER_CALLBACKS_AVAILABLE
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            
-                            {/* Connection Type Toggle */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">CONNECTION_TYPE</label>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => {
-                                            setIsP2PConnection(true);
-                                            setSelectedProfile(null);
-                                        }}
-                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border text-xs font-mono transition-colors ${
-                                            isP2PConnection 
-                                                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' 
-                                                : 'border-gray-700 text-gray-500 hover:border-gray-500'
-                                        }`}
-                                    >
-                                        <GitBranch size={14} />
-                                        <span>P2P</span>
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setIsP2PConnection(false);
-                                            setSelectedProfile(null);
-                                        }}
-                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border text-xs font-mono transition-colors ${
-                                            !isP2PConnection 
-                                                ? 'border-purple-500 bg-purple-500/10 text-purple-400' 
-                                                : 'border-gray-700 text-gray-500 hover:border-gray-500'
-                                        }`}
-                                    >
-                                        <Network size={14} />
-                                        <span>EGRESS</span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* C2 Profile Selection */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">
-                                    {isP2PConnection ? 'P2P_PROFILE' : 'C2_PROFILE'}
-                                </label>
-                                <div className="grid gap-2 max-h-32 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                    {isP2PConnection ? (
-                                        // P2P Profiles
-                                        <>
-                                            {p2pData?.c2profile?.map((profile: { name: string; is_p2p: boolean }) => (
-                                                <button
-                                                    key={profile.id}
-                                                    onClick={() => setSelectedProfile(profile)}
-                                                    className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                        selectedProfile?.id === profile.id 
-                                                            ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' 
-                                                            : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                                    }`}
-                                                >
-                                                    <GitBranch size={14} />
-                                                    <span>{profile.name}</span>
-                                                    <span className="ml-auto text-[11px] text-cyan-600 uppercase border border-cyan-800 px-1">P2P</span>
-                                                </button>
-                                            ))}
-                                            {(!p2pData?.c2profile || p2pData.c2profile.length === 0) && (
-                                                <div className="text-gray-500 text-xs font-mono p-3 text-center">
-                                                    NO_P2P_PROFILES_AVAILABLE
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        // Non-P2P (Egress) Profiles
-                                        <>
-                                            {allC2Data?.c2profile?.filter((p: { is_p2p: boolean; name: string }) => !p.is_p2p).map((profile: { name: string; is_p2p: boolean }) => (
-                                                <button
-                                                    key={profile.id}
-                                                    onClick={() => setSelectedProfile(profile)}
-                                                    className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                        selectedProfile?.id === profile.id 
-                                                            ? 'border-purple-500 bg-purple-500/10 text-purple-400' 
-                                                            : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                                    }`}
-                                                >
-                                                    <Network size={14} />
-                                                    <span>{profile.name}</span>
-                                                    <div className="ml-auto flex items-center gap-1">
-                                                        {profile.running ? (
-                                                            <span className="text-[11px] text-green-500 border border-green-800 px-1">RUNNING</span>
-                                                        ) : (
-                                                            <span className="text-[11px] text-red-500 border border-red-800 px-1">STOPPED</span>
-                                                        )}
-                                                    </div>
-                                                </button>
-                                            ))}
-                                            {(!allC2Data?.c2profile?.filter((p: { is_p2p: boolean; name: string }) => !p.is_p2p)?.length) && (
-                                                <div className="text-gray-500 text-xs font-mono p-3 text-center">
-                                                    NO_EGRESS_PROFILES_AVAILABLE
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Edge Label/Note (Optional) */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">EDGE_LABEL <span className="text-gray-600">(optional)</span></label>
-                                <input 
-                                    type="text" 
-                                    value={edgeLabel} 
-                                    onChange={(e) => setEdgeLabel(e.target.value)} 
-                                    placeholder="e.g., SMB Link, Internal Pivot..."
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-xs placeholder:text-gray-600"
-                                />
-                            </div>
-
-                            {/* Summary */}
-                            {selectedDestination && selectedProfile && (
-                                <div className={`p-3 border text-xs font-mono ${
-                                    isP2PConnection 
-                                        ? 'bg-cyan-900/20 border-cyan-500/30' 
-                                        : 'bg-purple-900/20 border-purple-500/30'
-                                }`}>
-                                    <div className={`mb-2 flex items-center gap-2 ${isP2PConnection ? 'text-cyan-400' : 'text-purple-400'}`}>
-                                        {isP2PConnection ? <GitBranch size={12} /> : <Network size={12} />}
-                                        <span>LINK_SUMMARY</span>
-                                        <span className={`text-[11px] px-1.5 py-0.5 border ${
-                                            isP2PConnection 
-                                                ? 'border-cyan-600 text-cyan-500' 
-                                                : 'border-purple-600 text-purple-500'
-                                        }`}>
-                                            {isP2PConnection ? 'P2P' : 'EGRESS'}
-                                        </span>
-                                    </div>
-                                    <div className="text-gray-300 flex items-center gap-2 flex-wrap">
-                                        <span className="text-signal font-bold">#{setParentModal.display_id}</span>
-                                        <span className="text-gray-600">({setParentModal.host})</span>
-                                        <span className={isP2PConnection ? 'text-cyan-500' : 'text-purple-500'}>→</span>
-                                        <span className={`px-2 py-0.5 ${isP2PConnection ? 'bg-cyan-900/50 text-cyan-400' : 'bg-purple-900/50 text-purple-400'}`}>
-                                            {selectedProfile.name}
-                                        </span>
-                                        <span className={isP2PConnection ? 'text-cyan-500' : 'text-purple-500'}>→</span>
-                                        <span className="text-signal font-bold">#{selectedDestination.display_id}</span>
-                                        <span className="text-gray-600">({selectedDestination.host})</span>
-                                    </div>
-                                    {edgeLabel && (
-                                        <div className="mt-2 text-gray-500 italic">
-                                            Label: "{edgeLabel}"
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            <div className="flex justify-end gap-3 pt-2">
-                                <button onClick={() => setSetParentModal(null)} className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                <button 
-                                    onClick={handleSetParent}
-                                    disabled={!selectedProfile || !selectedDestination}
-                                    className={`px-6 py-2 font-bold font-mono text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                                        isP2PConnection 
-                                            ? 'bg-cyan-600 text-white hover:bg-cyan-500' 
-                                            : 'bg-purple-600 text-white hover:bg-purple-500'
-                                    }`}
-                                >
-                                    CREATE_LINK
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
-
-            {/* Details Modal */}
-            <AnimatePresence>
-                {detailsModal && (
-                    <CyberModal 
-                        title={detailsModal.isCustom ? "CUSTOM_NODE_DETAILS" : "CALLBACK_DETAILS"}
-                        onClose={() => setDetailsModal(null)}
-                        icon={<Info />}
-                    >
-                        <div className="space-y-4">
-                            {/* Header Info */}
-                            <div className="flex items-center gap-4 p-3 bg-black/30 border border-gray-800">
-                                <div className={`p-2 border ${
-                                    detailsModal.isCustom 
-                                        ? 'border-cyan-500 bg-cyan-500/10' 
-                                        : (detailsModal.integrity_level > 2 ? 'border-yellow-500 bg-yellow-500/10' : 'border-signal bg-signal/10')
-                                }`}>
-                                    <Terminal size={20} className={detailsModal.isCustom ? 'text-cyan-500' : (detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-signal')} />
-                                </div>
-                                <div>
-                                    <div className="text-lg font-bold text-white font-mono">
-                                        {detailsModal.isCustom ? 'CUSTOM_NODE' : 'CALLBACK'} #{detailsModal.display_id}
-                                        {detailsModal.locked && <Lock size={14} className="inline ml-2 text-red-500" />}
-                                    </div>
-                                    <div className="text-xs text-gray-500">{detailsModal.host}</div>
-                                </div>
-                                {!detailsModal.isCustom && detailsModal.integrity_level > 2 && (
-                                    <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-yellow-500/20 border border-yellow-500/50">
-                                        <Shield size={12} className="text-yellow-500" />
-                                        <span className="text-xs font-bold text-yellow-500">ADMIN</span>
-                                    </div>
-                                )}
-                                {detailsModal.isCustom && (
-                                    <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-cyan-500/20 border border-cyan-500/50">
-                                        <span className="text-xs font-bold text-cyan-400">CUSTOM</span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Details Grid */}
-                            <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">USER</div>
-                                    <div className="text-white">{detailsModal.user}</div>
-                                </div>
-                                {!detailsModal.isCustom && (
-                                    <div className="space-y-1">
-                                        <div className="text-gray-500">DOMAIN</div>
-                                        <div className="text-white">{detailsModal.domain || 'N/A'}</div>
-                                    </div>
-                                )}
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">IP_ADDRESS</div>
-                                    <div className="text-white">{detailsModal.ip}</div>
-                                </div>
-                                {!detailsModal.isCustom && (
-                                    <div className="space-y-1">
-                                        <div className="text-gray-500">PID</div>
-                                        <div className="text-white">{detailsModal.pid}</div>
-                                    </div>
-                                )}
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">OS</div>
-                                    <div className="text-white">{detailsModal.os}</div>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="text-gray-500">ARCHITECTURE</div>
-                                    <div className="text-white">{detailsModal.architecture}</div>
-                                </div>
-                                {!detailsModal.isCustom && (
-                                    <>
-                                        <div className="space-y-1">
-                                            <div className="text-gray-500">AGENT</div>
-                                            <div className="text-white uppercase">{detailsModal.payloadType}</div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <div className="text-gray-500">INTEGRITY</div>
-                                            <div className={detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-white'}>
-                                                Level {detailsModal.integrity_level}
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-
-                            {/* Sleep Info - Only for callbacks */}
-                            {!detailsModal.isCustom && detailsModal.sleep_info && (
-                                <div className="p-3 bg-black/30 border border-gray-800">
-                                    <div className="text-xs font-mono text-gray-500 mb-1">SLEEP_INFO</div>
-                                    <div className="text-sm font-mono text-signal">{detailsModal.sleep_info}</div>
-                                </div>
-                            )}
-
-                            {/* Description */}
-                            <div className="p-3 bg-black/30 border border-gray-800">
-                                <div className="text-xs font-mono text-gray-500 mb-1">DESCRIPTION</div>
-                                <div className="text-sm text-gray-300 italic">
-                                    {detailsModal.description || 'No description set'}
-                                </div>
-                            </div>
-                            
-                            {/* Edit button for custom nodes */}
-                            {detailsModal.isCustom && (
-                                <button
-                                    onClick={() => {
-                                        openEditCustomNode(detailsModal);
-                                        setDetailsModal(null);
-                                    }}
-                                    className="w-full px-4 py-2 bg-cyan-500/20 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/30 font-mono text-sm transition-colors"
-                                >
-                                    EDIT_NODE
-                                </button>
-                            )}
-
-                            <div className="flex justify-end">
-                                <button 
-                                    onClick={() => setDetailsModal(null)} 
-                                    className="px-6 py-2 bg-signal text-void font-bold font-mono text-sm hover:bg-white transition-colors"
-                                >
-                                    CLOSE
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
-
-            {/* Task for Edge Modal */}
-            <AnimatePresence>
-                {taskForEdgeModal && (
-                    <CyberModal
-                        title="TASK_FOR_EDGE"
-                        onClose={() => { setTaskForEdgeModal(null); setTaskForEdgeCommand(null); setTaskForEdgeParams(''); }}
-                        icon={<Link2 />}
-                    >
-                        <div className="space-y-4 min-w-[380px]">
-                            <div className="text-xs text-gray-400 font-mono">
-                                Callback #{taskForEdgeModal.display_id} — {taskForEdgeModal.host}
-                            </div>
-
-                            {linkCommandsLoading && (
-                                <div className="text-signal text-xs font-mono animate-pulse">LOADING_COMMANDS...</div>
-                            )}
-
-                            {!linkCommandsLoading && (linkCommandsData?.loadedcommands?.length ?? 0) === 0 && (
-                                <div className="text-gray-500 text-xs font-mono">No link commands loaded on this callback.</div>
-                            )}
-
-                            {!linkCommandsLoading && (linkCommandsData?.loadedcommands?.length ?? 0) > 0 && (
-                                <div className="space-y-2">
-                                    <div className="text-xs font-mono text-gray-400">SELECT_COMMAND</div>
-                                    {linkCommandsData!.loadedcommands.map((lc: Record<string, unknown>) => (
-                                        <button
-                                            key={lc.command.id}
-                                            onClick={() => { setTaskForEdgeCommand(lc.command); setTaskForEdgeParams(''); }}
-                                            className={`w-full flex items-center gap-2 px-3 py-2 border rounded text-xs font-mono text-left transition-colors ${taskForEdgeCommand?.id === lc.command.id ? 'bg-signal/20 border-signal/60 text-signal' : 'bg-black border-white/10 text-gray-400 hover:border-signal/40 hover:text-signal/70'}`}
-                                        >
-                                            <Zap size={12} />
-                                            <span className="font-bold">{lc.command.cmd}</span>
-                                            {lc.command.description && <span className="text-gray-600 truncate">— {lc.command.description}</span>}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-
-                            {taskForEdgeCommand && (
-                                <div className="space-y-2">
-                                    <label className="block text-xs font-mono text-gray-400">PARAMS (JSON or raw)</label>
-                                    <textarea
-                                        value={taskForEdgeParams}
-                                        onChange={e => setTaskForEdgeParams(e.target.value)}
-                                        rows={3}
-                                        placeholder='{}'
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-xs resize-none"
-                                    />
-                                </div>
-                            )}
-
-                            <div className="flex justify-end gap-3">
-                                <button
-                                    onClick={() => { setTaskForEdgeModal(null); setTaskForEdgeCommand(null); setTaskForEdgeParams(''); }}
-                                    className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm"
-                                >
-                                    CANCEL
-                                </button>
-                                <button
-                                    disabled={!taskForEdgeCommand || taskingForEdge}
-                                    onClick={async () => {
-                                        if (!taskForEdgeCommand) return;
-                                        setTaskingForEdge(true);
-                                        try {
-                                            await createTask({
-                                                variables: {
-                                                    callback_id: taskForEdgeModal.callback_id,
-                                                    command: taskForEdgeCommand.cmd,
-                                                    params: taskForEdgeParams || '{}',
-                                                    token_id: 0
-                                                }
-                                            });
-                                            snackActions.success(`Tasked: ${taskForEdgeCommand.cmd}`);
-                                            setTaskForEdgeModal(null);
-                                            setTaskForEdgeCommand(null);
-                                            setTaskForEdgeParams('');
-                                        } catch (e: unknown) {
-                                            snackActions.error('Task failed: ' + getErrorMessage(e));
-                                        } finally {
-                                            setTaskingForEdge(false);
-                                        }
-                                    }}
-                                    className="px-6 py-2 bg-signal text-void font-bold font-mono text-sm hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    {taskingForEdge ? 'TASKING...' : 'TASK'}
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
-
-            {/* Eventing Dialog */}
-            {showEventingDialog && (
-                <MythicDialog
-                    fullWidth={true}
-                    maxWidth="xl"
-                    open={!!showEventingDialog}
-                    onClose={() => setShowEventingDialog(null)}
-                    innerDialog={
-                        <EventTriggerContextSelectDialog
-                            onClose={() => setShowEventingDialog(null)}
-                            triggerContext={{ name: 'callback_id', value: showEventingDialog.id }}
-                        />
-                    }
-                />
-            )}
-
-            {/* Remove Edge Modal */}
-            <AnimatePresence>
-                {/* Manually Add P2P Edge Modal */}
-                {manuallyAddEdgeModal && (
-                    <CyberModal
-                        title="ADD_P2P_EDGE"
-                        onClose={() => { setManuallyAddEdgeModal(null); setAddEdgeSelectedProfile(null); setAddEdgeSelectedDest(null); setAddEdgeDestOptions([]); }}
-                        icon={<Plus />}
-                    >
-                        <div className="space-y-4 min-w-[380px]">
-                            <p className="text-xs text-gray-400 font-mono">
-                                Source: <span className="text-signal">#{manuallyAddEdgeModal.display_id ?? manuallyAddEdgeModal.callback_id}</span>
-                                {manuallyAddEdgeModal.host && <span className="text-gray-500 ml-2">({manuallyAddEdgeModal.host})</span>}
-                            </p>
-
-                            {/* Profile selector */}
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">P2P_PROFILE</label>
-                                <div className="grid gap-2 max-h-32 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                    {p2pData?.c2profile?.map((profile: { name: string; is_p2p: boolean }) => (
-                                        <button
-                                            key={profile.id}
-                                            onClick={() => {
-                                                setAddEdgeSelectedProfile(profile);
-                                                setAddEdgeSelectedDest(null);
-                                                const srcId = manuallyAddEdgeModal.id ?? manuallyAddEdgeModal.callback_id;
-                                                const dests = (profile.callbackc2profiles || [])
-                                                    .map((cp: { callback: Callback }) => cp.callback)
-                                                    .filter((c: Callback) => c && c.id !== srcId);
-                                                setAddEdgeDestOptions(dests);
-                                            }}
-                                            className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                addEdgeSelectedProfile?.id === profile.id
-                                                    ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400'
-                                                    : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                            }`}
-                                        >
-                                            <GitBranch size={14} />
-                                            <span>{profile.name}</span>
-                                            <span className="ml-auto text-[11px] text-cyan-600 uppercase border border-cyan-800 px-1">P2P</span>
-                                        </button>
-                                    ))}
-                                    {(!p2pData?.c2profile || p2pData.c2profile.length === 0) && (
-                                        <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_P2P_PROFILES_AVAILABLE</div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Destination selector */}
-                            {addEdgeSelectedProfile && (
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-2">DESTINATION_CALLBACK</label>
-                                    <div className="grid gap-2 max-h-32 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                        {addEdgeDestOptions.map((cb: Callback) => (
-                                            <button
-                                                key={cb.id}
-                                                onClick={() => setAddEdgeSelectedDest(cb)}
-                                                className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                    addEdgeSelectedDest?.id === cb.id
-                                                        ? 'border-signal bg-signal/10 text-signal'
-                                                        : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                                }`}
-                                            >
-                                                <Monitor size={14} />
-                                                <span>#{cb.display_id}</span>
-                                                {cb.description && <span className="text-gray-500 ml-1 truncate max-w-[140px]">{cb.description}</span>}
-                                            </button>
-                                        ))}
-                                        {addEdgeDestOptions.length === 0 && (
-                                            <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_CALLBACKS_WITH_PROFILE</div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex justify-end gap-3 pt-2">
-                                <button
-                                    onClick={() => { setManuallyAddEdgeModal(null); setAddEdgeSelectedProfile(null); setAddEdgeSelectedDest(null); setAddEdgeDestOptions([]); }}
-                                    className="px-4 py-2 text-gray-400 hover:text-white font-mono text-xs"
-                                >
-                                    CANCEL
-                                </button>
-                                <button
-                                    onClick={handleManuallyAddEdge}
-                                    disabled={!addEdgeSelectedProfile || !addEdgeSelectedDest}
-                                    className="px-4 py-2 border border-signal/50 bg-signal/10 text-signal hover:bg-signal/20 hover:border-signal font-mono text-xs disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    CONFIRM_EDGE
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-
-                {removeEdgeModal && (
-                    <CyberModal
-                        title="REMOVE_EDGE"
-                        onClose={() => setRemoveEdgeModal(null)}
-                        icon={<Trash2 />}
-                    >
-                        <div className="space-y-3 min-w-[340px]">
-                            <p className="text-xs text-gray-400 font-mono mb-2">Select an active edge to remove:</p>
-                            {removeEdgeModal.map((e: Record<string, unknown>) => (
-                                <button
-                                    key={e.id}
-                                    onClick={async () => {
-                                        try {
-                                            await removeEdge({ variables: { edge_id: e.id } });
-                                            snackActions.success('Edge removed');
-                                        } catch (err: unknown) {
-                                            snackActions.error('Failed: ' + err.message);
-                                        }
-                                        setRemoveEdgeModal(null);
-                                    }}
-                                    className="w-full flex items-center gap-3 px-3 py-2 border border-white/10 hover:border-orange-500/40 rounded text-xs font-mono text-left text-gray-300 hover:text-orange-300 hover:bg-orange-900/20 transition-colors"
-                                >
-                                    <Trash2 size={12} className="text-orange-500 shrink-0" />
-                                    <span>
-                                        #{e.source?.display_id} → #{e.destination?.display_id}
-                                        {e.c2profile?.name && <span className="text-gray-500 ml-2">[{e.c2profile.name}]</span>}
-                                    </span>
-                                </button>
-                            ))}
-                            <div className="flex justify-end pt-2">
-                                <button
-                                    onClick={() => setRemoveEdgeModal(null)}
-                                    className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm"
-                                >
-                                    CANCEL
-                                </button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
+            <GraphModals
+                editDescriptionModal={editDescriptionModal}
+                setEditDescriptionModal={setEditDescriptionModal}
+                newDescription={newDescription}
+                setNewDescription={setNewDescription}
+                handleSaveDescription={handleSaveDescription}
+                showCustomNodeModal={showCustomNodeModal}
+                setShowCustomNodeModal={setShowCustomNodeModal}
+                customNodeForm={customNodeForm}
+                setCustomNodeForm={setCustomNodeForm}
+                handleCreateCustomNode={handleCreateCustomNode}
+                editCustomNodeModal={editCustomNodeModal}
+                setEditCustomNodeModal={setEditCustomNodeModal}
+                handleUpdateCustomNode={handleUpdateCustomNode}
+                showExportImportModal={showExportImportModal}
+                setShowExportImportModal={setShowExportImportModal}
+                exportData={exportData}
+                importData={importData}
+                setImportData={setImportData}
+                customNodesCount={customNodes.length}
+                customEdgesCount={customEdges.length}
+                handleCopyExportData={handleCopyExportData}
+                handleImportCustomNodes={handleImportCustomNodes}
+                setParentModal={setParentModal}
+                setSetParentModal={setSetParentModal}
+                selectedDestination={selectedDestination as any}
+                setSelectedDestination={setSelectedDestination}
+                selectedProfile={selectedProfile}
+                setSelectedProfile={setSelectedProfile}
+                isP2PConnection={isP2PConnection}
+                setIsP2PConnection={setIsP2PConnection}
+                edgeLabel={edgeLabel}
+                setEdgeLabel={setEdgeLabel}
+                filteredCallbacksForParent={filteredCallbacksForParent}
+                p2pData={p2pData}
+                allC2Data={allC2Data}
+                handleSetParent={handleSetParent}
+                detailsModal={detailsModal}
+                setDetailsModal={setDetailsModal}
+                openEditCustomNode={openEditCustomNode}
+                taskForEdgeModal={taskForEdgeModal}
+                setTaskForEdgeModal={setTaskForEdgeModal}
+                taskForEdgeCommand={taskForEdgeCommand}
+                setTaskForEdgeCommand={setTaskForEdgeCommand}
+                taskForEdgeParams={taskForEdgeParams}
+                setTaskForEdgeParams={setTaskForEdgeParams}
+                taskingForEdge={taskingForEdge}
+                setTaskingForEdge={setTaskingForEdge}
+                linkCommandsData={linkCommandsData}
+                linkCommandsLoading={linkCommandsLoading}
+                createTask={createTask}
+                showEventingDialog={showEventingDialog}
+                setShowEventingDialog={setShowEventingDialog}
+                manuallyAddEdgeModal={manuallyAddEdgeModal}
+                setManuallyAddEdgeModal={setManuallyAddEdgeModal}
+                addEdgeSelectedProfile={addEdgeSelectedProfile}
+                setAddEdgeSelectedProfile={setAddEdgeSelectedProfile}
+                addEdgeSelectedDest={addEdgeSelectedDest as any}
+                setAddEdgeSelectedDest={setAddEdgeSelectedDest}
+                addEdgeDestOptions={addEdgeDestOptions}
+                setAddEdgeDestOptions={setAddEdgeDestOptions}
+                handleManuallyAddEdge={handleManuallyAddEdge}
+                removeEdgeModal={removeEdgeModal}
+                setRemoveEdgeModal={setRemoveEdgeModal}
+                removeEdge={removeEdge}
+            />
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from "@apollo/client/react";
 import {
     Server,
     Info,
@@ -14,6 +14,7 @@ import {
     Plus,
 }from 'lucide-react';
 import { cn, getErrorMessage, parseIPString } from '../../lib/utils';
+import { fileDownloadUrl } from '../../lib/urls';
 import { snackActions } from '../../lib/snackbar';
 import {
     ADD_LOADED_COMMAND,
@@ -27,17 +28,17 @@ import {
 import { CyberModal } from '../../components/CyberModal';
 
 export const DetailedCallbackModal = ({ callbackId, onClose }: { callbackId: number; onClose: () => void }) => {
-    const { data, loading, refetch: refetchDetails } = useQuery(GET_CALLBACK_FULL_DETAILS, {
+    const { data, loading, refetch: refetchDetails } = useQuery<any>(GET_CALLBACK_FULL_DETAILS, {
         variables: { callback_id: callbackId }, fetchPolicy: 'no-cache',
     });
-    const { data: xferData } = useQuery(GET_CALLBACK_COMMANDS_FOR_TRANSFER, {
+    const { data: xferData } = useQuery<any>(GET_CALLBACK_COMMANDS_FOR_TRANSFER, {
         variables: { callback_id: callbackId }, fetchPolicy: 'no-cache',
     });
-    const [addCmd] = useMutation(ADD_LOADED_COMMAND);
-    const [removeCmd] = useMutation(REMOVE_LOADED_COMMAND);
-    const [updateCallbackAllowed] = useMutation(PAYLOAD_CALLBACK_ALLOWED_MUTATION);
-    const [hostFileMutation] = useMutation(HOST_FILE_MUTATION);
-    const { data: egressC2Data } = useQuery(GET_RUNNING_EGRESS_C2_PROFILES, { fetchPolicy: 'network-only' });
+    const [addCmd] = useMutation<any>(ADD_LOADED_COMMAND);
+    const [removeCmd] = useMutation<any>(REMOVE_LOADED_COMMAND);
+    const [updateCallbackAllowed] = useMutation<any>(PAYLOAD_CALLBACK_ALLOWED_MUTATION);
+    const [hostFileMutation] = useMutation<any>(HOST_FILE_MUTATION);
+    const { data: egressC2Data } = useQuery<any>(GET_RUNNING_EGRESS_C2_PROFILES, { fetchPolicy: 'network-only' });
     const [cmdOpStatus, setCmdOpStatus] = useState<Record<number, 'adding' | 'removing' | 'done' | 'err'>>({});
     const [cmdBulkProgress, setCmdBulkProgress] = useState<{ current: number; total: number; type: 'adding' | 'removing' } | null>(null);
     const [hostFileModal, setHostFileModal] = useState(false);
@@ -190,7 +191,7 @@ export const DetailedCallbackModal = ({ callbackId, onClose }: { callbackId: num
                         ))}
                         {fileId && (
                             <div className="flex gap-2 mt-2 flex-wrap">
-                                <a href={`/api/v1.4/files/download/${fileId}`} target="_blank" rel="noreferrer"
+                                <a href={fileDownloadUrl(fileId)} target="_blank" rel="noreferrer"
                                     className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono border border-signal/30 text-signal/70 hover:text-signal hover:border-signal/60 transition-colors rounded-sm">
                                     <Download size={10} /> Download Payload
                                 </a>
@@ -438,11 +439,11 @@ export const DetailedCallbackModal = ({ callbackId, onClose }: { callbackId: num
                             </summary>
                             <div className="mt-2 space-y-1 border border-white/5 rounded p-2 max-h-48 overflow-y-auto cyber-scrollbar">
                                 {allPayloadCmds.filter((c: any) => !loadedCmdIds.has(c.id)).map((cmd: Record<string, unknown>) => {
-                                    const st = cmdOpStatus[cmd.id];
+                                    const st = cmdOpStatus[cmd.id as number];
                                     return (
-                                        <div key={cmd.id} className="flex items-center gap-3 text-xs font-mono">
-                                            <span className="text-gray-400 flex-1">{cmd.cmd}</span>
-                                            <button onClick={() => handleAddCommand(cmd.id)}
+                                        <div key={cmd.id as number} className="flex items-center gap-3 text-xs font-mono">
+                                            <span className="text-gray-400 flex-1">{cmd.cmd as string}</span>
+                                            <button onClick={() => handleAddCommand(cmd.id as number)}
                                                 disabled={!!st && st !== 'done' && st !== 'err'}
                                                 className="flex items-center gap-1 px-1.5 py-0.5 border border-signal/30 text-signal/70 hover:bg-signal/10 transition-colors text-[10px] disabled:opacity-40">
                                                 {st === 'adding' ? <RefreshCw size={8} className="animate-spin" /> : <Plus size={8} />} ADD

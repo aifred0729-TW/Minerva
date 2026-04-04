@@ -12,6 +12,7 @@ import {
     Database,
     Network,
     Globe,
+    Server,
     Layers,
     Users,
     Shield,
@@ -43,17 +44,17 @@ import { NotificationBell } from './EventNotifications';
 import { useGetMythicSetting } from './MythicSavedUserSetting';
 import { DEFAULT_SIDEBAR_SHORTCUTS } from '../pages/Settings';
 import { UserAvatar } from './UserAvatar';
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import { meState } from '../lib/state';
 
 // Sidebar now uses global store for collapsed state
 export function Sidebar() {
     const location = useLocation();
-    const { startLogout, isSidebarCollapsed, setSidebarCollapsed, __alertCount } = useAppStore();
+    const { startLogout, isSidebarCollapsed, setSidebarCollapsed } = useAppStore();
     const { mode, toggleCombat, toggleRecon } = useOperationMode();
     const { theme, toggleTheme } = useTheme();
     const me = useReactiveVar(meState);
-    const username = (me as any)?.user?.username || 'OPERATOR';
+    const username = me?.user?.username || 'OPERATOR';
 
     const menuItems = [
         { icon: <LayoutDashboard size={20} />, label: "DASHBOARD", path: "/dashboard", primary: true },
@@ -70,6 +71,7 @@ export function Sidebar() {
         { icon: <Users size={20} />, label: "USERS", path: "/users", primary: true },
         { icon: <Search size={20} />, label: "SEARCH", path: "/search", primary: true },
         { icon: <Globe size={20} />, label: "3D TOPOLOGY", path: "/topology", primary: true },
+        { icon: <Server size={20} />, label: "METASPLOIT", path: "/metasploit", primary: true },
         { icon: <Settings size={20} />, label: "SETTINGS", path: "/settings", primary: true },
         // Secondary items (shown only when expanded)
         { icon: <Shield size={20} />, label: "OPSEC", path: "/opsec", primary: false },
@@ -90,7 +92,7 @@ export function Sidebar() {
     const orderedItems = React.useMemo(() => {
         if (!Array.isArray(sideShortcuts) || sideShortcuts.length === 0) return menuItems;
         const shortcutSet = new Set(sideShortcuts as string[]);
-        const getKey = (m: typeof menuItems[number]) => (m as any).key ?? m.path.replace(/^\//, '');
+        const getKey = (m: typeof menuItems[number]) => ('key' in m ? m.key : undefined) ?? m.path.replace(/^\//, '');
         const byKey = new Map(menuItems.map(m => [getKey(m), m]));
         const ordered: typeof menuItems = [];
         for (const key of sideShortcuts as string[]) {
@@ -162,7 +164,7 @@ export function Sidebar() {
                     
                     return (
                         <Wrapper 
-                            key={(item as any).key ?? item.path}
+                            key={'key' in item ? item.key : item.path}
                             {...wrapperProps}
                             className={cn(
                                 "flex items-center gap-4 px-4 py-3 mx-2 rounded-md transition-all duration-200 group relative overflow-hidden",

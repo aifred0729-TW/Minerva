@@ -9,7 +9,8 @@ import FormControl from '@mui/material/FormControl';
 import Select from '@mui/material/Select';
 import InputLabel from '@mui/material/InputLabel';
 import Input from '@mui/material/Input';
-import {useQuery, gql } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import LinearProgress from '@mui/material/LinearProgress';
 import {snackActions} from "../../utilities/Snackbar";
 

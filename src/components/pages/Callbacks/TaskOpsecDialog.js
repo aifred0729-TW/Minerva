@@ -4,7 +4,9 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import MythicTextField from '../../MythicComponents/MythicTextField';
-import {useQuery, gql, useMutation} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import { snackActions } from '../../utilities/Snackbar';
 import {MythicModifyStringDialog} from "../../MythicComponents/MythicDialog";
 

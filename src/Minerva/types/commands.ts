@@ -28,6 +28,8 @@ export interface CommandParameter {
     id: number;
     name: string;
     type: string;
+    /** GraphQL field name (aliased as `type` in some queries) */
+    parameter_type: string;
     description: string;
     required: boolean;
     ui_position: number;

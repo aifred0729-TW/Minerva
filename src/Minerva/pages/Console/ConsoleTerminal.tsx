@@ -1,7 +1,6 @@
-/* eslint-disable react-hooks/rules-of-hooks */
-/* eslint-disable import/first */
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
-import { useQuery, useMutation, useSubscription, useReactiveVar } from '@apollo/client';
+import { useMutation, useSubscription, useReactiveVar } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import type { Task } from '../../types/tasks';
 import type { CommandDefinition, CommandParameter } from '../../types/commands';
 import { validate as uuidValidate } from 'uuid';
@@ -39,7 +38,7 @@ import {
 import { MythicDialog } from '../../components/MythicDialog';
 import { TaskParametersDialog } from '../../components/TaskParametersDialog';
 import { useGetMythicSetting } from '../../components/MythicSavedUserSetting';
-import { cn, isCallbackAlive } from '../../lib/utils';
+import { cn, isCallbackAlive, parseFirstIP } from '../../lib/utils';
 import { meState, operatorSettingDefaults } from '../../lib/state';
 import { snackActions } from '../../lib/snackbar';
 import { OutputCallbackContext } from '../../components/OutputRenderer';
@@ -47,6 +46,8 @@ import { applyFilterToTask, isFilterActive, defaultFilterOptions, normalizeUnixP
 import { TaskBlock } from './TaskBlock';
 import type { FilterOptions, CallbackToken } from '../../types/console';
 import { UploadToAgentModal } from './FileBrowserPanel';
+
+const SCROLL_BOTTOM_THRESHOLD = 80;
 
 export const ConsoleTerminal = ({
     callbackId, callbackDbId, callbackUUID, payloadtypeName, payloadtypeId, callbackOs, operationId, callbackHost,
@@ -71,7 +72,7 @@ export const ConsoleTerminal = ({
     const [expandAllEpoch, setExpandAllEpoch] = useState(0);
     // #14 — Task view mode: 'expanded' = all open (console-like), 'compact' = collapsed by default (accordion-like)
     const [taskViewMode, setTaskViewMode] = useState<'expanded' | 'compact'>(() => {
-        try { return (localStorage.getItem('minerva-taskViewMode') as any) || 'expanded'; } catch { return 'expanded'; }
+        try { return (localStorage.getItem('minerva-taskViewMode') as 'expanded' | 'compact') || 'expanded'; } catch { return 'expanded'; }
     });
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const endRef = useRef<HTMLDivElement>(null);
@@ -110,7 +111,7 @@ export const ConsoleTerminal = ({
     const reverseSearchRef = useRef<HTMLInputElement>(null);
 
     // ---- Tasking Context state ----
-    const [callbackContext, setCallbackContext] = useState<unknown>({});
+    const [callbackContext, setCallbackContext] = useState<Record<string, unknown>>({});
     const hideTaskingContext: boolean = useGetMythicSetting({setting_name: 'hideTaskingContext', default_value: operatorSettingDefaults.hideTaskingContext ?? false});
     const taskingContextFields: string[] = useGetMythicSetting({setting_name: 'taskingContextFields', default_value: operatorSettingDefaults.taskingContextFields ?? ['impersonation_context', 'cwd']});
     const useDisplayParamsForCLIHistory: boolean = useGetMythicSetting({setting_name: 'useDisplayParamsForCLIHistory', default_value: operatorSettingDefaults.useDisplayParamsForCLIHistory ?? true});
@@ -121,25 +122,25 @@ export const ConsoleTerminal = ({
     const pendingDisambiguationInput = useRef('');
 
     // ---- Dynamic Query Params mutation (for tab completion) ----
-    const [getDynamicParams] = useMutation(GET_DYNAMIC_QUERY_PARAMS);
+    const [getDynamicParams] = useMutation<any>(GET_DYNAMIC_QUERY_PARAMS);
 
     // ---- Callback Context subscription ----
-    useSubscription(CALLBACK_CONTEXT_SUBSCRIPTION, {
+    useSubscription<any>(CALLBACK_CONTEXT_SUBSCRIPTION, {
         variables: { callback_id: callbackDbId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
-        onData: ({ data: subData }: { data: { data: Record<string, unknown> } }) => {
+        onData: ({ data: subData }: any) => {
             const ctx = subData?.data?.callback_stream?.[0];
             if (ctx) {
                 const newCtx = { ...ctx };
-                try { const ips = JSON.parse(newCtx.ip); newCtx.ip = ips[0]; } catch { /* keep raw ip */ }
+                newCtx.ip = parseFirstIP(newCtx.ip);
                 setCallbackContext(newCtx);
             }
         },
     });
 
-    const [createTask, { loading: tasking }] = useMutation(CREATE_TASK_MUTATION, {
-        onCompleted: (data: Record<string, unknown>) => {
+    const [createTask, { loading: tasking }] = useMutation<any>(CREATE_TASK_MUTATION, {
+        onCompleted: (data: any) => {
             if (data?.createTask?.status === 'error') {
                 snackActions.error(data.createTask.error || 'Task creation failed');
             }
@@ -154,11 +155,11 @@ export const ConsoleTerminal = ({
     // The task timestamp is bumped by a DB trigger whenever a new response row is inserted,
     // so the stream naturally re-fires and delivers fresh inline responses.
     const [taskMap, setTaskMap] = useState<Map<number, any>>(new Map());
-    const { loading } = useSubscription(STREAM_CALLBACK_TASKS, {
+    const { loading } = useSubscription<any>(STREAM_CALLBACK_TASKS, {
         variables: { callback_display_id: callbackId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
-        onData: ({ data: streamData }: { data: { data: Record<string, unknown> } }) => {
+        onData: ({ data: streamData }: any) => {
             const incoming: Task[] = streamData?.data?.task_stream;
             if (!incoming?.length) return;
             setTaskMap(prev => {
@@ -166,17 +167,17 @@ export const ConsoleTerminal = ({
                 incoming.forEach((t: Task) => next.set(t.id, t));
                 return next;
             });
-        }
+        },
+        onError: (err) => { console.error('[STREAM_CALLBACK_TASKS] subscription error:', err); },
     });
 
     const tasks = useMemo(
         () => {
             const all = [...taskMap.values()].sort((a, b) => a.id - b.id);
             if (!isFilterActive(filterOptions)) return all;
-            return all.filter(t => applyFilterToTask(t, filterOptions, me.user?.username));
+            return all.filter(t => applyFilterToTask(t, filterOptions, me.user?.username as string | undefined));
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [taskMap, filterOptions]
+        [taskMap, filterOptions, me.user?.username]
     );
 
     // Track whether the user is pinned to the bottom.
@@ -186,7 +187,7 @@ export const ConsoleTerminal = ({
         const el = scrollContainerRef.current;
         if (!el) return;
         const onScroll = () => {
-            isAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            isAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD;
         };
         el.addEventListener('scroll', onScroll, { passive: true });
         return () => el.removeEventListener('scroll', onScroll);
@@ -220,13 +221,13 @@ export const ConsoleTerminal = ({
     useEffect(() => { if (!tasking) inputRef.current?.focus(); }, [tasking]);
 
     // Subscribe to loaded commands for this callback
-    useSubscription(GET_LOADED_COMMANDS_SUBSCRIPTION, {
+    useSubscription<any>(GET_LOADED_COMMANDS_SUBSCRIPTION, {
         variables: { callback_id: callbackDbId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
-        onData: ({ data: subData }: { data: { data: Record<string, unknown> } }) => {
+        onData: ({ data: subData }: any) => {
             if (!subData?.data?.loadedcommands) return;
-            const cmds = subData.data.loadedcommands.map((c: LoadedCmd) => {
+            const cmds = subData.data.loadedcommands.map((c: any) => {
                 const cmdData = { ...c.command };
                 cmdData.commandparameters = [...(cmdData.commandparameters || [])].sort(
                     (a: CommandParameter, b: CommandParameter) => a.ui_position > b.ui_position ? 1 : -1
@@ -237,27 +238,29 @@ export const ConsoleTerminal = ({
             cmds.push({ cmd: "clear", description: "Clear 'submitted' jobs from being pulled down by an agent", commandparameters: [], attributes: { supported_os: [] } });
             cmds.sort((a: CommandDefinition, b: CommandDefinition) => a.cmd > b.cmd ? 1 : -1);
             loadedOptions.current = cmds;
-        }
+        },
+        onError: (err) => { console.error('[GET_LOADED_COMMANDS_SUBSCRIPTION] subscription error:', err); },
     });
 
     // Subscribe to callback tokens (for impersonation)
-    useSubscription(SUBSCRIPTION_CALLBACK_TOKENS, {
+    useSubscription<any>(SUBSCRIPTION_CALLBACK_TOKENS, {
         variables: { callback_id: callbackDbId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
-        onData: ({ data: subData }: { data: { data: Record<string, unknown> } }) => {
-            const tokens: CallbackToken[] = (subData?.data?.callbacktoken || []).map((ct: Record<string, unknown>) => ct.token).filter(Boolean);
+        onData: ({ data: subData }: any) => {
+            const tokens: CallbackToken[] = (subData?.data?.callbacktoken || []).map((ct: any) => ct.token).filter(Boolean);
             setAvailableTokens(tokens);
             if (tokens.length === 0) setSelectedToken(null);
-        }
+        },
+        onError: (err) => { console.error('[SUBSCRIPTION_CALLBACK_TOKENS] subscription error:', err); },
     });
 
     // Load operators for filter panel
-    useQuery(GET_OPERATORS_IN_OPERATION, {
+    useQuery<any>(GET_OPERATORS_IN_OPERATION, {
         variables: { operation_id: operationId },
         skip: !operationId,
-        onCompleted: (data: Record<string, unknown>) => {
-            setOperatorUsernames((data?.operation_by_pk?.operators || []).map((op: { username: string }) => op.username));
+        onCompleted: (data: any) => {
+            setOperatorUsernames((data?.operation_by_pk?.operators || []).map((op: any) => op.username));
         }
     });
 
@@ -290,7 +293,7 @@ export const ConsoleTerminal = ({
         }});
     };
 
-    const submitParametersDialog = (cmd: string, parameters: string, files: Record<string, File>, selectedParameterGroup: string, payload_type: string) => {
+    const submitParametersDialog = (cmd: string, parameters: string, files: string[], selectedParameterGroup: string, payload_type: string) => {
         setOpenParametersDialog(false);
         onCreateTask({
             callback_id: callbackId,
@@ -308,7 +311,7 @@ export const ConsoleTerminal = ({
         const splitMessage = currentInput.trim().split(" ");
         const paramsStr = splitMessage.slice(1).join(" ");
         let cmdGroupName: string[] = ["Default"];
-        let parsedWithPositionalParameters: Record<string, unknown> = {};
+        let parsedWithPositionalParameters: Record<string, any> = {};
         let failed_json_parse = true;
         try {
             parsedWithPositionalParameters = JSON.parse(paramsStr);
@@ -320,7 +323,7 @@ export const ConsoleTerminal = ({
         } catch { failed_json_parse = true; }
 
         if (failed_json_parse) {
-            let parsed = parseCommandLine(paramsStr, cmd);
+            let parsed: Record<string, any> | undefined = parseCommandLine(paramsStr, cmd) as Record<string, any> | undefined;
             if (parsed === undefined) return;
             parsed = { ...parsed };
             const groups = determineCommandGroupName(cmd, parsed);
@@ -328,7 +331,7 @@ export const ConsoleTerminal = ({
             cmdGroupName = groups; cmdGroupName.sort();
             if (cmd.commandparameters.length > 0) {
                 parsed["_"].unshift(cmd);
-                parsedWithPositionalParameters = fillOutPositionalArguments(cmd, parsed, cmdGroupName, currentInput);
+                parsedWithPositionalParameters = (fillOutPositionalArguments(cmd, parsed, cmdGroupName, currentInput) as Record<string, any> | undefined) ?? {};
                 if (parsedWithPositionalParameters === undefined) return;
                 if (parsedWithPositionalParameters["_"].length > 0) {
                     snackActions.warning("Too many positional arguments given. Did you mean to quote some of them?"); return;
@@ -342,7 +345,7 @@ export const ConsoleTerminal = ({
 
         // Check if a popup dialog is needed (file param missing or required params missing)
         if (cmd.commandparameters.length > 0) {
-            const fileParamExists = cmd.commandparameters.find((param: CommandParameter) => {
+            const fileParamExists = cmd.commandparameters.find((param: any) => {
                 if (param.parameter_type === "File" && cmdGroupName.includes(param.parameter_group_name)) {
                     if (!(param.cli_name in parsedWithPositionalParameters || param.name in parsedWithPositionalParameters || param.display_name in parsedWithPositionalParameters)) return true;
                     if (param.cli_name in parsedWithPositionalParameters && uuidValidate(parsedWithPositionalParameters[param.cli_name])) return false;
@@ -428,7 +431,10 @@ export const ConsoleTerminal = ({
         inputRef.current?.focus();
     };
 
-    const handleDisambiguationSelect = (cmd: CommandDefinition) => {
+    const handleSendRef = useRef(handleSend);
+    handleSendRef.current = handleSend;
+
+    const handleDisambiguationSelect = (cmd: any) => {
         setShowDisambiguation(false);
         setDisambiguationOptions([]);
         setCommandPayloadType(cmd?.payloadtype?.name || '');
@@ -444,19 +450,18 @@ export const ConsoleTerminal = ({
     const onFileAction = useCallback((action: string, path: string, name: string, isDir: boolean) => {
         const p = normalizeUnixPath(path);
         if (action === 'ls') {
-            handleSend(`ls ${p}`);
+            handleSendRef.current(`ls ${p}`);
         } else if (action === 'cat') {
-            handleSend(`cat ${p}`);
+            handleSendRef.current(`cat ${p}`);
         } else if (action === 'download') {
-            handleSend(`download ${p}`);
+            handleSendRef.current(`download ${p}`);
         } else if (action === 'upload') {
             setUploadTarget(p);
         } else if (action === 'copy') {
             navigator.clipboard.writeText(p);
             snackActions.success('Path copied');
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [handleSend]);
+    }, []);
 
     const tasksHistory = useMemo(() => [...tasks].reverse(), [tasks]);
 
@@ -1008,7 +1013,7 @@ export const ConsoleTerminal = ({
             </AnimatePresence>
 
             <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 space-y-4 cyber-scrollbar z-10">
-                {tasks.map((task: Task) => <TaskBlock key={task.id} task={task} callbackHost={callbackHost} onFileAction={onFileAction} scrollRoot={scrollContainerRef} onReveal={handleTaskReveal} myUsername={me.user?.username} collapseAllEpoch={collapseAllEpoch} expandAllEpoch={expandAllEpoch} defaultCollapsed={taskViewMode === 'compact'} />)}
+                {tasks.map((task: Task) => <TaskBlock key={task.id} task={task} callbackHost={callbackHost} onFileAction={onFileAction} scrollRoot={scrollContainerRef} onReveal={handleTaskReveal} myUsername={me.user?.username as string | undefined} collapseAllEpoch={collapseAllEpoch} expandAllEpoch={expandAllEpoch} defaultCollapsed={taskViewMode === 'compact'} />)}
                 {tasks.length === 0 && !loading && (
                     <div className="text-gray-500 italic opacity-50 text-center mt-10 text-sm">
                         {isFilterActive(filterOptions)
@@ -1022,7 +1027,7 @@ export const ConsoleTerminal = ({
             {/* ── Tasking Context Badges ─────────────────────── */}
             {!hideTaskingContext && Object.keys(callbackContext).length > 0 && (
                 <div className="px-3 py-1.5 bg-black/60 border-t border-white/5 flex flex-wrap gap-1.5 z-10 shrink-0"
-                     style={{ borderLeftColor: callbackContext.color || undefined, borderLeftWidth: callbackContext.color ? 3 : 0 }}>
+                     style={{ borderLeftColor: callbackContext.color as any || undefined, borderLeftWidth: callbackContext.color ? 3 : 0 }}>
                     {(Array.isArray(taskingContextFields) ? taskingContextFields : ['impersonation_context', 'cwd']).map((field: string) => {
                         let val = callbackContext[field];
                         if (val === undefined || val === null || val === '') return null;
@@ -1036,7 +1041,7 @@ export const ConsoleTerminal = ({
                             case 'cwd': label = 'Dir'; color = 'text-blue-300 border-blue-500/40 bg-blue-900/20'; break;
                             case 'user':
                                 label = 'User';
-                                if ((callbackContext.integrity_level || 0) > 2) val = val + '*';
+                                if (((callbackContext.integrity_level as number) || 0) > 2) val = val + '*';
                                 color = 'text-cyan-300 border-cyan-500/40 bg-cyan-900/20';
                                 break;
                             case 'host': label = 'Host'; color = 'text-green-300 border-green-500/40 bg-green-900/20'; break;

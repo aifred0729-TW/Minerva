@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { useQuery } from '@apollo/client';
+import { useQuery } from "@apollo/client/react";
 import { Activity, RefreshCw, ChevronDown, Globe, ChevronUp } from 'lucide-react';
 import { GET_PROCESS_HOSTS, GET_PROCESS_TREE } from '../../lib/api';
 import { cn } from '../../lib/utils';
+import { usePageVisible } from '../../lib/usePageVisible';
 import type { ProcessNode } from '../../types/console';
 
 export const parseProcessMetadata = (proc: any) => {
@@ -10,13 +11,13 @@ export const parseProcessMetadata = (proc: any) => {
     try {
         if (typeof proc.metadata === 'string') details = JSON.parse(proc.metadata);
         else if (typeof proc.metadata === 'object' && proc.metadata !== null) details = proc.metadata;
-    } catch (e) {}
+    } catch { /* best-effort parse – metadata may be malformed */ }
     return {
         pid: details.process_id ?? details.pid ?? 0,
         ppid: details.parent_process_id ?? details.ppid ?? 0,
         user: details.user || "Unknown",
         arch: details.architecture || details.arch || "",
-        integrityLevel: details.integrity_level ?? "-",
+        integrityLevel: details.integrity_level,
         sessionId: details.session_id ?? "-",
         binPath: details.bin_path || details.path || "-",
         cmdLine: details.command_line || details.cmd || "-",
@@ -24,6 +25,8 @@ export const parseProcessMetadata = (proc: any) => {
         signer: details.signer || "",
         companyName: details.company_name || "",
         windowTitle: details.window_title || "",
+        path: details.bin_path || details.path || "-",
+        startTime: details.start_time || "",
     };
 };
 
@@ -43,7 +46,7 @@ export const buildProcessTree = (processes: any[]): ProcessNode[] => {
         else rootNodes.push(node);
     });
     const sortAndSetDepth = (nodes: ProcessNode[], depth: number) => {
-        nodes.sort((a, b) => a.details.pid - b.details.pid);
+        nodes.sort((a, b) => (a.details.pid ?? 0) - (b.details.pid ?? 0));
         nodes.forEach(node => { node.depth = depth; sortAndSetDepth(node.children, depth + 1); });
     };
     sortAndSetDepth(rootNodes, 0);
@@ -56,12 +59,13 @@ export const buildProcessTree = (processes: any[]): ProcessNode[] => {
 };
 
 export const ProcessList = ({ host }: { host: string }) => {
+    const pageVisible = usePageVisible();
     const [expandedPids, setExpandedPids] = useState<Set<number>>(new Set());
     const [selectedHost, setSelectedHost] = useState(host);
-    const [__allExpanded, setAllExpanded] = useState(false);
+    const [, setAllExpanded] = useState(false);
 
     // Fetch all available process hosts
-    const { data: hostsData } = useQuery(GET_PROCESS_HOSTS, { fetchPolicy: 'cache-and-network' });
+    const { data: hostsData } = useQuery<any>(GET_PROCESS_HOSTS, { fetchPolicy: 'cache-and-network' });
     const allHosts: string[] = React.useMemo(() => {
         const hosts = (hostsData?.mythictree || []).map((h: any) => h.host).filter(Boolean);
         // Ensure current callback host is always in list
@@ -69,8 +73,8 @@ export const ProcessList = ({ host }: { host: string }) => {
         return [...new Set(hosts)] as string[];
     }, [hostsData, host]);
 
-    const { data, loading, error, refetch } = useQuery(GET_PROCESS_TREE, {
-        variables: { host: selectedHost }, pollInterval: 10000
+    const { data, loading, error, refetch } = useQuery<any>(GET_PROCESS_TREE, {
+        variables: { host: selectedHost }, pollInterval: pageVisible ? 10000 : 0
     });
 
     const rawProcesses = data?.mythictree || [];
@@ -90,7 +94,7 @@ export const ProcessList = ({ host }: { host: string }) => {
     };
 
     const handleExpandAll = () => {
-        const allPids = new Set(processTree.map(n => n.details.pid));
+        const allPids = new Set(processTree.map(n => n.details.pid ?? 0));
         setExpandedPids(allPids);
         setAllExpanded(true);
     };
@@ -153,23 +157,23 @@ export const ProcessList = ({ host }: { host: string }) => {
                         {processTree.map((node) => {
                             const { proc, details, children, depth } = node;
                             const { pid, ppid, user, arch, integrityLevel, binPath, cmdLine, sessionId, description, signer } = details;
-                            const isExpanded = expandedPids.has(pid);
+                            const isExpanded = expandedPids.has(pid ?? 0);
                             const indent = depth * 14;
                             
                             return (
                                 <React.Fragment key={proc.id}>
-                                    <tr className={cn("hover:bg-white/5 transition-colors group cursor-pointer", isExpanded ? "bg-white/10" : "")} onClick={() => toggleExpand(pid)}>
+                                    <tr className={cn("hover:bg-white/5 transition-colors group cursor-pointer", isExpanded ? "bg-white/10" : "")} onClick={() => toggleExpand(pid ?? 0)}>
                                         <td className="p-2 text-signal font-bold">{pid || "---"}</td>
                                         <td className="p-2">
                                             <div className="flex items-center" style={{ paddingLeft: `${indent}px` }}>
                                                 {depth > 0 && <span className="text-gray-600 mr-1">└</span>}
                                                 {children.length > 0 && <span className="text-signal mr-1">{isExpanded ? '▼' : '▶'}</span>}
-                                                <span className="text-white group-hover:text-yellow-400 transition-colors truncate" title={proc.name_text}>{proc.name_text}</span>
+                                                <span className="text-white group-hover:text-yellow-400 transition-colors truncate" title={String(proc.name_text ?? '')}>{String(proc.name_text ?? '')}</span>
                                             </div>
                                         </td>
                                         <td className="p-2 text-gray-400 truncate max-w-[90px]" title={user}>{user}</td>
                                         <td className="p-2 text-gray-500 text-[11px]">{arch}</td>
-                                        <td className="p-2 text-gray-500 text-[11px]">{integrityLevel !== '-' ? integrityLevel : ''}</td>
+                                        <td className="p-2 text-gray-500 text-[11px]">{integrityLevel != null ? integrityLevel : ''}</td>
                                     </tr>
                                     {isExpanded && (
                                         <tr className="bg-black/50">

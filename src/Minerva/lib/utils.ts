@@ -77,14 +77,16 @@ export function b64DecodeUnicode(str: string): string {
 export function isCallbackAlive(callback: { active?: boolean; last_checkin?: string; sleep_info?: string }): boolean {
     if (callback.active === false) return false;
     if (!callback.last_checkin) return false;
-    let thresholdMs = 5 * 60 * 1000; // 5-minute default
+    const DEFAULT_DEAD_THRESHOLD_MS = 5 * 60 * 1_000;
+    const MISSED_CHECKIN_MULTIPLIER = 3;
+    const JITTER_PERCENT_DIVISOR = 100;
+    let thresholdMs = DEFAULT_DEAD_THRESHOLD_MS;
     try {
         if (callback.sleep_info) {
             const sleep = JSON.parse(callback.sleep_info);
             if (sleep.interval && sleep.interval > 0) {
-                const jitterMult = sleep.jitter ? (1 + sleep.jitter / 100) : 1;
-                // 3× interval accounts for missed checkins / network latency
-                thresholdMs = Math.max(thresholdMs, sleep.interval * 1000 * 3 * jitterMult);
+                const jitterMult = sleep.jitter ? (1 + sleep.jitter / JITTER_PERCENT_DIVISOR) : 1;
+                thresholdMs = Math.max(thresholdMs, sleep.interval * 1_000 * MISSED_CHECKIN_MULTIPLIER * jitterMult);
             }
         }
     } catch { }
@@ -119,10 +121,47 @@ export function parseIPString(ip: string): string[] {
 }
 
 /**
+ * Extract the first IP from a JSON-encoded IP string.
+ * Convenience wrapper around parseIPString for display use.
+ */
+export function parseFirstIP(ip: string): string {
+    return parseIPString(ip)[0] || ip || '';
+}
+
+/**
  * Safely parse a JSON string, returning fallback on failure.
  */
 export function safeJsonParse<T>(str: string, fallback: T): T {
     try { return JSON.parse(str); } catch { return fallback; }
+}
+
+/**
+ * Parameter names whose values should be masked in UI display.
+ * Used by Tunnels, Payloads, and any C2 profile parameter listing.
+ */
+export const SENSITIVE_PARAM_NAMES = new Set(['AESPSK', 'aespsk', 'proxyPass']);
+
+/**
+ * Trigger a browser download from a Blob.
+ * Creates a temporary anchor element, clicks it, then cleans up.
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * Trigger a browser download from a data URL (e.g. canvas.toDataURL).
+ */
+export function downloadDataUrl(dataUrl: string, filename: string): void {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    a.click();
 }
 
 export function b64EncodeUnicode(str: string): string {

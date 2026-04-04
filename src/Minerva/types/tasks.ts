@@ -85,17 +85,30 @@ export interface Task {
         eventstep: { name: string };
     } | null;
     tags: Array<{
+        id?: number;
         tagtype: { name: string; color: string; id: number };
     }>;
     /** Only present on streamed subtask queries */
     parent_task_id?: number | null;
+    /** Subtask group name (for grouped subtasks) */
+    subtask_group_name?: string;
     /** response rows, may be populated by some queries */
     responses?: TaskResponse[];
+    /** Credential associations */
+    credentials?: Array<{
+        id: number;
+        account: string;
+        realm: string;
+        type: string;
+        credential_text: string;
+        comment: string;
+    }>;
     /** Callback info, present in some expanded queries */
     callback?: {
         id: number;
         display_id: number;
         host: string;
+        ip?: string;
         mythictree_groups: string[];
     };
 }

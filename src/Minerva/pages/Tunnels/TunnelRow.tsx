@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -43,10 +43,11 @@ import {
 } from './tunnels.utils';
 
 // Auto-ticking relative time — re-renders every second
+const LIVE_TIME_TICK_MS = 1_000;
 const LiveTime = ({ isoStr }: { isoStr: string }) => {
     const [, setTick] = useState(0);
     useEffect(() => {
-        const id = setInterval(() => setTick(t => t + 1), 1000);
+        const id = setInterval(() => setTick(t => t + 1), LIVE_TIME_TICK_MS);
         return () => clearInterval(id);
     }, []);
     return <>{fmtRelativeTime(isoStr)}</>;
@@ -58,8 +59,8 @@ export const TunnelRow = ({ port, onPortToggled, onHide }: { port: CallbackPort;
 
     const c2hp = getC2HostPort(port);
 
-    const [toggleProxy, { loading: toggling }] = useMutation(TOGGLE_PROXY_MUTATION, {
-        onCompleted: (data: Record<string, unknown>) => {
+    const [toggleProxy, { loading: toggling }] = useMutation<any>(TOGGLE_PROXY_MUTATION, {
+        onCompleted: (data: any) => {
             if (data.toggleProxy.status === 'success') {
                 const nowDeleted = !port.deleted;
                 snackActions.success(nowDeleted ? 'Proxy stopped' : 'Proxy started');
@@ -72,8 +73,8 @@ export const TunnelRow = ({ port, onPortToggled, onHide }: { port: CallbackPort;
         onError: () => snackActions.error('Operation not allowed'),
     });
 
-    const [testProxy, { loading: testing }] = useMutation(TEST_PROXY_MUTATION, {
-        onCompleted: (data: Record<string, unknown>) => {
+    const [testProxy, { loading: testing }] = useMutation<any>(TEST_PROXY_MUTATION, {
+        onCompleted: (data: any) => {
             if (data.testProxy.status === 'success') {
                 snackActions.success('Connection test initiated');
             } else {

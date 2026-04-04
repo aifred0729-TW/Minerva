@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ReactFlow,
     Background,
+    BackgroundVariant,
     Controls,
     MiniMap,
     useNodesState,
@@ -15,7 +16,7 @@ import {
     getStraightPath,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useSubscription } from '@apollo/client';
+import { useSubscription } from "@apollo/client/react";
 
 import { cn } from '../lib/utils';
 import {
@@ -48,8 +49,28 @@ const TYPE_LABEL: Record<string, string> = {
     interactive: 'INTERACTIVE',
 };
 
+// ─── Node / Edge data types ───────────────────────────────────────────────────
+interface TmMythicNodeData { activePorts: number; [key: string]: unknown; }
+interface TmAgentNodeData {
+    display_id: number; host: string; ip: string;
+    user?: string; domain?: string; active: boolean;
+    tunnels: Array<{ type: string; port: number }>;
+    [key: string]: unknown;
+}
+interface TmClientNodeData {
+    portType: string; localPort: number; sublabel?: string;
+    username?: string; bytesRx: number; bytesTx: number;
+    [key: string]: unknown;
+}
+interface TmTargetNodeData { label: string; sublabel?: string; [key: string]: unknown; }
+interface TmTrafficEdgeData {
+    color: string; active: boolean; portLabel?: string;
+    bytesRx: number; bytesTx: number;
+    [key: string]: unknown;
+}
+
 // ─── Custom Node: MYTHIC center ───────────────────────────────────────────────
-const MythicNode = ({ data }: { data: Record<string, unknown> }) => (
+const MythicNode = ({ data }: { data: TmMythicNodeData }) => (
     <div className="flex flex-col items-center px-5 py-3 border-2 border-signal bg-black font-mono min-w-[130px] shadow-[0_0_20px_rgba(74,222,128,0.15)]">
         <Handle type="target" position={Position.Top}    className="!opacity-0" />
         <Handle type="source" position={Position.Bottom} className="!opacity-0" />
@@ -69,7 +90,7 @@ const MythicNode = ({ data }: { data: Record<string, unknown> }) => (
 );
 
 // ─── Custom Node: Agent/Callback ───────────────────────────────────────────────
-const AgentNode = ({ data }: { data: Record<string, unknown> }) => (
+const AgentNode = ({ data }: { data: TmAgentNodeData }) => (
     <div className={cn(
         'flex flex-col items-center px-3 py-2.5 border font-mono min-w-[120px] transition-all',
         data.active
@@ -113,7 +134,7 @@ const AgentNode = ({ data }: { data: Record<string, unknown> }) => (
 );
 
 // ─── Custom Node: Client / Operator ─────────────────────────────────────────
-const ClientNode = ({ data }: { data: Record<string, unknown> }) => {
+const ClientNode = ({ data }: { data: TmClientNodeData }) => {
     const color = TYPE_COLOR[data.portType] || '#94a3b8';
     const label = data.portType === 'socks'
         ? 'CLIENT'
@@ -157,7 +178,7 @@ const ClientNode = ({ data }: { data: Record<string, unknown> }) => {
 };
 
 // ─── Custom Node: Internet / Shell target ────────────────────────────────────
-const TargetNode = ({ data }: { data: Record<string, unknown> }) => (
+const TargetNode = ({ data }: { data: TmTargetNodeData }) => (
     <div className="flex flex-col items-center px-3 py-2 border border-gray-700/40 bg-black/40 font-mono min-w-[90px]">
         <Handle type="target" position={Position.Top}  className="!opacity-0" />
         <Handle type="source" position={Position.Top}  className="!opacity-0" />
@@ -516,13 +537,13 @@ export default function TunnelMap() {
     const navigate = useNavigate();
     const [ports, setPorts] = useState<CallbackPort[]>([]);
     const [showStopped, setShowStopped] = useState(false);
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+    const [nodes, setNodes, onNodesChange] = useNodesState([] as Node<Record<string, unknown>>[]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge<Record<string, unknown>>[]);
 
     // Live subscription (same as Tunnels.tsx)
-    useSubscription(CALLBACKPORT_STREAM, {
+    useSubscription<any>(CALLBACKPORT_STREAM, {
         fetchPolicy: 'no-cache',
-        onData: ({ data }: { data: Record<string, unknown> }) => {
+        onData: ({ data }: any) => {
             const incoming: CallbackPort[] = data?.data?.callbackport_stream || [];
             if (!incoming.length) return;
             setPorts(prev => {
@@ -635,7 +656,7 @@ export default function TunnelMap() {
                             style={{ background: '#050505' }}
                         >
                             <Background
-                                variant={"dots" as any}
+                                variant={"dots" as BackgroundVariant}
                                 gap={24}
                                 size={1}
                                 color="#1a1a1a"
@@ -647,8 +668,8 @@ export default function TunnelMap() {
                             <MiniMap
                                 nodeColor={(n) => {
                                     if (n.type === 'mythicNode') return '#22c55e';
-                                    if (n.type === 'agentNode') return (n.data as any).active ? '#4ade80' : '#374151';
-                                    const pt = (n.data as any).portType as string;
+                                    if (n.type === 'agentNode') return (n.data as Record<string, unknown>).active ? '#4ade80' : '#374151';
+                                    const pt = (n.data as Record<string, unknown>).portType as string;
                                     return TYPE_COLOR[pt] || '#94a3b8';
                                 }}
                                 maskColor="#050505cc"

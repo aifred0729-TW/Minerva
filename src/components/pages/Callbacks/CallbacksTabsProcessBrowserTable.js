@@ -1,6 +1,7 @@
 import React, {useCallback, useMemo} from 'react';
 import { alpha, IconButton } from "@mui/material";
-import {useLazyQuery, gql, useMutation } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useLazyQuery, useMutation } from "@apollo/client/react";
 import { MythicDialog, MythicViewJSONAsTableDialog, MythicModifyStringDialog } from '../../MythicComponents/MythicDialog';
 import {useTheme} from '@mui/material/styles';
 import ClickAwayListener from '@mui/material/ClickAwayListener';

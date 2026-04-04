@@ -25,3 +25,4 @@ export * from './artifacts';
 export * from './reporting';
 export * from './notifications';
 export * from './payloads';
+export * from './wrappers';

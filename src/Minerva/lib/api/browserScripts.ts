@@ -27,22 +27,6 @@ subscription SubscribeBrowserScripts($operator_id: Int!) {
 `;
 
 // ============================================
-// Queries
-// ============================================
-export const GET_PAYLOAD_TYPES_SIMPLE = gql`
-query GetPayloadTypes {
-    payloadtype(where: {deleted: {_eq: false}}) {
-        id
-        name
-        commands {
-            id
-            cmd
-        }
-    }
-}
-`;
-
-// ============================================
 // Mutations
 // ============================================
 export const UPDATE_SCRIPT_ACTIVE = gql`

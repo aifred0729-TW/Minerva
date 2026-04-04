@@ -119,5 +119,48 @@ export function useInterval(
  */
 export function getSkewedNow(): Date {
     const now = new Date();
-    return new Date(now.getTime() + (meState()?.user?.server_skew || 0));
+    return new Date(now.getTime() + ((meState()?.user?.server_skew as number) || 0));
+}
+
+// ── Relative time constants ───────────────────────────────────────
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 3600;
+const SECONDS_PER_DAY = 86400;
+const MS_PER_SECOND = 1000;
+const MS_PER_MINUTE = 60_000;
+const MS_PER_HOUR = 3_600_000;
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Convert a timestamp string to a compact relative time string.
+ *
+ * Accepts ISO 8601 strings with or without trailing "Z".
+ * Returns e.g. "3s ago", "12m ago", "5h ago", "2d ago", or "just now".
+ * Returns "Never" for falsy input.
+ */
+export function timeAgo(isoStr: string | null | undefined): string {
+    if (!isoStr) return 'Never';
+    try {
+        const normalized = isoStr.endsWith('Z') ? isoStr : `${isoStr}Z`;
+        const diffMs = Date.now() - new Date(normalized).getTime();
+        if (diffMs < 0) return 'just now';
+        if (diffMs < MS_PER_MINUTE) return `${Math.floor(diffMs / MS_PER_SECOND)}s ago`;
+        if (diffMs < MS_PER_HOUR)   return `${Math.floor(diffMs / MS_PER_MINUTE)}m ago`;
+        if (diffMs < MS_PER_DAY)    return `${Math.floor(diffMs / MS_PER_HOUR)}h ago`;
+        return `${Math.floor(diffMs / MS_PER_DAY)}d ago`;
+    } catch {
+        return 'N/A';
+    }
+}
+
+/**
+ * Convert a diff in seconds to a compact relative time string.
+ * Used by components that already compute the difference themselves.
+ */
+export function secondsToRelative(diffSecs: number): string {
+    if (diffSecs < 0) return '0s ago';
+    if (diffSecs < SECONDS_PER_MINUTE) return `${diffSecs}s ago`;
+    if (diffSecs < SECONDS_PER_HOUR)   return `${Math.floor(diffSecs / SECONDS_PER_MINUTE)}m ago`;
+    if (diffSecs < SECONDS_PER_DAY)    return `${Math.floor(diffSecs / SECONDS_PER_HOUR)}h ago`;
+    return `${Math.floor(diffSecs / SECONDS_PER_DAY)}d ago`;
 }

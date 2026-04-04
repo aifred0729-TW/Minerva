@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { useQuery } from '@apollo/client';
+import { useQuery } from "@apollo/client/react";
 import { GET_COMMANDS } from './queries';
 import { Disc, CheckSquare, Square, Search, Check, X, Terminal } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -47,7 +47,7 @@ const CommandItem = memo(({ cmd, isSelected, onToggle, onEnter, onLeave, onMove 
 });
 
 export function Step3Commands({ payloadType, currentCommands, onUpdate }: Step3Props) {
-    const { data, loading, error } = useQuery(GET_COMMANDS, {
+    const { data, loading, error } = useQuery<any>(GET_COMMANDS, {
         variables: { payloadType: payloadType }
     });
 

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { useQuery, useLazyQuery, useMutation, useSubscription } from '@apollo/client';
+import { useMutation, useSubscription } from "@apollo/client/react";
+import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../../lib/useQueryCompat";
+import { FILE_API_BASE } from '../../lib/urls';
 import {
     Folder,
     Home,
@@ -44,10 +46,20 @@ import {
     UPDATE_MYTHICTREE_COMMENT,
 } from '../../lib/api';
 import type { FileNode, ContextMenuItemDef } from '../../types/files';
-import type { ContextMenuState } from '../../types/console';
 import { COLUMN_DEFS, getMetadata, getAllParentPaths, deduplicateById } from './utils';
 import { ContextMenu, FileTreeNode, CommentEditModal, DownloadHistoryModal } from './FileTree';
+import { VirtualFileTree } from './VirtualFileTree';
 import { MythicServerFiles } from './ServerFiles';
+
+/** Local context-menu state — items use string-keyed actions (matches FileTree's ContextMenu component) */
+interface ContextMenuState {
+    x: number;
+    y: number;
+    isDir: boolean;
+    path: string;
+    name: string;
+    items: ContextMenuItemDef[];
+}
 
 export const FileBrowser = ({ host, callbackId }: { host: string, callbackId: number }) => {
     // Tab state: 'callback' for target machine files, 'mythic' for C2 server files
@@ -100,17 +112,17 @@ export const FileBrowser = ({ host, callbackId }: { host: string, callbackId: nu
 // Callback File Browser (Target Machine Files)
 // ============================================
 export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callbackId: number }) => {
-    const [createTask] = useMutation(CREATE_TASK_MUTATION);
-    const [updateCommentMutation] = useMutation(UPDATE_MYTHICTREE_COMMENT);
+    const [createTask] = useMutation<any>(CREATE_TASK_MUTATION);
+    const [updateCommentMutation] = useMutation<any>(UPDATE_MYTHICTREE_COMMENT);
     const fromNow = useRef<string>(new Date().toISOString());
 
     // ── Loaded commands cache (for dynamic action labels) ────────────
     // key = callback_id (number or string), value = array of loadedcommand objects
     const loadedCommandsRef = useRef<Record<number, Array<{ id: number; command: { id: number; cmd: string; supported_ui_features: string[] } }>>>({});
     const loadingCommandsRef = useRef<boolean>(false);
-    const [getLoadedCommandsForUI] = useLazyQuery(GET_LOADED_COMMANDS_FOR_UI, {
+    const [getLoadedCommandsForUI] = useLazyQuery<any>(GET_LOADED_COMMANDS_FOR_UI, {
         fetchPolicy: 'no-cache',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             if (data.loadedcommands?.length > 0) {
                 const cbId: number = data.loadedcommands[0].callback_id;
                 loadedCommandsRef.current[cbId] = data.loadedcommands;
@@ -151,7 +163,7 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
         try { return localStorage.getItem('minerva_fb_auto_ls') === 'true'; } catch { return false; }
     });
     const autoLsSetting = useGetMythicSetting({setting_name:'autoTaskLsOnEmptyDirectories', default_value: false});
-    const [setMythicSettingFn] = useSetMythicSetting() as any;
+    const [setMythicSettingFn] = useSetMythicSetting();
     useEffect(() => { setAutoLsEmptyDirs(!!autoLsSetting); }, [autoLsSetting]);
     const handleToggleAutoLs = () => {
         const next = !autoLsEmptyDirs;
@@ -263,9 +275,9 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
     // ────────────────────────────────────────────────────────────
     // ROOT QUERY — loads all root-level entries once
     // ────────────────────────────────────────────────────────────
-    const { loading: rootLoading } = useQuery(GET_FILE_TREE_ROOT, {
+    const { loading: rootLoading } = useQuery<any>(GET_FILE_TREE_ROOT, {
         variables: { host },
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             const nodes: FileNode[] = data.mythictree || [];
             nodes.forEach(mergeNode);
             mergeIntoAdjMtx(nodes);
@@ -277,9 +289,9 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
     // ────────────────────────────────────────────────────────────
     // FOLDER LAZY QUERY — includes parents + self for full context
     // ────────────────────────────────────────────────────────────
-    const [getFolderData] = useLazyQuery(GET_FILE_TREE_FOLDER_WITH_PARENTS, {
+    const [getFolderData] = useLazyQuery<any>(GET_FILE_TREE_FOLDER_WITH_PARENTS, {
         fetchPolicy: 'no-cache',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             const allNodes: FileNode[] = [
                 ...(data.parents || []),
                 ...(data.children || []),
@@ -311,7 +323,7 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
     // TASK STATUS SUBSCRIPTION — surface file_browser task errors
     // ────────────────────────────────────────────────────────────
     const taskSubFromNow = useRef<string>(new Date().toISOString());
-    useSubscription(FILEBROWSER_TASK_SUBSCRIPTION, {
+    useSubscription<any>(FILEBROWSER_TASK_SUBSCRIPTION, {
         variables: { now: taskSubFromNow.current, callback_id: callbackId },
         onData: ({ data: subData }) => {
             const tasks: Array<{ id: number; display_id: number; status: string; command_name: string; opsec_pre_blocked: boolean; opsec_post_blocked: boolean }> =
@@ -324,12 +336,13 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
                 }
             });
         },
+        onError: (err) => { console.error('[FILEBROWSER_TASK_SUBSCRIPTION] subscription error:', err); },
     });
 
     // ────────────────────────────────────────────────────────────
     // REAL-TIME SUBSCRIPTION
     // ────────────────────────────────────────────────────────────
-    useSubscription(MYTHICTREE_FILE_SUBSCRIPTION, {
+    useSubscription<any>(MYTHICTREE_FILE_SUBSCRIPTION, {
         variables: { now: fromNow.current, host },
         onData: ({ data: subData }) => {
             const nodes: FileNode[] = subData.data?.mythictree_stream || [];
@@ -345,6 +358,7 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
                 }
             }
         },
+        onError: (err) => { console.error('[MYTHICTREE_FILE_SUBSCRIPTION] subscription error:', err); },
     });
 
     // ────────────────────────────────────────────────────────────
@@ -449,7 +463,7 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
         const targetCb = cbId ?? callbackId;
         createTask({ variables: { callback_id: targetCb, command, params: path } })
             .then(() => snackActions.info(`Tasked '${command} ${name}'`))
-            .catch((e: unknown) => snackActions.error(`${command} failed: ${e.message}`));
+            .catch((e: any) => snackActions.error(`${command} failed: ${e.message}`));
     }, [callbackId, createTask]);
 
     const handleRefresh = () => {
@@ -469,7 +483,7 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
             const formData = new FormData();
             formData.append('file', uploadFile);
             formData.append('name', uploadFile.name);
-            const resp = await fetch('/api/v1.4/files/', { method: 'POST', body: formData });
+            const resp = await fetch(FILE_API_BASE + '/', { method: 'POST', body: formData });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const json = await resp.json();
             const agentFileId: string = json.agent_file_id || json.id;
@@ -486,7 +500,7 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
             setUploadDialogOpen(false);
             setUploadFile(null);
             setUploadDestPath('');
-        } catch (e: unknown) {
+        } catch (e: any) {
             snackActions.error(`Upload failed: ${e.message}`);
         } finally {
             setUploading(false);
@@ -503,7 +517,6 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
         const rmCmd    = getLoadedCommandForUIFeature(callbackId, isDir ? 'file_browser:remove_folder' : 'file_browser:remove');
         const upCmd    = getLoadedCommandForUIFeature(callbackId, 'file_browser:upload');
 
-        const __meta = getMetadata(node);
         const items: ContextMenuItemDef[] = [
             // Copy sub-menu
             {
@@ -973,33 +986,23 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
                 </div>
 
                 {/* Tree */}
-                <div className="flex-1 overflow-auto p-1">
+                <div className="flex-1 overflow-hidden p-1">
                     {rootLoading && rootPaths.length === 0 ? (
                         <div className="text-center p-4 text-[10px] text-gray-500 animate-pulse">LOADING_TREE...</div>
-                    ) : rootPaths.length === 0 ? (
-                        <div className="text-center p-6 text-gray-600">
-                            <Folder size={24} className="mx-auto mb-2 opacity-20" />
-                            <p className="text-[10px] font-mono">NO_FILE_DATA</p>
-                            <p className="text-[9px] text-gray-700 mt-1">Run 'ls' to browse</p>
-                        </div>
                     ) : (
-                        rootPaths.map(rp => (
-                            <FileTreeNode
-                                key={rp}
-                                fullPath={rp}
-                                level={0}
-                                treeRootData={treeRootDataRef.current}
-                                treeAdjMtx={treeAdjMtx}
-                                selectedPath={currentPath}
-                                showDeletedFiles={showDeletedFiles}
-                                onSelect={navigateTo}
-                                onFetchFolder={fetchFolder}
-                                onFileContextMenu={(node, e) => {
-                                    e.preventDefault();
-                                    setCtxMenu({ x: e.clientX, y: e.clientY, isDir: node.can_have_children, path: node.full_path_text, name: node.name_text, items: buildContextMenuItems(node, node.can_have_children) });
-                                }}
-                            />
-                        ))
+                        <VirtualFileTree
+                            rootPaths={rootPaths}
+                            treeRootData={treeRootDataRef.current}
+                            treeAdjMtx={treeAdjMtx}
+                            selectedPath={currentPath}
+                            showDeletedFiles={showDeletedFiles}
+                            onSelect={navigateTo}
+                            onFetchFolder={fetchFolder}
+                            onFileContextMenu={(node, e) => {
+                                e.preventDefault();
+                                setCtxMenu({ x: e.clientX, y: e.clientY, isDir: node.can_have_children, path: node.full_path_text, name: node.name_text, items: buildContextMenuItems(node, node.can_have_children) });
+                            }}
+                        />
                     )}
                 </div>
             </div>
@@ -1385,7 +1388,7 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
                                                     {meta.permissions ? (
                                                         <span title={JSON.stringify(meta.permissions, null, 2)} className="cursor-help">
                                                             {typeof meta.permissions === 'object'
-                                                                ? (meta.permissions as any).octal || JSON.stringify(meta.permissions).slice(0, 12)
+                                                                ? (meta.permissions as Record<string, unknown>).octal as string || JSON.stringify(meta.permissions).slice(0, 12)
                                                                 : String(meta.permissions).slice(0, 12)}
                                                         </span>
                                                     ) : '—'}

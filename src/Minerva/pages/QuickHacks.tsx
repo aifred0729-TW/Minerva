@@ -9,9 +9,6 @@ import { useSetMythicSetting } from '../components/MythicSavedUserSetting';
 
 const PRESET_COLORS = ['#22d3ee', '#22c55e', '#ff003c', '#ff6600', '#ffcc00', '#00ff88', '#6633ff', '#ff33cc', '#3b82f6', '#f59e0b'];
 
-// Minerva page accent — matches the cyberpunk HUD palette
-const __PAGE_ACCENT = '#22d3ee'; // cyan
-
 const generateId = () => `qh_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 const emptyHack: Omit<QuickHackDef, 'id'> = {
@@ -28,7 +25,7 @@ const emptyHack: Omit<QuickHackDef, 'id'> = {
 const QuickHacks = () => {
     const { isSidebarCollapsed } = useAppStore();
     const storedHacks = useQuickHacks();
-    const [setSetting] = useSetMythicSetting() as any;
+    const [setSetting] = useSetMythicSetting();
 
     const [hacks, setHacks] = useState<QuickHackDef[]>(storedHacks);
 
@@ -145,7 +142,7 @@ const QuickHacks = () => {
                                 <HackForm
                                     title="CREATE NEW QUICKHACK"
                                     form={createForm}
-                                    onChange={setCreateForm as any}
+                                    onChange={setCreateForm as (f: QuickHackDef | Omit<QuickHackDef, 'id'>) => void}
                                     onSave={handleCreate}
                                     onCancel={() => { setIsCreating(false); setCreateForm(emptyHack); }}
                                 />
@@ -168,7 +165,7 @@ const QuickHacks = () => {
                                     <HackForm
                                         title="EDIT QUICKHACK"
                                         form={editForm}
-                                        onChange={setEditForm}
+                                        onChange={setEditForm as any}
                                         onSave={handleUpdate}
                                         onCancel={cancelEdit}
                                     />
@@ -417,11 +414,11 @@ const HackForm = ({
 }: {
     title: string;
     form: QuickHackDef | Omit<QuickHackDef, 'id'>;
-    onChange: (f: any) => void;
+    onChange: (f: QuickHackDef | Omit<QuickHackDef, 'id'>) => void;
     onSave: () => void;
     onCancel: () => void;
 }) => {
-    const update = (key: string, value: any) => onChange({ ...form, [key]: value });
+    const update = (key: string, value: unknown) => onChange({ ...form, [key]: value });
     const steps: QuickHackStep[] = form.steps && form.steps.length > 0
         ? form.steps
         : [{ command: form.command ?? '', params: form.params ?? '' }];

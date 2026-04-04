@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useLazyQuery, useMutation, useQuery } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../../lib/useQueryCompat";
 import { motion } from 'framer-motion';
 import {
     X,
@@ -100,8 +101,8 @@ export const CreateNewCallbackDialog: React.FC<{
     const [extraInfo, setExtraInfo] = useState('');
     const [processName, setProcessName] = useState('');
 
-    const [createCallback, { loading }] = useMutation(createManualCallbackMutation, {
-        onCompleted: (data) => {
+    const [createCallback, { loading }] = useMutation<any>(createManualCallbackMutation, {
+        onCompleted: (data: any) => {
             if (data.createCallback.status === 'success') {
                 snackActions.success('Callback created successfully');
                 onClose();
@@ -207,8 +208,8 @@ export const ImportPayloadConfigDialog: React.FC<{
 }> = ({ open, onClose }) => {
     const [fileName, setFileName] = React.useState('');
     const [fileContents, setFileContents] = React.useState('');
-    const [importPayload] = useMutation(importPayloadMutation, {
-        onCompleted: (data) => {
+    const [importPayload] = useMutation<any>(importPayloadMutation, {
+        onCompleted: (data: any) => {
             if (data.createPayload.status === 'success') {
                 snackActions.info('Submitted payload to build pipeline');
                 onClose();
@@ -274,16 +275,16 @@ export const RebuildWithEditsDialog: React.FC<{
 }> = ({ open, onClose, uuid }) => {
     const [config, setConfig] = React.useState('');
     const [loading, setLoading] = React.useState(true);
-    const [importPayload] = useMutation(importPayloadMutation, {
-        onCompleted: (data) => {
+    const [importPayload] = useMutation<any>(importPayloadMutation, {
+        onCompleted: (data: any) => {
             if (data.createPayload.status === 'success') snackActions.info('Submitted modified payload to build pipeline');
             else snackActions.error(data.createPayload.error);
         },
         onError: (e) => snackActions.error('Build failed: ' + e.message),
     });
-    const [fetchConfig] = useLazyQuery(exportPayloadConfigQuery, {
+    const [fetchConfig] = useLazyQuery<any>(exportPayloadConfigQuery, {
         fetchPolicy: 'no-cache',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setLoading(false);
             if (data.exportPayloadConfig.status === 'success') setConfig(data.exportPayloadConfig.config);
             else snackActions.error('Failed to load config: ' + data.exportPayloadConfig.error);
@@ -338,7 +339,7 @@ export const RebuildWithEditsDialog: React.FC<{
 // Compare Payloads Dialog
 // ============================================
 export const PayloadDetailColumn: React.FC<{ payloadId: number; isCombat?: boolean }> = ({ payloadId, isCombat = false }) => {
-    const { data, loading } = useQuery(getPayloadFullDetailsQuery, {
+    const { data, loading } = useQuery<any>(getPayloadFullDetailsQuery, {
         variables: { payload_id: payloadId },
         fetchPolicy: 'cache-and-network',
         skip: !payloadId,
@@ -401,9 +402,9 @@ export const ComparePayloadsDialog: React.FC<{
     const [rightId, setRightId] = React.useState<number>(0);
     const [leftWidth, setLeftWidth] = useState(50);
     const dragging = useRef(false);
-    useQuery(getPayloadsListQuery, {
+    useQuery<any>(getPayloadsListQuery, {
         skip: !open,
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setPayloads(data.payload);
             const others = data.payload.filter((p: any) => p.id !== payloadId);
             if (others.length > 0) setRightId(others[0].id);
@@ -499,16 +500,16 @@ export const HostPayloadFileDialog: React.FC<{
     const [selectedC2Id, setSelectedC2Id] = React.useState<number>(0);
     const [hostUrl, setHostUrl] = React.useState('');
     const [alertOnDownload, setAlertOnDownload] = React.useState(false);
-    useQuery(getRunningC2ProfilesQuery, {
+    useQuery<any>(getRunningC2ProfilesQuery, {
         skip: !open,
         fetchPolicy: 'network-only',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setC2Profiles(data.c2profile);
             if (data.c2profile.length > 0) setSelectedC2Id(data.c2profile[0].id);
         },
     });
-    const [hostFile] = useMutation(hostFileMutation, {
-        onCompleted: (data) => {
+    const [hostFile] = useMutation<any>(hostFileMutation, {
+        onCompleted: (data: any) => {
             if (data.c2HostFile.status === 'success') { snackActions.info('File hosted via C2 profile'); onClose(); }
             else snackActions.error(data.c2HostFile.error);
         },
@@ -590,12 +591,12 @@ export const AddRemoveCommandsDialog: React.FC<{
     const [notIncluded, setNotIncluded] = React.useState<Array<{ id: number; cmd: string }>>([]);
     const [included, setIncluded] = React.useState<Array<{ id: number; cmd: string }>>([]);
     const [filter, setFilter] = React.useState('');
-    const [__saving, __setSaving] = React.useState(false);
-    useQuery(getCommandsForPayloadQuery, {
+    const [_saving, _setSaving] = React.useState(false);
+    useQuery<any>(getCommandsForPayloadQuery, {
         variables: { uuid },
         skip: !open,
         fetchPolicy: 'network-only',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             const loadedCmds = new Set(data.payloadcommand.map((pc: any) => pc.command.id));
             const inc = data.command.filter((c: any) => loadedCmds.has(c.id)).sort((a: any, b: any) => a.cmd < b.cmd ? -1 : 1);
             const notInc = data.command.filter((c: any) => !loadedCmds.has(c.id)).sort((a: any, b: any) => a.cmd < b.cmd ? -1 : 1);
@@ -603,10 +604,10 @@ export const AddRemoveCommandsDialog: React.FC<{
             setNotIncluded(notInc);
         },
     });
-    const [addCmd] = useMutation(addCommandMutation, {
+    const [addCmd] = useMutation<any>(addCommandMutation, {
         onError: (e) => snackActions.error('Failed to add: ' + e.message),
     });
-    const [removeCmd] = useMutation(removeCommandMutation, {
+    const [removeCmd] = useMutation<any>(removeCommandMutation, {
         onError: (e) => snackActions.error('Failed to remove: ' + e.message),
     });
     const moveToIncluded = (cmd: { id: number; cmd: string }) => {
@@ -702,15 +703,15 @@ export const TagEditDialog: React.FC<{
     onTagsChanged: () => void;
 }> = ({ open, onClose, payloadId, currentTags, onTagsChanged }) => {
     const [tagTypes, setTagTypes] = React.useState<Array<{ id: number; name: string; color: string }>>([]);
-    useQuery(getTagTypesQuery, {
+    useQuery<any>(getTagTypesQuery, {
         skip: !open,
-        onCompleted: (data) => setTagTypes(data.tagtype),
+        onCompleted: (data: any) => setTagTypes(data.tagtype),
     });
-    const [addTag] = useMutation(addTagToPayloadMutation, {
+    const [addTag] = useMutation<any>(addTagToPayloadMutation, {
         onCompleted: () => { snackActions.success('Tag added'); onTagsChanged(); },
         onError: (e) => snackActions.error('Failed: ' + e.message),
     });
-    const [removeTag] = useMutation(removeTagFromPayloadMutation, {
+    const [removeTag] = useMutation<any>(removeTagFromPayloadMutation, {
         onCompleted: () => { snackActions.success('Tag removed'); onTagsChanged(); },
         onError: (e) => snackActions.error('Failed: ' + e.message),
     });
@@ -778,7 +779,7 @@ export const TagEditDialog: React.FC<{
 // Mini component to fetch and show wrapped payload info
 export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId }) => {
     const [expanded, setExpanded] = useState(false);
-    const { data, loading } = useQuery(getPayloadFullDetailsQuery, {
+    const { data, loading } = useQuery<any>(getPayloadFullDetailsQuery, {
         variables: { payload_id: payloadId },
         fetchPolicy: 'cache-first',
     });
@@ -815,7 +816,7 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
                     {Object.keys(c2Groups).length > 0 && (
                         <div className="p-2.5">
                             <span className="text-ghost/50 uppercase tracking-wider text-[10px] block mb-1.5">C2 Profiles</span>
-                            {Object.entries(c2Groups).map(([profileName, instances]: [string, any[]]) => (
+                            {(Object.entries(c2Groups) as [string, any[]][]).map(([profileName, instances]) => (
                                 <div key={profileName} className="mb-2 last:mb-0">
                                     <span className="text-signal/80 font-bold block">{profileName}</span>
                                     <div className="ml-2 mt-0.5 space-y-0.5">

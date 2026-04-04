@@ -3,9 +3,12 @@
 // ═══════════════════════════════════════════════
 import type { FilterOptions, ConsoleFileNode } from '../../types/console';
 import { parseIPString } from '../../lib/utils';
+import { TASK_UPLOAD_URL } from '../../lib/urls';
+import { getAuthHeaders } from '../../lib/auth';
 
 export { formatBytes, b64DecodeUnicode, parseIPString } from '../../lib/utils';
 export { getOSIcon, WindowsIcon, LinuxIcon, MacOSIcon } from '../../components/OSIcons';
+export { timeAgo as timeSince } from '../../lib/time';
 
 export const parseIP = (ip: string): string => parseIPString(ip)[0] || ip || 'N/A';
 
@@ -14,16 +17,6 @@ export const getIPRange = (ip: string): string => {
     const parts = parsed.split('.');
     if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
     return parsed;
-};
-
-
-export const timeSince = (dateStr: string): string => {
-    if (!dateStr) return 'Never';
-    const diff = Date.now() - new Date(dateStr).getTime();
-    if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return `${Math.floor(diff / 86400000)}d ago`;
 };
 
 // ============================================
@@ -134,13 +127,10 @@ export const uploadFileToMythic = async (file: File, comment: string): Promise<s
     const form = new FormData();
     form.append('file', file);
     form.append('comment', comment);
-    const res = await fetch('/api/v1.4/task_upload_file_webhook', {
+    const res = await fetch(TASK_UPLOAD_URL, {
         method: 'POST',
         body: form,
-        headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token') || ''}`,
-            MythicSource: 'web',
-        },
+        headers: getAuthHeaders(),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();

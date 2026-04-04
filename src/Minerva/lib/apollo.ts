@@ -31,6 +31,10 @@ import {
     FailedRefresh,
     isSessionExpiredError,
     handleSessionExpired,
+    isFetchingNewToken,
+    setFetchingNewToken,
+    getAccessToken,
+    getAuthHeaders,
 } from './auth';
 
 // ── Links ──────────────────────────────────────────────────────────
@@ -42,60 +46,41 @@ const retryLink = new RetryLink({
 
 const httpLink = new HttpLink({
     uri: window.location.origin + "/graphql/",
-    // @ts-ignore – legacy option kept for backward compatibility
-    options: {
-        reconnect: true,
-        connectionParams: {
-            headers: {
-                Authorization: () => `Bearer ${localStorage.getItem('access_token')}`,
-                MythicSource: "web",
-            },
-        },
-    },
 });
 
 // Intercept every request and attach / refresh the JWT.
-let fetchingNewToken = false;
+// Uses the single fetchingNewToken flag exported by auth.ts
+// to prevent duplicate concurrent refresh requests.
 
 const authLink = setContext(async (_, { headers }) => {
     // Wait for any in-flight refresh to finish
-    while (fetchingNewToken) {
+    while (isFetchingNewToken()) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
-    let access_token = localStorage.getItem('access_token');
+    let access_token = getAccessToken();
     if (access_token) {
-        const decoded_token: any = jwtDecode(access_token);
-        const diff = (decoded_token.exp * 1000) - (getSkewedNow() as any);
+        const decoded: { exp: number } = jwtDecode(access_token);
+        const diff = (decoded.exp * 1000) - getSkewedNow().getTime();
         const thirtyMinutes = 30 * 60000;
 
         if (!isJWTValid()) {
             dbg('apollo', 'token is no longer valid, refreshing');
-            fetchingNewToken = true;
+            setFetchingNewToken(true);
             const updated = await GetNewToken();
-            fetchingNewToken = false;
+            setFetchingNewToken(false);
             if (updated) {
-                return {
-                    headers: {
-                        Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-                        MythicSource: "web",
-                    },
-                };
+                return { headers: getAuthHeaders() };
             }
             dbg('apollo', 'JWT invalid and refresh failed');
             FailedRefresh();
         } else if (diff < thirtyMinutes && diff > 0) {
             dbg('apollo', 'token at half-life, refreshing');
-            fetchingNewToken = true;
+            setFetchingNewToken(true);
             const updated = await GetNewToken();
-            fetchingNewToken = false;
+            setFetchingNewToken(false);
             if (updated) {
-                return {
-                    headers: {
-                        Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-                        MythicSource: "web",
-                    },
-                };
+                return { headers: getAuthHeaders() };
             }
         }
     } else {
@@ -103,22 +88,16 @@ const authLink = setContext(async (_, { headers }) => {
         FailedRefresh();
     }
 
-    return {
-        Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-        headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-            MythicSource: "web",
-        },
-    };
+    return { headers: getAuthHeaders() };
 });
 
 // Global GraphQL / network error handler.
-const errorLink = onError(({ graphQLErrors, networkError }) => {
+const errorLink = onError(({ graphQLErrors, networkError }: any) => {
     try {
         if (graphQLErrors) {
             dbg('apollo', 'graphQLErrors', graphQLErrors);
             for (const err of graphQLErrors) {
-                const code = (err.extensions as any)?.code as string | undefined;
+                const code = (err.extensions?.code ?? undefined) as string | undefined;
                 if (isSessionExpiredError(code, err.message)) {
                     handleSessionExpired('graphQLError: ' + (code || err.message));
                     return;
@@ -148,10 +127,11 @@ const errorLink = onError(({ graphQLErrors, networkError }) => {
         }
         if (networkError) {
             dbg('apollo', 'networkError', networkError);
-            const netExt = (networkError as any).extensions;
-            const netCode = netExt?.code as string | undefined;
+            const netErr = networkError as Record<string, unknown>;
+            const netExt = netErr.extensions as Record<string, unknown> | undefined;
+            const netCode = (netExt?.code ?? undefined) as string | undefined;
             const netMsg = networkError.message || '';
-            const statusCode = (networkError as any).statusCode;
+            const statusCode = netErr.statusCode as number | undefined;
 
             if (isSessionExpiredError(netCode, netMsg)) {
                 handleSessionExpired('networkError: ' + (netCode || netMsg));
@@ -202,6 +182,12 @@ const splitLink = split(
 // ── Exported singleton client ──────────────────────────────────────
 
 export const apolloClient = new ApolloClient({
-    link: from([authLink, errorLink, retryLink, authLink.concat(splitLink)]),
+    link: from([authLink, errorLink, retryLink, splitLink]),
     cache: new InMemoryCache(),
+    defaultOptions: {
+        watchQuery: {
+            // AC4 changed default to true; preserve v3 behavior to avoid extra re-renders
+            notifyOnNetworkStatusChange: false,
+        },
+    },
 });

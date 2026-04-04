@@ -48,19 +48,6 @@ export const SEARCH_TASKS_CALLBACK_GROUP = gql`
   }
 `;
 
-export const SEARCH_CALLBACKS_LAST_CHECKIN = gql`
-  query SearchCallbacksByLastCheckin($search: String!, $offset: Int!, $limit: Int!){
-    callback(where: {last_checkin: {_gte: $search}, active: {_eq: true}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
-      id display_id active host user ip description domain os architecture
-      payload { payloadtype { name } }
-      last_checkin init_callback pid
-    }
-    callback_aggregate(where: {last_checkin: {_gte: $search}, active: {_eq: true}}) {
-      aggregate { count }
-    }
-  }
-`;
-
 export const SEARCH_CALLBACKS_AGENT = gql`
   query SearchCallbacksByAgent($search: String!, $offset: Int!, $limit: Int!){
     callback(where: {payload: {payloadtype: {name: {_ilike: $search}}}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
@@ -649,4 +636,47 @@ query GetTaskResponses($task_id: Int!) {
     response(where: {task_id: {_eq: $task_id}}, order_by: {id: asc}, limit: 50) {
         id response_escape timestamp
     }
+}`;
+
+// Interactive Tasks
+const INTERACTIVE_TASK_FIELDS = `
+    id display_id command_name display_params original_params status comment timestamp
+    interactive_task_type
+    operator { username }
+    callback { id display_id host }
+`;
+export const SEARCH_INTERACTIVE_PARAMS = gql`
+query SearchInteractiveParams($search: String!, $offset: Int!, $limit: Int!) {
+    task(where: {is_interactive_task: {_eq: true}, _or: [{original_params: {_ilike: $search}}, {display_params: {_ilike: $search}}]}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+        ${INTERACTIVE_TASK_FIELDS}
+    }
+    task_aggregate(where: {is_interactive_task: {_eq: true}, _or: [{original_params: {_ilike: $search}}, {display_params: {_ilike: $search}}]}) { aggregate { count } }
+}`;
+export const SEARCH_INTERACTIVE_COMMAND = gql`
+query SearchInteractiveCommand($search: String!, $offset: Int!, $limit: Int!) {
+    task(where: {is_interactive_task: {_eq: true}, command_name: {_ilike: $search}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+        ${INTERACTIVE_TASK_FIELDS}
+    }
+    task_aggregate(where: {is_interactive_task: {_eq: true}, command_name: {_ilike: $search}}) { aggregate { count } }
+}`;
+export const SEARCH_INTERACTIVE_HOST = gql`
+query SearchInteractiveHost($search: String!, $offset: Int!, $limit: Int!) {
+    task(where: {is_interactive_task: {_eq: true}, callback: {host: {_ilike: $search}}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+        ${INTERACTIVE_TASK_FIELDS}
+    }
+    task_aggregate(where: {is_interactive_task: {_eq: true}, callback: {host: {_ilike: $search}}}) { aggregate { count } }
+}`;
+export const SEARCH_INTERACTIVE_OPERATOR = gql`
+query SearchInteractiveOperator($search: String!, $offset: Int!, $limit: Int!) {
+    task(where: {is_interactive_task: {_eq: true}, operator: {username: {_ilike: $search}}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+        ${INTERACTIVE_TASK_FIELDS}
+    }
+    task_aggregate(where: {is_interactive_task: {_eq: true}, operator: {username: {_ilike: $search}}}) { aggregate { count } }
+}`;
+export const SEARCH_INTERACTIVE_TYPE = gql`
+query SearchInteractiveType($search: Int!, $offset: Int!, $limit: Int!) {
+    task(where: {is_interactive_task: {_eq: true}, interactive_task_type: {_eq: $search}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+        ${INTERACTIVE_TASK_FIELDS}
+    }
+    task_aggregate(where: {is_interactive_task: {_eq: true}, interactive_task_type: {_eq: $search}}) { aggregate { count } }
 }`;

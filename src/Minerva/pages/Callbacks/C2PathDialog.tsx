@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useQuery, useLazyQuery, useMutation } from '@apollo/client';
-// @ts-ignore
+import { useLazyQuery, useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import {
     ReactFlow,
     Background,
@@ -13,6 +13,8 @@ import {
     getStraightPath,
     EdgeLabelRenderer,
     useReactFlow,
+    Node,
+    Edge,
 }from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { toPng, toSvg } from 'html-to-image'
@@ -35,7 +37,7 @@ import {
     Plus,
     Link2,
 }from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, parseFirstIP, downloadDataUrl } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
 import {
     ADD_EDGE_MUTATION,
@@ -51,7 +53,34 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 
-const C2AgentNode = ({ data }: { data: Record<string, unknown> }) => {
+const C2_MYTHIC_NODE_SIZE = 50;
+const C2_AGENT_NODE_HEIGHT = 80;
+const FIT_VIEW_DELAY_MS = 80;
+
+interface C2AgentNodeData {
+    isMythic?: boolean;
+    active?: boolean;
+    displayId?: number;
+    user?: string;
+    host?: string;
+    ip?: string;
+    payloadType?: string;
+    label?: string;
+    labelFields?: string[];
+    _selected?: boolean;
+    _dimmed?: boolean;
+    [key: string]: unknown;
+}
+
+interface C2PathEdgeData {
+    isP2P?: boolean;
+    active?: boolean;
+    sourceId?: string;
+    destId?: string;
+    [key: string]: unknown;
+}
+
+const C2AgentNode = ({ data }: { data: C2AgentNodeData }) => {
     const labelFields: string[] = data.labelFields || ['displayId', 'user', 'host'];
     const showField = (f: string) => labelFields.includes(f);
     return (
@@ -143,7 +172,6 @@ const C2PathGraphInner = ({
 }) => {
     const { fitView } = useReactFlow();
     const containerRef = useRef<HTMLDivElement>(null);
-    const __navigate = useNavigate();
 
     const [c2LayoutDir, setC2LayoutDir] = useState<'LR' | 'TB'>('LR');
     const [c2SelectedIds, setC2SelectedIds] = useState<Set<string>>(new Set());
@@ -191,8 +219,8 @@ const C2PathGraphInner = ({
     }, [edges, labelFields]);
 
     // ELK-layouted state
-    const [nodes, setNodes, onNodesChange] = useNodesState([]);
-    const [flowEdgeState, setFlowEdgeState, onEdgesChange] = useEdgesState(rawEdges);
+    const [nodes, setNodes, onNodesChange] = useNodesState([] as Node<C2AgentNodeData>[]);
+    const [flowEdgeState, setFlowEdgeState, onEdgesChange] = useEdgesState(rawEdges as Edge<C2PathEdgeData>[]);
 
     useEffect(() => {
         setFlowEdgeState(rawEdges);
@@ -203,10 +231,11 @@ const C2PathGraphInner = ({
     useEffect(() => {
         if (rawNodes.length === 0) return;
         let cancelled = false;
+        let fitTimer: ReturnType<typeof setTimeout> | null = null;
         const elkNodes = rawNodes.map(n => ({
             id: n.id,
             width: n.id === 'Mythic' ? 90 : 160,
-            height: n.id === 'Mythic' ? 50 : 80,
+            height: n.id === 'Mythic' ? C2_MYTHIC_NODE_SIZE : C2_AGENT_NODE_HEIGHT,
         }));
         const nodeIdSet = new Set(rawNodes.map(n => n.id));
         const elkEdges = rawEdges
@@ -222,22 +251,22 @@ const C2PathGraphInner = ({
             },
             children: elkNodes,
             edges: elkEdges,
-        }).then((result: Record<string, unknown>) => {
+        }).then((result: any) => {
             if (cancelled) return;
             const posMap = new Map<string, { x: number; y: number }>();
-            (result.children || []).forEach((n: Record<string, unknown>) => { posMap.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 }); });
-            setNodes(rawNodes.map(n => ({ ...n, position: posMap.get(n.id) ?? n.position })));
-            setTimeout(() => fitView({ padding: 0.3 }), 80);
+            (result.children || []).forEach((n: any) => { posMap.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 }); });
+            setNodes(rawNodes.map(n => ({ ...n, position: posMap.get(n.id) ?? n.position })) as Node<C2AgentNodeData>[]);
+            fitTimer = setTimeout(() => fitView({ padding: 0.3 }), FIT_VIEW_DELAY_MS);
         }).catch(() => {
-            if (!cancelled) { setNodes(rawNodes); setTimeout(() => fitView({ padding: 0.3 }), 80); }
+            if (!cancelled) { setNodes(rawNodes as Node<C2AgentNodeData>[]); fitTimer = setTimeout(() => fitView({ padding: 0.3 }), FIT_VIEW_DELAY_MS); }
         });
-        return () => { cancelled = true; };
+        return () => { cancelled = true; if (fitTimer) clearTimeout(fitTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rawNodes, c2LayoutDir]);
 
     // Apply selection visual feedback + groupBy overlays
     const displayNodes = useMemo(() => {
-        const withSel = nodes.map((n: Record<string, unknown>) => ({
+        const withSel = nodes.map(n => ({
             ...n,
             data: {
                 ...n.data,
@@ -245,12 +274,12 @@ const C2PathGraphInner = ({
                 _dimmed: c2SelectedIds.size > 0 && !c2SelectedIds.has(n.id),
             },
         }));
-        if (groupBy === 'None') return withSel.filter((n: Record<string, unknown>) => n.type !== 'c2group');
-        const PAD = 24, NODE_W = 160, NODE_H = 80;
+        if (groupBy === 'None') return withSel.filter(n => n.type !== 'c2group');
+        const PAD = 24, NODE_W = 160, NODE_H = C2_AGENT_NODE_HEIGHT;
         const bounds = new Map<string, { mnX: number; mnY: number; mxX: number; mxY: number }>();
-        withSel.forEach((n: Record<string, unknown>) => {
+        withSel.forEach(n => {
             if (n.type === 'c2group') return;
-            const val = String((n.data as any)[groupBy] ?? '(none)');
+            const val = String((n.data as Record<string, unknown>)[groupBy] ?? '(none)');
             const b = bounds.get(val) ?? { mnX: Infinity, mnY: Infinity, mxX: -Infinity, mxY: -Infinity };
             b.mnX = Math.min(b.mnX, n.position.x);
             b.mnY = Math.min(b.mnY, n.position.y);
@@ -270,7 +299,7 @@ const C2PathGraphInner = ({
                 selectable: false, draggable: false,
             });
         });
-        return [...groupNodes, ...withSel.filter((n: Record<string, unknown>) => n.type !== 'c2group')];
+        return [...groupNodes, ...withSel.filter((n: Record<string, any>) => n.type !== 'c2group')];
     }, [nodes, c2SelectedIds, groupBy]);
 
     const handleExportSVG = useCallback(async () => {
@@ -278,7 +307,7 @@ const C2PathGraphInner = ({
         if (!el) return;
         try {
             const dataUrl = await toSvg(el, { backgroundColor: '#050505' });
-            const a = document.createElement('a'); a.download = 'c2_graph.svg'; a.href = dataUrl; a.click();
+            downloadDataUrl(dataUrl, 'c2_graph.svg');
         } catch {}
     }, []);
 
@@ -287,7 +316,7 @@ const C2PathGraphInner = ({
         if (!el) return;
         try {
             const dataUrl = await toPng(el, { backgroundColor: '#050505', pixelRatio: 2 });
-            const a = document.createElement('a'); a.download = 'c2_graph.png'; a.href = dataUrl; a.click();
+            downloadDataUrl(dataUrl, 'c2_graph.png');
         } catch {}
     }, []);
 
@@ -418,14 +447,14 @@ const C2PathGraphInner = ({
 };
 
 export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: number; displayId: number; onClose: () => void }) => {
-    const { data, loading } = useQuery(GET_CALLBACK_C2_PATHS, {
+    const { data, loading } = useQuery<any>(GET_CALLBACK_C2_PATHS, {
         variables: { callback_id: callbackId }, fetchPolicy: 'no-cache',
     });
-    const { data: p2pData } = useQuery(GET_P2P_PROFILES_AND_CALLBACKS);
-    const [__getLinkCmds, { data: __linkCmdsData }] = useLazyQuery(GET_LINK_COMMANDS_FOR_CALLBACK);
-    const [removeEdge] = useMutation(REMOVE_EDGE_MUTATION);
-    const [addEdge] = useMutation(ADD_EDGE_MUTATION);
-    const [createTask] = useMutation(CREATE_TASK_MUTATION);
+    const { data: p2pData } = useQuery<any>(GET_P2P_PROFILES_AND_CALLBACKS);
+    const [_getLinkCmds, { data: _linkCmdsData }] = useLazyQuery<any>(GET_LINK_COMMANDS_FOR_CALLBACK);
+    const [removeEdge] = useMutation<any>(REMOVE_EDGE_MUTATION);
+    const [addEdge] = useMutation<any>(ADD_EDGE_MUTATION);
+    const [createTask] = useMutation<any>(CREATE_TASK_MUTATION);
     const navigate = useNavigate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const edges = data?.callbackgraphedge || [];
@@ -437,17 +466,17 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
 
     // Edge operation modals
     const [removeEdgeModal, setRemoveEdgeModal] = useState<any[] | null>(null);
-    const [addEdgeSourceCb, setAddEdgeSourceCb] = useState<unknown>(null);
-    const [addEdgeSelectedProfile, setAddEdgeSelectedProfile] = useState<unknown>(null);
-    const [addEdgeSelectedDest, setAddEdgeSelectedDest] = useState<unknown>(null);
+    const [addEdgeSourceCb, setAddEdgeSourceCb] = useState<Record<string, unknown> | null>(null);
+    const [addEdgeSelectedProfile, setAddEdgeSelectedProfile] = useState<Record<string, unknown> | null>(null);
+    const [addEdgeSelectedDest, setAddEdgeSelectedDest] = useState<Record<string, unknown> | null>(null);
     const [addEdgeDestOptions, setAddEdgeDestOptions] = useState<any[]>([]);
-    const [taskForEdgeModal, setTaskForEdgeModal] = useState<unknown>(null);
+    const [taskForEdgeModal, setTaskForEdgeModal] = useState<Record<string, unknown> | null>(null);
     const [taskForEdgeCommand, setTaskForEdgeCommand] = useState<string>('');
     const [taskForEdgeParams, setTaskForEdgeParams] = useState<string>('');
 
     // Filter edges by hidden node IDs
     const filteredEdges = useMemo(() =>
-        edges.filter((e: Record<string, unknown>) =>
+        edges.filter((e: any) =>
             !hiddenNodeIds.has(String(e.source?.id)) &&
             !hiddenNodeIds.has(String(e.destination?.id))
         ),
@@ -455,8 +484,8 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
 
     // Find node data from edges
     const allNodes = useMemo(() => {
-        const nodes: Record<string, unknown> = {};
-        edges.forEach((e: Record<string, unknown>) => {
+        const nodes: Record<string, any> = {};
+        edges.forEach((e: any) => {
             if (e.source?.id) nodes[String(e.source.id)] = e.source;
             if (e.destination?.id) nodes[String(e.destination.id)] = e.destination;
         });
@@ -473,7 +502,7 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
     }, []);
 
     const handleOpenRemoveEdgeModal = useCallback(() => {
-        const activeEdges = edges.filter((e: Record<string, unknown>) => !e.end_timestamp);
+        const activeEdges = edges.filter((e: any) => !e.end_timestamp);
         setRemoveEdgeModal(activeEdges);
     }, [edges]);
 
@@ -502,7 +531,7 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
             setAddEdgeSelectedProfile(null);
             setAddEdgeSelectedDest(null);
             setAddEdgeDestOptions([]);
-        } catch (err: unknown) {
+        } catch (err: any) {
             snackActions.error('Failed: ' + err.message);
         }
     }, [addEdgeSourceCb, addEdgeSelectedProfile, addEdgeSelectedDest, addEdge]);
@@ -521,12 +550,11 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
             setTaskForEdgeModal(null);
             setTaskForEdgeCommand('');
             setTaskForEdgeParams('');
-        } catch (err: unknown) {
+        } catch (err: any) {
             snackActions.error('Failed: ' + err.message);
         }
     }, [taskForEdgeModal, taskForEdgeCommand, taskForEdgeParams, createTask]);
 
-    const __allLabelFields = ['displayId', 'host', 'user', 'ip', 'type'];
     const toggleLabel = (f: string) => setC2LabelFields(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
 
     return (
@@ -609,7 +637,7 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
                                                 src?.active ? 'border-signal/30 bg-signal/5' : 'border-red-500/30 bg-red-900/10')}>
                                                 <span className="text-gray-500 text-[9px] uppercase mb-0.5">SOURCE</span>
                                                 <span className="text-white font-bold">#{src?.display_id} {src?.user}@{src?.host}</span>
-                                                <span className="text-gray-500">{(() => { try { return JSON.parse(src?.ip || '[]')[0]; } catch { return src?.ip || '?'; } })()}</span>
+                                                <span className="text-gray-500">{parseFirstIP(src?.ip || '')}</span>
                                                 <span className={src?.active ? 'text-signal' : 'text-red-400'}>
                                                     {src?.active ? '● Active' : '○ Inactive'}
                                                 </span>
@@ -619,7 +647,7 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
                                                 dst?.active ? 'border-blue-500/30 bg-blue-900/10' : 'border-red-500/30 bg-red-900/10')}>
                                                 <span className="text-gray-500 text-[9px] uppercase mb-0.5">DESTINATION</span>
                                                 <span className="text-white font-bold">#{dst?.display_id} {dst?.user}@{dst?.host}</span>
-                                                <span className="text-gray-500">{(() => { try { return JSON.parse(dst?.ip || '[]')[0]; } catch { return dst?.ip || '?'; } })()}</span>
+                                                <span className="text-gray-500">{parseFirstIP(dst?.ip || '')}</span>
                                                 <span className={dst?.active ? 'text-blue-400' : 'text-red-400'}>
                                                     {dst?.active ? '● Active' : '○ Inactive'}
                                                 </span>
@@ -709,14 +737,14 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
                 >
                     <div className="space-y-3 min-w-[340px]">
                         <p className="text-xs text-gray-400 font-mono mb-2">Select an active edge to remove:</p>
-                        {removeEdgeModal.map((e: Record<string, unknown>) => (
+                        {removeEdgeModal.map((e: any) => (
                             <button
                                 key={e.id}
                                 onClick={async () => {
                                     try {
                                         await removeEdge({ variables: { edge_id: e.id } });
                                         snackActions.success('Edge removed');
-                                    } catch (err: unknown) {
+                                    } catch (err: any) {
                                         snackActions.error('Failed: ' + err.message);
                                     }
                                     setRemoveEdgeModal(null);
@@ -751,8 +779,8 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
                 >
                     <div className="space-y-4 min-w-[380px]">
                         <p className="text-xs text-gray-400 font-mono">
-                            Source: <span className="text-signal">#{addEdgeSourceCb.display_id}</span>
-                            {addEdgeSourceCb.host && <span className="text-gray-500 ml-2">({addEdgeSourceCb.host})</span>}
+                            Source: <span className="text-signal">#{String(addEdgeSourceCb.display_id)}</span>
+                            {!!addEdgeSourceCb.host && <span className="text-gray-500 ml-2">({String(addEdgeSourceCb.host)})</span>}
                         </p>
 
                         {/* Profile selector */}
@@ -842,7 +870,7 @@ export const C2PathDialog = ({ callbackId, displayId, onClose }: { callbackId: n
                 >
                     <div className="space-y-4 min-w-[340px]">
                         <p className="text-xs text-gray-400 font-mono">
-                            Callback #{taskForEdgeModal.display_id} — {taskForEdgeModal.host}
+                            Callback #{String(taskForEdgeModal.display_id)} — {String(taskForEdgeModal.host)}
                         </p>
 
                         <div>

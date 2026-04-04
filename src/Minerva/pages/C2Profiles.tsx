@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { useSubscription, useMutation } from '@apollo/client';
+import { useSubscription, useMutation } from "@apollo/client/react";
 import { SUB_C2_PROFILES, START_STOP_PROFILE_MUTATION, TOGGLE_C2_PROFILE_DELETE } from '../lib/api';
 import { Radio, Power, RefreshCw, Settings, Trash2, RotateCcw, Eye, EyeOff, Server, Cpu, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -223,7 +223,7 @@ function StatusLane({ group, profiles, processingId, onToggle, onDelete, onOpenM
                 <AnimatePresence mode="popLayout">
                     {profiles.map((p: Record<string, unknown>) => (
                         <ProfileTile
-                            key={p.id}
+                            key={String(p.id)}
                             profile={p}
                             group={group}
                             isProcessing={processingId === p.id}
@@ -248,17 +248,17 @@ function StatusLane({ group, profiles, processingId, onToggle, onDelete, onOpenM
 /* ── Main Page ─────────────────────────────────────── */
 export default function C2Profiles() {
     const { isSidebarCollapsed } = useAppStore();
-    const { data, loading } = useSubscription(SUB_C2_PROFILES);
+    const { data, loading } = useSubscription<any>(SUB_C2_PROFILES);
 
     const [modalProfile, setModalProfile] = useState<unknown>(null);
     const [processingId, setProcessingId] = useState<number | null>(null);
     const [showDeleted, setShowDeleted] = useState(false);
 
-    const [startStopProfile] = useMutation(START_STOP_PROFILE_MUTATION, {
+    const [startStopProfile] = useMutation<any>(START_STOP_PROFILE_MUTATION, {
         onCompleted: () => setProcessingId(null),
         onError: () => setProcessingId(null),
     });
-    const [toggleDelete] = useMutation(TOGGLE_C2_PROFILE_DELETE, {
+    const [toggleDelete] = useMutation<any>(TOGGLE_C2_PROFILE_DELETE, {
         onError: (err) => console.error('Failed to toggle delete status', err),
     });
 

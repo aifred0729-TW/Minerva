@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { useMutation, useSubscription } from '@apollo/client';
+import { useMutation, useSubscription } from "@apollo/client/react";
 import { GENERATE_REPORT, REPORT_SUBSCRIPTION } from '../lib/api';
+import { fileDownloadUrl } from '../lib/urls';
 import { motion } from 'framer-motion';
 import { 
     FileText, 
@@ -87,8 +88,8 @@ const Reporting = () => {
     const [excludedIDs, setExcludedIDs] = useState('');
 
     // Generate Report Mutation
-    const [generateReport] = useMutation(GENERATE_REPORT, {
-        onCompleted: (data) => {
+    const [generateReport] = useMutation<any>(GENERATE_REPORT, {
+        onCompleted: (data: any) => {
             if (data.generateReport.status === "success") {
                 snackActions.info("Generating report... This may take a moment.");
             } else {
@@ -103,10 +104,10 @@ const Reporting = () => {
     });
 
     // Subscribe to report generation completion
-    useSubscription(REPORT_SUBSCRIPTION, {
+    useSubscription<any>(REPORT_SUBSCRIPTION, {
         variables: { fromNow: fromNow.current },
         fetchPolicy: "no-cache",
-        onData: ({ data }) => {
+        onData: ({ data }: { data: any } ) => {
             if (data.data?.operationeventlog_stream?.length > 0) {
                 const message = data.data.operationeventlog_stream[0].message;
                 const fileId = message.split(":").pop()?.trim();
@@ -142,7 +143,7 @@ const Reporting = () => {
 
     const handleDownload = () => {
         if (lastReport?.id) {
-            window.open(`/api/v1.4/files/download/${lastReport.id}`, '_blank');
+            window.open(fileDownloadUrl(lastReport.id), '_blank');
         }
     };
 

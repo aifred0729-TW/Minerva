@@ -1,7 +1,8 @@
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import {mePreferences, operatorSettingDefaults} from '../../cache';
 import React from 'react';
-import {useMutation, gql } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
 import {snackActions} from "../utilities/Snackbar";
 
 const updatePreferences = gql`

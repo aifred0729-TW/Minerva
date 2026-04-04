@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useLazyQuery, useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../lib/useQueryCompat";
 import { GET_ARTIFACTS, GET_ARTIFACT_TYPES, CREATE_ARTIFACT } from '../lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -282,17 +283,17 @@ const Artifacts = () => {
     const limit = 25;
 
     // Fetch artifact types
-    useQuery(GET_ARTIFACT_TYPES, {
-        onCompleted: (data) => {
+    useQuery<any>(GET_ARTIFACT_TYPES, {
+        onCompleted: (data: any) => {
             const types = data.taskartifact.map((a: { base_artifact: string }) => a.base_artifact).filter(Boolean);
             setArtifactTypes([...new Set(types)] as string[]);
         }
     });
 
     // Fetch artifacts
-    const [fetchArtifacts] = useLazyQuery(GET_ARTIFACTS, {
+    const [fetchArtifacts] = useLazyQuery<any>(GET_ARTIFACTS, {
         fetchPolicy: "no-cache",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setArtifacts(data.taskartifact);
             setTotalCount(data.taskartifact_aggregate.aggregate.count);
             setLoading(false);
@@ -304,8 +305,8 @@ const Artifacts = () => {
     });
 
     // Create artifact mutation
-    const [createArtifact] = useMutation(CREATE_ARTIFACT, {
-        onCompleted: (data) => {
+    const [createArtifact] = useMutation<any>(CREATE_ARTIFACT, {
+        onCompleted: (data: any) => {
             snackActions.success('Artifact created');
             // Refresh the list
             fetchArtifacts({

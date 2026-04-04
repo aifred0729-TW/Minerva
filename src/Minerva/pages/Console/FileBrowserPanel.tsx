@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from "@apollo/client/react";
 import {
     Folder,
     FolderOpen,
@@ -24,16 +24,19 @@ import {
 } from '../../lib/api';
 import { cn, b64DecodeUnicode, formatBytes, getErrorMessage } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
+import { usePageVisible } from '../../lib/usePageVisible';
 import { normalizeUnixPath, getMetadata, deduplicateNodes, uploadFileToMythic } from './utils';
 import { ContextMenu } from './ContextMenu';
 import type { ContextMenuState, ConsoleFileNode } from '../../types/console';
 
+const REFRESH_INDICATOR_DURATION_MS = 2_000;
+
 export const UploadToAgentModal = ({ targetPath, callbackId, onClose }: {
     targetPath: string; callbackId: number; onClose: () => void;
 }) => {
-    const [createTask, { loading: tasking }] = useMutation(CREATE_TASK_MUTATION);
-    const { data, loading, refetch } = useQuery(GET_UPLOADED_FILES, { fetchPolicy: 'network-only' });
-    const { data: payloadData, loading: payloadLoading } = useQuery(GET_BUILT_PAYLOADS, { fetchPolicy: 'network-only' });
+    const [createTask, { loading: tasking }] = useMutation<any>(CREATE_TASK_MUTATION);
+    const { data, loading, refetch } = useQuery<any>(GET_UPLOADED_FILES, { fetchPolicy: 'network-only' });
+    const { data: payloadData, loading: payloadLoading } = useQuery<any>(GET_BUILT_PAYLOADS, { fetchPolicy: 'network-only' });
 
     // tab: 'library' | 'payloads' | 'local'
     const [tab, setTab] = useState<'library' | 'payloads' | 'local'>('library');
@@ -84,7 +87,7 @@ export const UploadToAgentModal = ({ targetPath, callbackId, onClose }: {
                 fileId = await uploadFileToMythic(localFile, `Uploaded via Minerva console · ${localFile.name}`);
                 setUploadProgress('Sending to agent…');
                 await refetch();
-            } catch (err: unknown) {
+            } catch (err: any) {
                 snackActions.error('File upload failed: ' + (err.message || 'unknown error'));
                 setUploading(false);
                 setUploadProgress('');
@@ -112,7 +115,7 @@ export const UploadToAgentModal = ({ targetPath, callbackId, onClose }: {
                 ?? (selectedFile ? b64DecodeUnicode(selectedFile.filename_text) : fileId);
             snackActions.success(`Tasked upload: ${fname} → ${remotePath || '(agent dir)'}`);
             onClose();
-        } catch (err: unknown) {
+        } catch (err: any) {
             snackActions.error(err.message || 'Upload task failed');
         } finally {
             setUploading(false);
@@ -411,15 +414,16 @@ export const FileTreeItem = ({
     const isDeleted = !!node.deleted;
     const meta = getMetadata(node);
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+    const pageVisible = usePageVisible();
 
     // Auto-fetch (and poll) folder contents whenever this node is expanded.
     // pollInterval keeps the listing fresh after an `ls` task completes without
     // requiring the user to manually collapse+re-expand.
-    const { data, loading } = useQuery(GET_FILE_TREE_FOLDER, {
+    const { data, loading } = useQuery<any>(GET_FILE_TREE_FOLDER, {
         variables: { parent_path_text: node.full_path_text, host },
         skip: !isExpanded || !isFolder,
         fetchPolicy: 'network-only',
-        pollInterval: isExpanded && isFolder ? 4000 : 0,
+        pollInterval: pageVisible && isExpanded && isFolder ? 4000 : 0,
     });
 
     const handleClick = () => {
@@ -551,18 +555,24 @@ export const FileTreeItem = ({
 };
 
 export const FileBrowserPanel = ({ host, callbackId, onFileAction: externalOnFileAction }: { host: string, callbackId: number, onFileAction?: (action: string, path: string, name: string, isDir: boolean) => void }) => {
-    const [createTask] = useMutation(CREATE_TASK_MUTATION);
+    const pageVisible = usePageVisible();
+    const [createTask] = useMutation<any>(CREATE_TASK_MUTATION);
     const [selectedFile, setSelectedFile] = useState<ConsoleFileNode | null>(null);
     const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const refreshTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const [_currentRefreshPath, _setCurrentRefreshPath] = useState('.');
     const [uploadTarget, setUploadTarget] = useState<string | null>(null);
     const [showDeletedFiles, setShowDeletedFiles] = useState(false);
 
-    const { data: rootData, loading: rootLoading } = useQuery(GET_FILE_TREE_ROOT, {
+    React.useEffect(() => {
+        return () => { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); };
+    }, []);
+
+    const { data: rootData, loading: rootLoading } = useQuery<any>(GET_FILE_TREE_ROOT, {
         variables: { host },
         fetchPolicy: 'network-only',
-        pollInterval: 4000,
+        pollInterval: pageVisible ? 4000 : 0,
     });
 
     const handleToggleExpand = useCallback((path: string) => {
@@ -580,7 +590,8 @@ export const FileBrowserPanel = ({ host, callbackId, onFileAction: externalOnFil
                 variables: { callback_id: callbackId, command: "ls", params: JSON.stringify({path: ".", depth: 1}), tasking_location: "parsed_cli", parameter_group_name: "Default", original_params: "." }
             });
             snackActions.info("Tasked 'ls .' (root)");
-            setTimeout(() => setIsRefreshing(false), 2000);
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = setTimeout(() => setIsRefreshing(false), REFRESH_INDICATOR_DURATION_MS);
         } catch (e: unknown) {
             snackActions.error("Failed to task 'ls': " + getErrorMessage(e));
             setIsRefreshing(false);

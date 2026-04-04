@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { Callback, CallbackGraphEdge, CallbackC2Profile, CallbackTag } from '../../types';
-import { useQuery, useSubscription, useMutation, useLazyQuery, useApolloClient, useReactiveVar } from '@apollo/client';
+import { useQuery, useSubscription, useMutation, useLazyQuery, useApolloClient, useReactiveVar } from "@apollo/client/react";
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -50,8 +50,9 @@ import {
     LayoutGrid,
 }from 'lucide-react';
 import { useAppStore } from '../../store';
+import { usePageVisible } from '../../lib/usePageVisible';
 import { meState } from '../../lib/state';
-import { isCallbackAlive, cn, getErrorMessage } from '../../lib/utils';
+import { isCallbackAlive, cn, getErrorMessage, parseIPString, parseFirstIP, downloadBlob } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
 import { CyberTable } from '../../components/CyberTable';
 import { CyberModal } from '../../components/CyberModal';
@@ -87,40 +88,46 @@ import {
     ImportConfigModal, AlertTriggerModal, ColumnFilterInput,
 } from './dialogs';
 
+const CONTEXT_MENU_MAX_HEIGHT = 600;
+const MENU_MIN_SPACE_BELOW = 260;
+
 export default function Callbacks() {
     const { isSidebarCollapsed } = useAppStore();
+    const pageVisible = usePageVisible();
     React.useEffect(() => {
         const audio = new Audio(loadingSound);
         audio.volume = 0.5;
         audio.play().catch(() => {});
     }, []);
-    const { data: queryData, loading, refetch } = useQuery(GET_CALLBACKS, { fetchPolicy: 'network-only' });
-    const { data: subData } = useSubscription(SUBSCRIPTION_CALLBACKS);
+    const { data: queryData, loading, refetch } = useQuery<any>(GET_CALLBACKS, { fetchPolicy: 'network-only' });
+    const { data: subData } = useSubscription<any>(SUBSCRIPTION_CALLBACKS, {
+        onError: (err) => { console.error('[SUBSCRIPTION_CALLBACKS] subscription error:', err); },
+    });
     const data = useMemo(() => subData ? { callback: subData.callback } : queryData, [subData, queryData]);
-    const { data: edgesData } = useQuery(GET_CALLBACK_GRAPH_EDGES, { pollInterval: 10000 });
-    const { data: customBrowsersData } = useQuery(GET_CUSTOM_BROWSERS);
+    const { data: edgesData } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES, { pollInterval: pageVisible ? 10000 : 0 });
+    const { data: customBrowsersData } = useQuery<any>(GET_CUSTOM_BROWSERS);
     const customBrowsers = customBrowsersData?.custombrowser || [];
     const me = useReactiveVar(meState);
     const navigate = useNavigate();
-    const [hideCallback] = useMutation(HIDE_CALLBACK_MUTATION);
-    const [lockCallback] = useMutation(LOCK_CALLBACK_MUTATION);
-    const [updateDescription] = useMutation(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
-    const [exportConfig] = useLazyQuery(EXPORT_CALLBACK_CONFIG, { fetchPolicy: 'no-cache' });
-    const [createTask] = useMutation(CREATE_TASK_MUTATION);
-    const [updateSleepInfo] = useMutation(UPDATE_SLEEP_INFO_MUTATION);
-    const [updateTrigger] = useMutation(UPDATE_CALLBACK_TRIGGER_MUTATION);
-    const [updateCallbackColor] = useMutation(UPDATE_CALLBACK_COLOR_MUTATION);
-    const [updateDescriptionAndColor] = useMutation(UPDATE_DESCRIPTION_AND_COLOR_MUTATION);
-    const [updateCallbackIPs] = useMutation(UPDATE_IPS_MUTATION);
-    const [updateCallbackGroups] = useMutation(UPDATE_CALLBACK_GROUPS_MUTATION);
-    const [bulkHideCallbacks] = useMutation(HIDE_CALLBACKS_BULK);
+    const [hideCallback] = useMutation<any>(HIDE_CALLBACK_MUTATION);
+    const [lockCallback] = useMutation<any>(LOCK_CALLBACK_MUTATION);
+    const [updateDescription] = useMutation<any>(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
+    const [exportConfig] = useLazyQuery<any>(EXPORT_CALLBACK_CONFIG, { fetchPolicy: 'no-cache' });
+    const [createTask] = useMutation<any>(CREATE_TASK_MUTATION);
+    const [updateSleepInfo] = useMutation<any>(UPDATE_SLEEP_INFO_MUTATION);
+    const [updateTrigger] = useMutation<any>(UPDATE_CALLBACK_TRIGGER_MUTATION);
+    const [updateCallbackColor] = useMutation<any>(UPDATE_CALLBACK_COLOR_MUTATION);
+    const [updateDescriptionAndColor] = useMutation<any>(UPDATE_DESCRIPTION_AND_COLOR_MUTATION);
+    const [updateCallbackIPs] = useMutation<any>(UPDATE_IPS_MUTATION);
+    const [updateCallbackGroups] = useMutation<any>(UPDATE_CALLBACK_GROUPS_MUTATION);
+    const [bulkHideCallbacks] = useMutation<any>(HIDE_CALLBACKS_BULK);
     const client = useApolloClient();
     const [actionsMenuOpenId, setActionsMenuOpenId] = useState<number | null>(null);
-    const [showEventingDialog, setShowEventingDialog] = useState<unknown>(null);
-    const [sleepEditCallback, setSleepEditCallback] = useState<unknown>(null);
+    const [showEventingDialog, setShowEventingDialog] = useState<Callback | null>(null);
+    const [sleepEditCallback, setSleepEditCallback] = useState<Callback | null>(null);
     const [sleepEditValue, setSleepEditValue] = useState('');
-    const [menuPosition, setMenuPosition] = useState<{ top?: number; bottom?: number; left: number; maxH: number }>({ top: 0, left: 0, maxH: 600 });
-    const [editDescriptionCallback, setEditDescriptionCallback] = useState<unknown>(null);
+    const [menuPosition, setMenuPosition] = useState<{ top?: number; bottom?: number; left: number; maxH: number }>({ top: 0, left: 0, maxH: CONTEXT_MENU_MAX_HEIGHT });
+    const [editDescriptionCallback, setEditDescriptionCallback] = useState<Callback | null>(null);
     const [newDescription, setNewDescription] = useState("");
     const [newColor, setNewColor] = useState('');
     const [showHiddenCallbacks, setShowHiddenCallbacks] = useState(false);
@@ -159,20 +166,20 @@ export default function Callbacks() {
     useEffect(() => { localStorage.setItem('minerva_op_settings', JSON.stringify(operatorSettings)); }, [operatorSettings]);
 
     // ── NEW: Feature state vars ──
-    const [colorEditCallback, setColorEditCallback] = useState<unknown>(null);
-    const [ipSelectCallback, setIpSelectCallback] = useState<unknown>(null);
-    const [modifyGroupsCallback, setModifyGroupsCallback] = useState<unknown>(null);
+    const [colorEditCallback, setColorEditCallback] = useState<Callback | null>(null);
+    const [ipSelectCallback, setIpSelectCallback] = useState<Callback | null>(null);
+    const [modifyGroupsCallback, setModifyGroupsCallback] = useState<Callback | null>(null);
     const [showImportConfig, setShowImportConfig] = useState(false);
     const [showTaskMultiple, setShowTaskMultiple] = useState(false);
     const [showOpenMultiple, setShowOpenMultiple] = useState(false);
-    const [c2PathCallback, setC2PathCallback] = useState<unknown>(null);
-    const [alertTriggerCallback, setAlertTriggerCallback] = useState<unknown>(null);
+    const [c2PathCallback, setC2PathCallback] = useState<Callback | null>(null);
+    const [alertTriggerCallback, setAlertTriggerCallback] = useState<Callback | null>(null);
     const [tagEditCallbackId, setTagEditCallbackId] = useState<number | null>(null);
     const [showBulkEventingDialog, setShowBulkEventingDialog] = useState(false);
     const [osPopupText, setOsPopupText] = useState<string | null>(null);
     const [sortKey, setSortKey] = useState<string | null>(null);
     const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('ASC');
-    const [splitCallbackRow, setSplitCallbackRow] = useState<unknown>(null);
+    const [splitCallbackRow, setSplitCallbackRow] = useState<Callback | null>(null);
     const [splitSecondId, setSplitSecondId] = useState<number | null>(null);
     // ── Selected row highlight ──
     const [selectedCallbackId, setSelectedCallbackId] = useState<number | null>(null);
@@ -203,7 +210,7 @@ export default function Callbacks() {
                 variables: { callback_id: cb.id },
                 fetchPolicy: 'network-only',
             });
-            const exitCmds = exitData?.callback_by_pk?.loadedcommands || [];
+            const exitCmds = (exitData as any)?.callback_by_pk?.loadedcommands || [];
             if (exitCmds.length === 0) { snackActions.warning('No exit command loaded for this callback'); return; }
             if (!window.confirm(`Task ${exitCmds[0].command.cmd} on Callback ${cb.display_id}?`)) return;
             await createTask({ variables: { callback_id: cb.id, command: exitCmds[0].command.cmd, params: '', tasking_location: 'command_line' } });
@@ -250,9 +257,9 @@ export default function Callbacks() {
         setVisibleCols(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
     // ── Column header right-click context menu ──
-    const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: string } | null>(null);
+    const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number; col: any } | null>(null);
     const [headerFilterInput, setHeaderFilterInput] = useState('');
-    const handleHeaderRightClick = useCallback((col: string, e: React.MouseEvent) => {
+    const handleHeaderRightClick = useCallback((col: any, e: React.MouseEvent) => {
         e.preventDefault();
         if (!col.filterKey) return;
         setHeaderFilterInput(columnFilters[col.filterKey] || '');
@@ -297,7 +304,7 @@ export default function Callbacks() {
         const spaceAbove = rect.top - 5;
         const menuW = 256; // w-64
         const left = Math.max(4, Math.min(rect.right - menuW, window.innerWidth - menuW - 4));
-        if (spaceBelow >= 260 || spaceBelow >= spaceAbove) {
+        if (spaceBelow >= MENU_MIN_SPACE_BELOW || spaceBelow >= spaceAbove) {
             // Open downward
             setMenuPosition({ top: rect.bottom + 5, left, maxH: Math.max(180, spaceBelow - 4) });
         } else {
@@ -325,10 +332,6 @@ export default function Callbacks() {
         setActionsMenuOpenId(null);
     };
     const openEditDescription = (cb: Callback) => { setEditDescriptionCallback(cb); setNewDescription(cb.description || ""); setNewColor(cb.color || ''); setActionsMenuOpenId(null); };
-    const __handleSaveDescription = async () => {
-        if (!editDescriptionCallback) return;
-        try { await updateDescription({ variables: { callback_display_id: editDescriptionCallback.display_id, description: newDescription } }); snackActions.success("Description updated"); refetch(); setEditDescriptionCallback(null); } catch (e: unknown) { snackActions.error(getErrorMessage(e)); }
-    };
     const handleExportConfig = async (cb: Callback) => {
         setActionsMenuOpenId(null);
         if (!cb.agent_callback_id) { snackActions.error('No agent_callback_id'); return; }
@@ -336,7 +339,7 @@ export default function Callbacks() {
             const { data: ed } = await exportConfig({ variables: { agent_callback_id: cb.agent_callback_id } });
             if (ed?.exportCallbackConfig?.status === 'success') {
                 const blob = new Blob([JSON.stringify(ed.exportCallbackConfig.config, null, 2)], { type: 'application/json' });
-                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${cb.agent_callback_id}.json`; a.click(); URL.revokeObjectURL(a.href);
+                downloadBlob(blob, `${cb.agent_callback_id}.json`);
                 snackActions.success('Config exported');
             } else { snackActions.error(ed?.exportCallbackConfig?.error || 'Export failed'); }
         } catch (e: unknown) { snackActions.error(getErrorMessage(e)); }
@@ -447,8 +450,8 @@ export default function Callbacks() {
             rows = [...rows].sort((a, b) => {
                 let av: string | number | undefined, bv: string | number | undefined;
                 switch (sortKey) {
-                    case 'ip': try { av = JSON.parse(a.ip)[0]; bv = JSON.parse(b.ip)[0]; } catch { av = a.ip; bv = b.ip; } break;
-                    default: av = (a as any)[sortKey]; bv = (b as any)[sortKey];
+                    case 'ip': av = parseFirstIP(a.ip); bv = parseFirstIP(b.ip); break;
+                    default: av = (a as Record<string, unknown>)[sortKey] as string | number | undefined; bv = (b as Record<string, unknown>)[sortKey] as string | number | undefined;
                 }
                 if (av == null) return 1; if (bv == null) return -1;
                 // Timestamp sort: 1970 (STREAMING callbacks) always sort to the bottom in ASC, top in DESC
@@ -521,7 +524,7 @@ export default function Callbacks() {
         }
         const result: Callback[] = [];
         const privOrder = (c: Callback) => {
-            const il = c.integrity_level;
+            const il = c.integrity_level as string | number;
             if (il === 4 || il === 'SYSTEM') return 4;
             if (il === 3 || il === 'High') return 3;
             if ((c.user || '').toLowerCase() === 'root' || (c.user || '').toLowerCase().includes('nt authority')) return 4;
@@ -562,7 +565,7 @@ export default function Callbacks() {
     const filteredCallbackIds = useMemo(() => {
         const hasActiveFilters = Object.values(columnFilters).some(v => v.trim());
         if (!hasActiveFilters) return undefined;
-        return new Set<string>(filteredData.map((c: Callback) => String(c.display_id)));
+        return filteredData.map((c: Callback) => c.display_id);
     }, [columnFilters, filteredData]);
 
     // ── Column definitions ──
@@ -586,7 +589,7 @@ export default function Callbacks() {
             cell: (row: Callback) => {
                 let ips: string[] = [];
                 if (Array.isArray(row.ip)) { ips = row.ip; }
-                else { try { const parsed = JSON.parse(row.ip); ips = Array.isArray(parsed) ? parsed : [parsed]; } catch { ips = row.ip ? [String(row.ip)] : []; } }
+                else { ips = parseIPString(row.ip); }
                 if (ips.length > 1) return (
                     <button onClick={e => { e.stopPropagation(); setIpSelectCallback(row); }}
                         className="flex items-center gap-1 text-signal hover:underline font-mono text-xs"
@@ -734,7 +737,7 @@ export default function Callbacks() {
                     {row.active === false && <span title="Hidden"><EyeOff size={11} className="text-yellow-500" /></span>}
                     {row.trigger_on_checkin_after_time && <span title="Alert trigger set"><Bell size={9} className="text-orange-400" /></span>}
                     {(row.callbackports || []).length > 0 && (
-                        <span title={(row.callbackports).map((p: { port_type: string; local_port: number; remote_port: number; remote_ip: string }) => {
+                        <span title={(row.callbackports).map((p: any) => {
                                 const base = `${p.port_type}: ${p.local_port}`;
                                 const remote = p.remote_ip ? ` → ${p.remote_ip}:${p.remote_port || '?'}` : '';
                                 const creds = p.username ? ` (${p.username}${p.password ? ':' + p.password : ''})` : '';
@@ -742,7 +745,7 @@ export default function Callbacks() {
                             }).join('\n')}
                             className="text-[9px] px-1 border border-cyan-500/40 text-cyan-400 bg-cyan-900/20 rounded-sm font-mono cursor-help flex items-center gap-0.5">
                             <Wifi size={8} className="shrink-0" />
-                            {(row.callbackports).some((p: { port_type: string }) => p.port_type === 'socks') ? 'SOCKS' : 'PORT'}
+                            {(row.callbackports).some((p: any) => p.port_type === 'socks') ? 'SOCKS' : 'PORT'}
                         </span>
                     )}
                 </div>
@@ -779,7 +782,7 @@ export default function Callbacks() {
                                 <button onClick={() => { navigate(`/console/${row.display_id}?tab=files`); setActionsMenuOpenId(null); }} className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors"><Folder size={14} /> File Browser</button>
                                 <button onClick={() => { navigate(`/console/${row.display_id}?tab=process`); setActionsMenuOpenId(null); }} className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors"><FolderSearch size={14} /> Process Browser</button>
                                 {customBrowsers.map((cb_: Callback) => (
-                                    <button key={cb_.id} onClick={() => { navigate(`/console/${row.display_id}?tab=custom_browser&name=${encodeURIComponent(cb_.name)}`); setActionsMenuOpenId(null); }}
+                                    <button key={cb_.id} onClick={() => { navigate(`/console/${row.display_id}?tab=custom_browser&name=${encodeURIComponent(cb_.name || '')}`); setActionsMenuOpenId(null); }}
                                         className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors"><List size={14} /> {cb_.name}</button>
                                 ))}
                                 <div className="h-px bg-white/10 my-1" />
@@ -989,10 +992,10 @@ export default function Callbacks() {
                             const fieldLabel: Record<string, string> = { user:'USER', host:'HOST', ip:'IP', pid:'PID', cwd:'CWD', impersonation_context:'IMPERSONATION', architecture:'ARCH', process_short_name:'PROC', extra_info:'EXTRA' };
                             return (
                                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1.5 border-b border-signal/10 bg-signal/5 text-[10px] font-mono">
-                                    <span className="text-signal/50 uppercase tracking-widest shrink-0">CTX#{(selCb as any).display_id}</span>
+                                    <span className="text-signal/50 uppercase tracking-widest shrink-0">CTX#{selCb.display_id}</span>
                                     {operatorSettings.taskingContextFields.map(field => {
-                                        let val = (selCb as any)[field] ?? '—';
-                                        if (field === 'ip') val = tryParseIP(val);
+                                        let val = (selCb as Record<string, unknown>)[field] ?? '—';
+                                        if (field === 'ip') val = tryParseIP(val as string);
                                         if (!val || val === '—') return null;
                                         return (
                                             <span key={field} className="flex items-center gap-1">
@@ -1006,7 +1009,7 @@ export default function Callbacks() {
                         })()}
                         <CyberTable
                             data={displayData}
-                            columns={columns as any}
+                            columns={columns}
                             isLoading={loading}
                             onRowClick={(row: Callback) => {
                                 // If this is a group header with children, toggle expand on the group indicator area
@@ -1032,14 +1035,14 @@ export default function Callbacks() {
                                         </span>
                                     );
                                 }
-                                if (row._totalSessions > 1) {
+                                if (row._totalSessions! > 1) {
                                     return (
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); toggleHostExpand(row._hostKey); }}
+                                            onClick={(e) => { e.stopPropagation(); toggleHostExpand(row._hostKey!); }}
                                             className="inline-flex items-center gap-1 pr-1 text-gray-400 hover:text-signal transition-colors"
                                             title={`${row._totalSessions} sessions on this host`}
                                         >
-                                            <ChevronRight size={12} className={cn("transition-transform", expandedHosts.has(row._hostKey) && "rotate-90")} />
+                                            <ChevronRight size={12} className={cn("transition-transform", expandedHosts.has(row._hostKey!) && "rotate-90")} />
                                             <span className="text-[9px] font-mono bg-signal/10 text-signal/80 px-1 rounded">{row._totalSessions}</span>
                                         </button>
                                     );
@@ -1469,10 +1472,7 @@ export default function Callbacks() {
                                     <div className="flex flex-wrap gap-2 mt-2">
                                         <button onClick={() => {
                                             const exp = { visibleCols: [...visibleCols], columnOrder, columnFilters, operatorSettings };
-                                            const a = document.createElement('a');
-                                            a.download = 'minerva_settings.json';
-                                            a.href = URL.createObjectURL(new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' }));
-                                            a.click(); URL.revokeObjectURL(a.href);
+                                            downloadBlob(new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' }), 'minerva_settings.json');
                                         }} className="flex items-center gap-1.5 px-2 py-1 border border-white/10 hover:border-signal/30 text-gray-500 hover:text-signal rounded transition-colors">
                                             <Download size={10} /> EXPORT_SETTINGS
                                         </button>

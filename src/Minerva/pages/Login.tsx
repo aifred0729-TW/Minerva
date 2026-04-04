@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Shield, Server, Check, Laptop, Activity, Database, Layers, Box, AlertTriangle, Clock, Globe, Fingerprint, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
 import { loginUser } from '../lib/api';
 import { successfulLogin } from '../lib/auth';
+import { HEALTH_URL } from '../lib/urls';
 import { playEnter, playAuthed } from '../lib/soundEffects';
 import type { ViewMode, CheckItem } from '../types/login';
 
@@ -27,6 +28,21 @@ const DASHBOARD_PRELOAD_DATA = [
     { icon: <Layers size={14} />, text: "FETCHING_OPERATIONS..." },
     { icon: <Database size={14} />, text: "UPDATING_ARTIFACTS..." },
 ];
+
+// ── Animation timing constants (ms) ──
+const DELAY_CONNECTING    = 1000;
+const DELAY_CHECK_STEP    = 400;
+const DELAY_SESSION_SETUP = 300;
+const DELAY_PACKET_TICK   = 800;
+const DELAY_LOGOUT_SHORT  = 500;
+const DELAY_LOGOUT_MID    = 800;
+const DELAY_LOGOUT_LONG   = 1500;
+const DELAY_AUTH_FAIL_MSG = 2000;
+const HEALTH_CHECK_INTERVAL = 30_000;
+const BOOT_ANIMATION_DURATION_MS = 3_000;
+const COMPRESS_ANIMATION_DELAY_MS = 1_900;
+const LOGIN_NAV_DELAY_MS = 2_250;
+const HEALTH_CHECK_TIMEOUT_MS = 5_000;
 
 // -----------------------------------------------------------------------------
 // HELPERS
@@ -94,7 +110,7 @@ const IntroSequence = ({ onComplete }: { onComplete: () => void }) => {
             }
         }, 80);
 
-        const completeTimer = setTimeout(onComplete, 3000);
+        const completeTimer = setTimeout(onComplete, BOOT_ANIMATION_DURATION_MS);
 
         return () => {
             clearInterval(loadInterval);
@@ -201,8 +217,8 @@ const TransitionScreen = ({ username, onComplete }: { username: string; onComple
     const [compressing, setCompressing] = useState(false);
 
     useEffect(() => {
-        const compressTimer = setTimeout(() => setCompressing(true), 1900);
-        const navTimer = setTimeout(onComplete, 2250);
+        const compressTimer = setTimeout(() => setCompressing(true), COMPRESS_ANIMATION_DELAY_MS);
+        const navTimer = setTimeout(onComplete, LOGIN_NAV_DELAY_MS);
         return () => { clearTimeout(compressTimer); clearTimeout(navTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -328,10 +344,10 @@ const ServerStatus = () => {
         let mounted = true;
         const check = async () => {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
+            const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
             const start = performance.now();
             try {
-                await fetch('/api/v1.0/health', { method: 'GET', signal: controller.signal });
+                await fetch(HEALTH_URL, { method: 'GET', signal: controller.signal });
                 clearTimeout(timeout);
                 const elapsed = Math.round(performance.now() - start);
                 if (mounted) { setStatus('ONLINE'); setLatency(elapsed); }
@@ -339,7 +355,7 @@ const ServerStatus = () => {
                 clearTimeout(timeout);
                 // Fallback: try the auth endpoint
                 const controller2 = new AbortController();
-                const timeout2 = setTimeout(() => controller2.abort(), 5000);
+                const timeout2 = setTimeout(() => controller2.abort(), HEALTH_CHECK_TIMEOUT_MS);
                 try {
                     const start2 = performance.now();
                     await fetch('/auth', { method: 'OPTIONS', signal: controller2.signal });
@@ -353,7 +369,7 @@ const ServerStatus = () => {
             }
         };
         check();
-        const id = setInterval(check, 30000);
+        const id = setInterval(check, HEALTH_CHECK_INTERVAL);
         return () => { mounted = false; clearInterval(id); };
     }, []);
 
@@ -386,7 +402,7 @@ const ServerStatus = () => {
 
 export default function Login() {
     const navigate = useNavigate();
-    const { setAppState, __appState, isLoggingOut, reset } = useAppStore();
+    const { setAppState, isLoggingOut, reset } = useAppStore();
 
     const [viewMode, setViewMode] = useState<ViewMode>(isLoggingOut ? 'HANDSHAKE' : 'INTRO');
 
@@ -400,8 +416,16 @@ export default function Login() {
     const [checks, setChecks] = useState<CheckItem[]>(INITIAL_CHECKS);
     const [handshakeStage, setHandshakeStage] = useState<'CONNECTING' | 'VERIFYING' | 'GRANTED' | 'FAILED'>('CONNECTING');
     const [visiblePackets, setVisiblePackets] = useState<number[]>([]);
+    const packetIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const connInfo = getConnectionInfo();
+
+    // Clean up packetInterval on unmount
+    useEffect(() => {
+        return () => {
+            if (packetIntervalRef.current) clearInterval(packetIntervalRef.current);
+        };
+    }, []);
 
     useEffect(() => {
         if (isLoggingOut) {
@@ -414,11 +438,11 @@ export default function Login() {
     }, [isLoggingOut]);
 
     const runLogoutSequence = async () => {
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, DELAY_LOGOUT_SHORT));
         setHandshakeStage('VERIFYING');
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, DELAY_LOGOUT_MID));
         setHandshakeStage('CONNECTING');
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, DELAY_LOGOUT_LONG));
         setViewMode('LOGIN');
         reset();
     };
@@ -438,8 +462,7 @@ export default function Login() {
 
         const loginPromise = loginUser(username, password).catch(() => null);
 
-        // Step 1: Connecting Animation
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, DELAY_CONNECTING));
 
         // Step 2: Start Checks
         setHandshakeStage('VERIFYING');
@@ -449,16 +472,17 @@ export default function Login() {
                 if (prev.length < DASHBOARD_PRELOAD_DATA.length) return [...prev, prev.length];
                 return prev;
             });
-        }, 800);
+        }, DELAY_PACKET_TICK);
+        packetIntervalRef.current = packetInterval;
 
         // Check 1: Server Connection
         setChecks(prev => prev.map((item, i) => i === 0 ? { ...item, status: 'CHECKING' } : item));
-        await new Promise(r => setTimeout(r, 400));
+        await new Promise(r => setTimeout(r, DELAY_CHECK_STEP));
         setChecks(prev => prev.map((item, i) => i === 0 ? { ...item, status: 'OK' } : item));
 
         // Check 2: TLS
         setChecks(prev => prev.map((item, i) => i === 1 ? { ...item, status: 'CHECKING' } : item));
-        await new Promise(r => setTimeout(r, 400));
+        await new Promise(r => setTimeout(r, DELAY_CHECK_STEP));
         setChecks(prev => prev.map((item, i) => i === 1 ? { ...item, status: 'OK' } : item));
 
         // Check 3: Credentials (real auth)
@@ -469,14 +493,15 @@ export default function Login() {
 
             if (result && result.access_token) {
                 setChecks(prev => prev.map((item, i) => i === 2 ? { ...item, status: 'OK' } : item));
-                const __authedSoundPromise = playAuthed();
+                playAuthed();
 
                 // Check 4: Establish session
                 setChecks(prev => prev.map((item, i) => i === 3 ? { ...item, status: 'CHECKING' } : item));
-                await new Promise(r => setTimeout(r, 300));
+                await new Promise(r => setTimeout(r, DELAY_SESSION_SETUP));
                 setChecks(prev => prev.map((item, i) => i === 3 ? { ...item, status: 'OK' } : item));
 
                 clearInterval(packetInterval);
+                packetIntervalRef.current = null;
                 setHandshakeStage('GRANTED');
 
                 try {
@@ -485,7 +510,7 @@ export default function Login() {
                     console.error("Failed to update global state", e);
                 }
 
-                localStorage.setItem('access_token', result.access_token);
+                // user_id is stored separately for dashboard queries
                 if (result.user_id) localStorage.setItem('user_id', String(result.user_id));
 
                 setViewMode('TRANSITIONING');
@@ -494,6 +519,7 @@ export default function Login() {
             }
         } catch (error) {
             clearInterval(packetInterval);
+            packetIntervalRef.current = null;
             setChecks(prev => prev.map((item, i) => i === 2 ? { ...item, status: 'FAIL' } : item));
             setHandshakeStage('FAILED');
             setLoginError("AUTHENTICATION FAILED — INVALID CREDENTIALS");
@@ -503,7 +529,7 @@ export default function Login() {
                 setChecks(INITIAL_CHECKS);
                 setVisiblePackets([]);
                 setIsSubmitting(false);
-            }, 2000);
+            }, DELAY_AUTH_FAIL_MSG);
             return;
         }
         setIsSubmitting(false);
@@ -534,7 +560,7 @@ export default function Login() {
                     >
                         {/* LEFT PANEL: Minerva C2 Identity & Connection Info */}
                         <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 border-r border-ghost/30 relative bg-void">
-                            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 pointer-events-none"></div>
+                            <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22300%22%3E%3Cfilter%20id%3D%22n%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%220.65%22%20numOctaves%3D%223%22%20stitchTiles%3D%22stitch%22%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20filter%3D%22url(%23n)%22%2F%3E%3C%2Fsvg%3E')] opacity-10 pointer-events-none"></div>
 
                             {/* Top: Brand */}
                             <div>

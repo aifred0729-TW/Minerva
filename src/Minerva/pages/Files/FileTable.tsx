@@ -33,6 +33,7 @@ import {
 }from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../lib/utils';
+import { directDownloadUrl } from '../../lib/urls';
 import type { FileTag, FileMeta, MachineInfo } from '../../types/files';
 import { formatBytes, formatTimeAgo, b64DecodeUnicode } from './utils';
 
@@ -223,7 +224,7 @@ export const ExpandedRowDetails = ({
                 {/* Actions */}
                 <div className="pt-1 border-t border-white/5 flex items-center flex-wrap gap-2">
                     {file.complete && (
-                        <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                        <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                             className="flex items-center gap-1 px-2 py-1 bg-blue-500/15 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/25 transition-colors">
                             <Download size={10} /> Download
                         </a>
@@ -277,7 +278,7 @@ export const ExpandedRowDetails = ({
                                         return file.copy_of_file!.deleted ? (
                                             <p className="text-gray-500 text-[9px] break-all">{p}</p>
                                         ) : file.copy_of_file!.complete ? (
-                                            <a href={`/direct/download/${file.copy_of_file!.agent_file_id}`} className="text-blue-400 hover:underline text-[9px] break-all">{p}</a>
+                                            <a href={directDownloadUrl(file.copy_of_file!.agent_file_id)} className="text-blue-400 hover:underline text-[9px] break-all">{p}</a>
                                         ) : (
                                             <p className="text-gray-400 text-[9px] break-all">{p} <span className="text-yellow-500">({file.copy_of_file!.chunks_received}/{file.copy_of_file!.total_chunks})</span></p>
                                         );
@@ -685,7 +686,7 @@ export const FileTable = ({
                                 {file.deleted ? (
                                     <span className="text-gray-500 text-xs line-through" title={filename}>{filename}</span>
                                 ) : file.complete ? (
-                                    <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                                    <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                                         className="text-white text-xs hover:underline" title={filename} onClick={e => e.stopPropagation()}>
                                         {filename}
                                     </a>
@@ -710,7 +711,7 @@ export const FileTable = ({
                                     file.deleted ? (
                                         <span className="text-gray-500 font-mono break-all">{remotePath}</span>
                                     ) : file.complete ? (
-                                        <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                                        <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                                             className="text-green-400 hover:underline font-mono break-all" onClick={e => e.stopPropagation()}>{remotePath}</a>
                                     ) : (
                                         <span className="text-gray-400 font-mono break-all">{remotePath}</span>
@@ -748,7 +749,7 @@ export const FileTable = ({
                                 </button>
                             )}
                             {file.complete && !file.deleted && (
-                                <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                                <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                                     className="p-1 hover:bg-white/10 rounded text-blue-400" title="Download">
                                     <Download size={11} />
                                 </a>

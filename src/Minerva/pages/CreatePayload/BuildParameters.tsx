@@ -1,5 +1,5 @@
 import React, { useEffect, useState, memo } from 'react';
-import { useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
 import { GET_DYNAMIC_BUILD_PARAMS } from './queries';
 import { RefreshCw } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -27,12 +27,12 @@ export const CreatePayloadParameter = memo(function CreatePayloadParameter({
     onChange, parameter_type, default_value, name, required, verifier_regex, id,
     description, initialValue, choices, trackedValue, payload_type, selected_os, dynamic_query_function
 }: ParameterProps) {
-    const [value, setValue] = useState<unknown>("");
+    const [value, setValue] = useState<any>("");
     const [options, setOptions] = useState<any[]>([]);
     const [loadingDynamic, setLoadingDynamic] = useState(false);
 
-    const [getDynamicParams] = useMutation(GET_DYNAMIC_BUILD_PARAMS, {
-        onCompleted: (data) => {
+    const [getDynamicParams] = useMutation<any>(GET_DYNAMIC_BUILD_PARAMS, {
+        onCompleted: (data: any) => {
             setLoadingDynamic(false);
             if (data.dynamicQueryBuildParameterFunction.status === "success") {
                 setOptions(data.dynamicQueryBuildParameterFunction.choices);
@@ -395,7 +395,7 @@ export const CreatePayloadParameter = memo(function CreatePayloadParameter({
                                             {f instanceof File ? `${f.name} (${(f.size / 1024).toFixed(1)} KB)` : `UUID: ${f}`}
                                         </span>
                                         <button
-                                            onClick={() => handleChange((value as any[]).filter((_, i) => i !== idx))}
+                                            onClick={() => handleChange((value as unknown[]).filter((_, i) => i !== idx))}
                                             className="text-red-400 hover:text-red-300 text-xs font-mono"
                                         >
                                             DEL

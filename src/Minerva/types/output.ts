@@ -71,3 +71,9 @@ export interface DecodedResponse {
     is_error?: boolean;
     timestamp?: string;
 }
+
+export interface ParsedOutputProps {
+    text?: string;
+    data?: unknown;
+    isError?: boolean;
+}

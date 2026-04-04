@@ -1,5 +1,6 @@
 import React, {useEffect} from 'react';
-import {useLazyQuery, gql } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useLazyQuery } from "@apollo/client/react";
 import {TaskArtifactsTable} from './TaskArtifactsTable';
 import {TaskMITREATTACKTable} from './TaskMITREATTACKTable';
 import {TaskFilesTable} from './TaskFilesTable';

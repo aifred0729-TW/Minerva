@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from "@apollo/client/react";
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     AlertTriangle, Box, Check, CheckCircle, ChevronLeft, ChevronRight,
@@ -21,7 +21,7 @@ export const CreatePayloadEmbed: React.FC<{
     const [currentStep, setCurrentStep] = useState(0);
     const [selectedOS, setSelectedOS] = useState<string>('');
     const [selectedPayloadType, setSelectedPayloadType] = useState<PayloadTypeData | null>(null);
-    const [buildParams, setBuildParams] = useState<Record<string, unknown>>({});
+    const [buildParams, setBuildParams] = useState<Record<string, any>>({});
     const [selectedCommands, setSelectedCommands] = useState<string[]>([]);
     const [c2ProfileInstances, setC2ProfileInstances] = useState<C2ProfileInstance[]>([]);
     const [description, setDescription] = useState('Created via Minerva');
@@ -38,8 +38,8 @@ export const CreatePayloadEmbed: React.FC<{
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
     const tooltipTimer = useRef<NodeJS.Timeout | null>(null);
 
-    const { data: payloadTypesData, loading: loadingTypes } = useQuery(GET_PAYLOAD_TYPES);
-    const [createPayload] = useMutation(CREATE_PAYLOAD);
+    const { data: payloadTypesData, loading: loadingTypes } = useQuery<any>(GET_PAYLOAD_TYPES);
+    const [createPayload] = useMutation<any>(CREATE_PAYLOAD);
 
     // Group payload types by OS
     const { availableOS, payloadTypesByOS } = React.useMemo(() => {
@@ -100,7 +100,7 @@ export const CreatePayloadEmbed: React.FC<{
 
     // C2 Profile Helpers
     const addC2ProfileInstance = (profile: C2Profile) => {
-        const defaultParams: Record<string, unknown> = {};
+        const defaultParams: Record<string, any> = {};
         profile.c2profileparameters.forEach(p => {
             if (p.parameter_type === 'Boolean') {
                 defaultParams[p.name] = p.default_value === 'true' || p.default_value === true;
@@ -240,7 +240,7 @@ export const CreatePayloadEmbed: React.FC<{
                 const instanceParams: Record<string, unknown> = {};
                 
                 inst.profile.c2profileparameters.forEach(p => {
-                    let value = inst.parameters[p.name] ?? p.default_value;
+                    let value: any = inst.parameters[p.name] ?? p.default_value;
                     
                     // Handle Dictionary type
                     if (p.parameter_type === 'Dictionary') {
@@ -308,7 +308,7 @@ export const CreatePayloadEmbed: React.FC<{
                 setBuildResult({ status: 'error', error: result.data?.createPayload?.error || 'Unknown error' });
                 snackActions.error(result.data?.createPayload?.error || 'Build failed');
             }
-        } catch (error: unknown) {
+        } catch (error: any) {
             setBuildResult({ status: 'error', error: error.message });
             snackActions.error('Build failed: ' + getErrorMessage(error));
         } finally {
@@ -930,7 +930,7 @@ export const CreatePayloadEmbed: React.FC<{
                                                                             </button>
                                                                         ) : param.parameter_type === 'ChooseOne' && param.choices ? (
                                                                             <CyberDropdown
-                                                                                value={instance.parameters[param.name] || ''}
+                                                                                value={String(instance.parameters[param.name] ?? '')}
                                                                                 onChange={(val) => updateC2InstanceParam(instance.instance_id, param.name, val)}
                                                                                 options={(typeof param.choices === 'string' ? JSON.parse(param.choices) : param.choices).map((choice: string) => ({
                                                                                     label: choice,
@@ -940,8 +940,8 @@ export const CreatePayloadEmbed: React.FC<{
                                                                             />
                                                                         ) : param.parameter_type === 'Dictionary' ? (
                                                                             <textarea
-                                                                                value={typeof instance.parameters[param.name] === 'string' 
-                                                                                    ? instance.parameters[param.name] 
+                                                                                value={typeof instance.parameters[param.name] === 'string'
+                                                                                    ? instance.parameters[param.name] as string
                                                                                     : JSON.stringify(instance.parameters[param.name], null, 2)}
                                                                                 onChange={(e) => updateC2InstanceParam(instance.instance_id, param.name, e.target.value)}
                                                                                 className="w-full bg-black/50 border border-ghost/30 text-signal p-2 font-mono text-xs focus:border-signal outline-none min-h-[100px] rounded"
@@ -949,21 +949,21 @@ export const CreatePayloadEmbed: React.FC<{
                                                                         ) : param.parameter_type === 'Date' ? (
                                                                             <input
                                                                                 type="date"
-                                                                                value={instance.parameters[param.name] || ''}
+                                                                                value={String(instance.parameters[param.name] ?? '')}
                                                                                 onChange={(e) => updateC2InstanceParam(instance.instance_id, param.name, e.target.value)}
                                                                                 className="bg-black/50 border border-ghost/30 text-signal p-2 font-mono text-sm focus:border-signal outline-none rounded"
                                                                             />
                                                                         ) : param.parameter_type === 'Number' ? (
                                                                             <input
                                                                                 type="number"
-                                                                                value={instance.parameters[param.name] || ''}
+                                                                                value={String(instance.parameters[param.name] ?? '')}
                                                                                 onChange={(e) => updateC2InstanceParam(instance.instance_id, param.name, Number(e.target.value))}
                                                                                 className="w-full bg-black/50 border border-ghost/30 text-signal p-2 font-mono text-sm focus:border-signal outline-none rounded"
                                                                             />
                                                                         ) : (
                                                                             <input
                                                                                 type="text"
-                                                                                value={instance.parameters[param.name] || ''}
+                                                                                value={String(instance.parameters[param.name] ?? '')}
                                                                                 onChange={(e) => updateC2InstanceParam(instance.instance_id, param.name, e.target.value)}
                                                                                 className="w-full bg-black/50 border border-ghost/30 text-signal p-2 font-mono text-sm focus:border-signal outline-none rounded"
                                                                             />

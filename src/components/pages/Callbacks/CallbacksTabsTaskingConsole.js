@@ -1,6 +1,7 @@
 import {MythicTabPanel, MythicTabLabel} from '../../MythicComponents/MythicTabPanel';
 import React, {useEffect, useRef, useCallback, useLayoutEffect} from 'react';
-import { gql, useMutation, useLazyQuery, useSubscription } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation, useLazyQuery, useSubscription } from "@apollo/client/react";
 import { TaskDisplayConsole } from './TaskDisplay';
 import {snackActions} from '../../utilities/Snackbar';
 import { MythicDialog } from '../../MythicComponents/MythicDialog';

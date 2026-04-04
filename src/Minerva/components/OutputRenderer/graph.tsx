@@ -16,13 +16,17 @@ import {
     Network,
     ClipboardCopy as Clipboard,
 }from 'lucide-react';
-import { ReactFlow, Background, ReactFlowProvider, useReactFlow } from '@xyflow/react'
+import { ReactFlow, Background, ReactFlowProvider } from '@xyflow/react'
 import '@xyflow/react/dist/style.css';
 import 'ace-builds/src-noconflict/mode-json';
 import 'ace-builds/src-noconflict/mode-sql';
 import 'ace-builds/src-noconflict/theme-monokai';
 import { OutputPanel, ACCENT, AMBER } from './core';
+import { fileDownloadUrl } from '../../lib/urls';
 import { getErrorMessage } from '../../lib/utils';
+
+const GRAPH_AUTO_HIDE_THRESHOLD = 50;
+const GRAPH_INTERACTIVE_MAX_NODES = 200;
 
 interface GraphNode { id: string; label?: string; color?: string; img?: string; overlay_icon?: string; group?: string }
 interface GraphEdge { source: string; target: string; label?: string; color?: string }
@@ -95,10 +99,9 @@ function dagreLayout(nodes: GraphNode[], edges: GraphEdge[], rankDir: string) {
 }
 
 export function GraphPanel({ nodes, edges, rankDir = 'LR' }: { nodes: GraphNode[]; edges: GraphEdge[]; rankDir?: string }) {
-    const [show, setShow] = useState(nodes.length < 50);
-    const [useReactFlow, setUseReactFlow] = useState(false);
+    const [show, setShow] = useState(nodes.length < GRAPH_AUTO_HIDE_THRESHOLD);
+    const [isInteractive, setIsInteractive] = useState(false);
     const { pos, width, height, nodeW, nodeH } = useMemo(() => dagreLayout(nodes, edges, rankDir), [nodes, edges, rankDir]);
-    const __nodeMap: Record<string, GraphNode> = useMemo(() => Object.fromEntries(nodes.map(n => [n.id, n])), [nodes]);
     // Context menu state
     const [graphCtx, setGraphCtx] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
     const graphCtxRef = useRef<HTMLDivElement>(null);
@@ -116,27 +119,27 @@ export function GraphPanel({ nodes, edges, rankDir = 'LR' }: { nodes: GraphNode[
     return (
         <OutputPanel icon={<Network size={11}/>} label="GRAPH" count={nodes.length}
             toolbar={
-                <button onClick={() => setUseReactFlow(!useReactFlow)}
+                <button onClick={() => setIsInteractive(!isInteractive)}
                     className="px-2 py-0.5 text-[9px] font-mono rounded transition-colors"
                     style={{
-                        background: useReactFlow ? `${ACCENT}30` : 'transparent',
-                        color: useReactFlow ? ACCENT : '#888',
-                        border: `1px solid ${useReactFlow ? ACCENT : '#444'}`,
+                        background: isInteractive ? `${ACCENT}30` : 'transparent',
+                        color: isInteractive ? ACCENT : '#888',
+                        border: `1px solid ${isInteractive ? ACCENT : '#444'}`,
                     }}>
-                    {useReactFlow ? 'INTERACTIVE' : 'STATIC'}
+                    {isInteractive ? 'INTERACTIVE' : 'STATIC'}
                 </button>
             }>
-            {!show && nodes.length >= 50 && (
+            {!show && nodes.length >= GRAPH_AUTO_HIDE_THRESHOLD && (
                 <button onClick={() => setShow(true)}
                     className="font-mono text-[10px] px-3 py-1.5 rounded-sm border transition-colors hover:opacity-80"
                     style={{ color: ACCENT, borderColor: `${ACCENT}40`, background: `${ACCENT}10` }}>
                     Show {nodes.length} nodes (large graph)
                 </button>
             )}
-            {show && useReactFlow && nodes.length < 200 && (
+            {show && isInteractive && nodes.length < GRAPH_INTERACTIVE_MAX_NODES && (
                 <InteractiveGraphFlow nodes={nodes} edges={edges} />
             )}
-            {show && !useReactFlow && (
+            {show && !isInteractive && (
                 <div className="border border-white/10 rounded overflow-auto" style={{ maxHeight: 500 }}>
                     <svg width={width} height={height} className="block">
                         <defs>
@@ -279,7 +282,7 @@ function InteractiveGraphFlow({ nodes, edges }: { nodes: GraphNode[]; edges: Gra
 // ─── DatabasePanel (#1) — SQLite viewer via sql.js ────────────────────────────
 
 export function DatabasePanel({ agentFileId, filename }: { agentFileId: string; filename?: string }) {
-    const [db, setDb] = useState<unknown>(null);
+    const [db, setDb] = useState<IDBDatabase | null>(null);
     const [tables, setTables] = useState<string[]>([]);
     const [sql, setSql] = useState('');
     const [results, setResults] = useState<{ columns: string[]; values: any[][] } | null>(null);
@@ -292,7 +295,7 @@ export function DatabasePanel({ agentFileId, filename }: { agentFileId: string; 
             try {
                 const initSqlJs = (await import('sql.js')).default;
                 const SQL = await initSqlJs({ locateFile: (f: string) => `https://sql.js.org/dist/${f}` });
-                const resp = await fetch(`/api/v1.4/files/download/${agentFileId}`);
+                const resp = await fetch(fileDownloadUrl(agentFileId));
                 const buf = await resp.arrayBuffer();
                 const database = new SQL.Database(new Uint8Array(buf));
                 if (cancelled) return;
@@ -314,7 +317,7 @@ export function DatabasePanel({ agentFileId, filename }: { agentFileId: string; 
     const runQuery = useCallback(() => {
         if (!db || !sql.trim()) return;
         try {
-            const res = db.exec(sql);
+            const res = (db as any).exec(sql);
             if (res.length > 0) {
                 setResults(res[0]);
                 setError('');

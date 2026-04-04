@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { CheckCircle, XCircle, Clock, Loader2, Globe2, Tag as TagIcon, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
+import { directDownloadUrl } from '../../lib/urls';
 import type { PayloadTag, PayloadBuildStep, Payload } from '../../types/payloads';
 import { createPortal } from 'react-dom';
 
@@ -49,7 +50,7 @@ export const ParseParamValue: React.FC<{
     }
     if (pt === 'File') {
         return (
-            <a href={`/direct/download/${value}`} target="_blank" rel="noopener noreferrer"
+            <a href={directDownloadUrl(value)} target="_blank" rel="noopener noreferrer"
                className="text-signal underline text-xs font-mono hover:text-white">
                 {value.substring(0, 16)}…
             </a>
@@ -62,7 +63,7 @@ export const ParseParamValue: React.FC<{
                 return (
                     <div className="space-y-0.5">
                         {parsed.map((fileId: string, i: number) => (
-                            <a key={i} href={`/direct/download/${fileId}`} target="_blank" rel="noopener noreferrer"
+                            <a key={i} href={directDownloadUrl(fileId)} target="_blank" rel="noopener noreferrer"
                                className="block text-signal underline text-xs font-mono hover:text-white">
                                 {fileId.substring(0, 16)}…
                             </a>

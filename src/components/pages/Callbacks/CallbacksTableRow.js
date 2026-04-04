@@ -13,7 +13,7 @@ import {snackActions} from '../../utilities/Snackbar';
 import {
     updateIPsCallbackMutation,
 } from './CallbackMutations';
-import {useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
 import SnoozeIcon from '@mui/icons-material/Snooze';
 import {useTheme} from '@mui/material/styles';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -22,7 +22,7 @@ import {faLinux, faApple, faWindows, faChrome, faAndroid} from '@fortawesome/fre
 import { MythicStyledTooltip } from '../../MythicComponents/MythicStyledTooltip';
 import { MythicSelectFromRawListDialog } from '../../MythicComponents/MythicSelectFromListDialog';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
-import { areEqual } from 'react-window';
+
 import {CallbackGraphEdgesContext, OnOpenTabContext} from './CallbacksTop';
 import Moment from 'react-moment';
 import moment from 'moment';
@@ -141,12 +141,12 @@ export const CallbacksTableIDCell = React.memo(({rowData, callbackDropdown}) =>{
     </div>
     )
 },
-    areEqual)
+    )
 export const CallbacksTableStringCell = React.memo(({rowData, cellData}) => {
     return (
         <div>{cellData}</div>
     )
-}, areEqual)
+})
 export const CallbacksTableLastCheckinCell = React.memo( ({rowData, cellData, me}) => {
     const adjustOutput = (newTime) => {
         if(newTime === "a few seconds"){
@@ -193,12 +193,12 @@ export const CallbacksTableLastCheckinCell = React.memo( ({rowData, cellData, me
         </div>
         
     )
-}, areEqual);
+});
 export const CallbacksTablePayloadTypeCell = React.memo( ({rowData}) => {
     return (
         rowData?.payload?.payloadtype?.name
     )
-}, areEqual)
+})
 export const CallbacksTableIPCell = React.memo(({cellData, rowData}) => {
     const [displayIP, setDisplayIP] = React.useState("");
     const [openPickIP, setOpenPickIP] = React.useState(false);
@@ -262,7 +262,7 @@ export const CallbacksTableIPCell = React.memo(({cellData, rowData}) => {
         </>
         
     )
-}, areEqual)
+})
 export const CallbacksTableC2Cell = React.memo(({rowData}) => {
     const theme = useTheme();
     const [localRowData, setLocalRowData] = React.useState(rowData);
@@ -392,7 +392,7 @@ export const CallbacksTableC2Cell = React.memo(({rowData}) => {
         </div>
         
     )
-}, areEqual)
+})
 export const CallbacksTableOSCell = React.memo( ({rowData, cellData}) => {
     const [openOSDialog, setOpenOSDialog] = React.useState(false);
     const getOSIcon = useCallback( () => {
@@ -439,7 +439,7 @@ export const CallbacksTableOSCell = React.memo( ({rowData, cellData}) => {
         
                 
     )
-}, areEqual);
+});
 export const CallbacksTableSleepCell = React.memo( ({rowData, cellData, updateSleepInfo}) => {
     const theme = useTheme();
     const [openSleepDialog, setOpenSleepDialog] = React.useState(false);
@@ -475,7 +475,7 @@ export const CallbacksTableSleepCell = React.memo( ({rowData, cellData, updateSl
         
             
     )
-}, areEqual)
+})
 export const CallbacksTableTagsCell = React.memo(({rowData, cellData}) => {
     return (
         <div>
@@ -483,4 +483,4 @@ export const CallbacksTableTagsCell = React.memo(({rowData, cellData}) => {
             <TagsDisplay tags={cellData} expand={false} />
         </div>
     )
-}, areEqual)
+})

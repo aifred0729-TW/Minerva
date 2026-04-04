@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useThree, useFrame } from '@react-three/fiber'
 import { createPortal } from 'react-dom';
-import { useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Terminal,
@@ -27,7 +27,7 @@ import { snackActions } from '../../lib/snackbar';
 import * as THREE from 'three';
 import type { ThreeEvent } from '@react-three/fiber';
 import { UPDATE_CALLBACK_DESCRIPTION_MUTATION, UPDATE_IPS_MUTATION } from '../../lib/api';
-import type { TopoNode, TopoEdge, SubnetZone } from '../../types/topology';
+import type { TopoNode, TopoNodeData, TopoEdge, SubnetZone } from '../../types/topology';
 import { extractPrimaryIP, getOSFullLabel, getPrivilegeLabel } from './topology';
 import { extractAllIPs } from '../../lib/quickhacks';
 import { CyberEnvironment, SmartOrbitControls, SubnetVolume, DataBeamEdge, NodeSphere } from './SceneObjects';
@@ -95,7 +95,7 @@ export const ContextMenu3D = ({
 
     const isCallback = node.type === 'callback';
     const isCustom = node.type === 'custom';
-    const cb = node.data;
+    const cb = node.data!;
     const nodeIdForFocus = String(cb?.id ?? node.id);
     const isFocused = linkFocusNodeId === nodeIdForFocus;
     const hasParent = cb?.id != null && getParentEdge(cb.id);
@@ -125,7 +125,7 @@ export const ContextMenu3D = ({
                 <>
                     {/* Interact (Console) */}
                     <button className={`${btnClass} text-cyan-400 font-semibold`}
-                        onClick={() => { onNavigateConsole(cb.display_id); onClose(); }}>
+                        onClick={() => { onNavigateConsole(cb.display_id ?? 0); onClose(); }}>
                         <Terminal size={12} className="text-cyan-400" /> Interact (Console)
                     </button>
                     <div className={sepClass} />
@@ -142,7 +142,7 @@ export const ContextMenu3D = ({
 
                     {/* Lock/Unlock */}
                     <button className={btnClass}
-                        onClick={() => { onLock(cb.display_id, !cb.locked); onClose(); }}>
+                        onClick={() => { onLock(cb.display_id ?? 0, !cb.locked); onClose(); }}>
                         {cb.locked
                             ? <><Unlock size={12} className="text-yellow-400" /> Unlock Callback</>
                             : <><Lock size={12} className="text-red-400" /> Lock Callback</>}
@@ -179,7 +179,7 @@ export const ContextMenu3D = ({
 
                     {/* Hide Callback */}
                     <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors"
-                        onClick={() => { onHide(cb.display_id); onClose(); }}>
+                        onClick={() => { onHide(cb.display_id ?? 0); onClose(); }}>
                         <EyeOff size={12} className="text-red-500" /> Hide Callback
                     </button>
                     <div className={sepClass} />
@@ -291,8 +291,8 @@ export const DetailPanel = ({ node, onClose }: { node: TopoNode | null; onClose:
     // Session selector — allow switching between callbacks on the same machine
     const [selectedSessionIdx, setSelectedSessionIdx] = useState(0);
     const [showSessionPicker, setShowSessionPicker] = useState(false);
-    const sessions = node ? (node.allCallbacks ?? (node.data ? [node.data] : [])) : [];
-    const cb = sessions[selectedSessionIdx] ?? node?.data;
+    const sessions: TopoNodeData[] = node ? ((node.allCallbacks as TopoNodeData[] | undefined) ?? (node.data ? [node.data] : [])) : [];
+    const cb: TopoNodeData | null = sessions[selectedSessionIdx] ?? node?.data ?? null;
 
     // Reset session index when node changes
     useEffect(() => { setSelectedSessionIdx(0); setShowSessionPicker(false); }, [node?.id]);
@@ -308,8 +308,8 @@ export const DetailPanel = ({ node, onClose }: { node: TopoNode | null; onClose:
     const [descDraft, setDescDraft] = useState('');
     const [showIPPicker, setShowIPPicker] = useState(false);
 
-    const [updateDescription] = useMutation(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
-    const [updateIPs] = useMutation(UPDATE_IPS_MUTATION);
+    const [updateDescription] = useMutation<any>(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
+    const [updateIPs] = useMutation<any>(UPDATE_IPS_MUTATION);
 
     const handleSaveDesc = useCallback(async () => {
         if (!cb?.display_id) return;

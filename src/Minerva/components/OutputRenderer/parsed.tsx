@@ -28,6 +28,7 @@ import type { MythicTableDef } from '../../types/output';
 import { ProcessPanel } from './panels';
 import { FilesPanel } from './panels';
 import { ScreenshotPanel } from './panels';
+import { fileDownloadUrl } from '../../lib/urls';
 import { DownloadPanel } from './panels';
 import { GraphPanel } from './graph';
 import type { DecodedResponse, ParsedOutputProps } from '../../types/output';
@@ -207,7 +208,7 @@ export function BrowserScriptOutput({ bsd }: { bsd: any }) {
                     count={bsd.screenshot.length > 1 ? bsd.screenshot.length : undefined}>
                     <div className="space-y-3">
                         {bsd.screenshot.map((scr: any, i: number) => {
-                            const src = `/api/v1.4/files/download/${scr.agent_file_id}`;
+                            const src = fileDownloadUrl(scr.agent_file_id);
                             const alt = scr.plaintext || `Screenshot ${i + 1}`;
                             return (
                                 <div key={i}>
@@ -232,7 +233,7 @@ export function BrowserScriptOutput({ bsd }: { bsd: any }) {
 
             {/* media[] — inline audio/video player */}
             {Array.isArray(bsd.media) && bsd.media.map((m: any, i: number) => {
-                const src = `/api/v1.4/files/download/${m.agent_file_id}`;
+                const src = fileDownloadUrl(m.agent_file_id);
                 const name: string = (m.name || m.plaintext || '').toLowerCase();
                 const isAudio = /\.(mp3|ogg|wav|aac|flac|m4a)$/.test(name);
                 const isVideo = /\.(mp4|webm|ogv|mov|avi|mkv)$/.test(name);
@@ -314,16 +315,16 @@ export function BrowserScriptOutput({ bsd }: { bsd: any }) {
                         {t.file_browser?.files && <FilesPanel files={t.file_browser.files}/>}
                         {Array.isArray(t.download) && <DownloadPanel downloads={t.download}/>}
                         {t.screenshot?.agent_file_id && (
-                            <img src={`/api/v1.4/files/download/${t.screenshot.agent_file_id}`}
+                            <img src={fileDownloadUrl(t.screenshot.agent_file_id)}
                                 alt={t.screenshot.filename || 'screenshot'}
                                 className="max-w-full rounded-sm border border-white/10 cursor-zoom-in" style={{ maxHeight: 300 }}
-                                onClick={() => setExpandedScreenshot({ src: `/api/v1.4/files/download/${t.screenshot.agent_file_id}`, alt: t.screenshot.filename || '' })} />
+                                onClick={() => setExpandedScreenshot({ src: fileDownloadUrl(t.screenshot.agent_file_id), alt: t.screenshot.filename || '' })} />
                         )}
                         {Array.isArray(t.screenshot) && t.screenshot.length > 0 && (
                             <ScreenshotPanel screenshots={t.screenshot}/>
                         )}
                         {Array.isArray(t.media) && t.media.map((m: any, mi: number) => {
-                            const src = `/api/v1.4/files/download/${m.agent_file_id}`;
+                            const src = fileDownloadUrl(m.agent_file_id);
                             const name: string = (m.name || m.plaintext || '').toLowerCase();
                             return <div key={mi}>{/\.(mp3|ogg|wav|aac|flac|m4a)$/.test(name) ? <audio controls src={src} className="w-full h-8 max-w-sm"/> : /\.(mp4|webm|ogv|mov)$/.test(name) ? <video controls src={src} className="max-w-full border border-white/10" style={{maxHeight:240}}/> : <a href={src} target="_blank" rel="noreferrer" className="text-[11px] flex items-center gap-1 hover:opacity-80" style={{color:ACCENT}}>↗ View Media</a>}</div>;
                         })}

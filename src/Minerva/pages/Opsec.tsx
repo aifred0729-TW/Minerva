@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../lib/useQueryCompat";
 import { motion } from 'framer-motion';
 import { GET_OPSEC_QUEUE, REQUEST_OPSEC_BYPASS } from '../lib/api';
 import { cn } from '../lib/utils';
 import { Shield, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../store';
+import { usePageVisible } from '../lib/usePageVisible';
 
 const statusBadge = (text: string, variant: 'warn' | 'ok' | 'info') => {
     const colors = variant === 'warn'
@@ -16,9 +18,10 @@ const statusBadge = (text: string, variant: 'warn' | 'ok' | 'info') => {
 };
 
 const Opsec = () => {
-    const { data, loading, error, refetch } = useQuery(GET_OPSEC_QUEUE, { pollInterval: 5000 });
-    const [approve] = useMutation(REQUEST_OPSEC_BYPASS, { onCompleted: () => refetch() });
-    const [selected, setSelected] = useState<unknown>(null);
+    const pageVisible = usePageVisible();
+    const { data, loading, error, refetch } = useQuery<any>(GET_OPSEC_QUEUE, { pollInterval: pageVisible ? 5000 : 0 });
+    const [approve] = useMutation<any>(REQUEST_OPSEC_BYPASS, { onCompleted: () => refetch() });
+    const [selected, setSelected] = useState<any>(null);
     const { isSidebarCollapsed } = useAppStore();
 
     const tasks = data?.task || [];

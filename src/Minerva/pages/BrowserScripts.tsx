@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery, useMutation, useSubscription } from '@apollo/client';
+import { useMutation, useSubscription } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../lib/useQueryCompat";
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Code, 
@@ -23,7 +24,7 @@ import { cn } from '../lib/utils';
 import { useAppStore } from '../store';
 import { snackActions } from '../lib/snackbar';
 import { meState } from '../lib/state';
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import {
     SUB_BrowserScripts,
     UPDATE_SCRIPT_ACTIVE,
@@ -33,6 +34,7 @@ import {
 } from '../lib/api/browserScripts';
 import { GET_PAYLOAD_TYPES } from '../lib/api/payloads';
 
+const COPIED_INDICATOR_DURATION_MS = 2_000;
 
 // Script Editor Modal
 const ScriptEditorModal: React.FC<{
@@ -182,11 +184,17 @@ const ScriptRow: React.FC<{
 }> = ({ script, onToggleActive, onEdit, onRevert }) => {
     const [expanded, setExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
+    const copiedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    React.useEffect(() => {
+        return () => { if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current); };
+    }, []);
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(script.script);
         setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(false), COPIED_INDICATOR_DURATION_MS);
     };
 
     return (
@@ -314,19 +322,17 @@ export default function BrowserScripts() {
     const [loading, setLoading] = useState(true);
 
     // Load payload types
-    useQuery(GET_PAYLOAD_TYPES, {
-        onCompleted: (data) => {
+    useQuery<any>(GET_PAYLOAD_TYPES, {
+        onCompleted: (data: any) => {
             setPayloadTypes(data.payloadtype);
         }
     });
 
     // Subscribe to browser scripts
-    // @ts-ignore
-    useSubscription(SUB_BrowserScripts, {
-        // @ts-ignore
+    useSubscription<any>(SUB_BrowserScripts, {
         variables: { operator_id: me?.user?.id || 0 },
         fetchPolicy: "no-cache",
-        onData: ({ data }) => {
+        onData: ({ data }: { data: any } ) => {
             if (data?.data?.browserscript) {
                 const sortedScripts = [...data.data.browserscript].sort((a: BrowserScript, b: BrowserScript) => {
                     if (a.payloadtype.name === b.payloadtype.name) {
@@ -341,22 +347,22 @@ export default function BrowserScripts() {
     });
 
     // Mutations
-    const [toggleActive] = useMutation(UPDATE_SCRIPT_ACTIVE, {
+    const [toggleActive] = useMutation<any>(UPDATE_SCRIPT_ACTIVE, {
         onCompleted: () => snackActions.success('Script status updated'),
         onError: (err) => snackActions.error('Failed to update script: ' + err.message)
     });
 
-    const [updateScript] = useMutation(UPDATE_SCRIPT, {
+    const [updateScript] = useMutation<any>(UPDATE_SCRIPT, {
         onCompleted: () => snackActions.success('Script updated'),
         onError: (err) => snackActions.error('Failed to update script: ' + err.message)
     });
 
-    const [revertScript] = useMutation(REVERT_SCRIPT, {
+    const [revertScript] = useMutation<any>(REVERT_SCRIPT, {
         onCompleted: () => snackActions.success('Script reverted'),
         onError: (err) => snackActions.error('Failed to revert script: ' + err.message)
     });
 
-    const [createScript] = useMutation(CREATE_SCRIPT, {
+    const [createScript] = useMutation<any>(CREATE_SCRIPT, {
         onCompleted: () => snackActions.success('Script created'),
         onError: (err) => snackActions.error('Failed to create script: ' + err.message)
     });
@@ -414,10 +420,8 @@ export default function BrowserScripts() {
                 }
             });
         } else {
-            // @ts-ignore
             createScript({
                 variables: {
-                    // @ts-ignore
                     author: me?.user?.username || '',
                     script: data.script,
                     payload_type_id: data.payload_type_id,
@@ -570,7 +574,6 @@ export default function BrowserScripts() {
                         payloadTypes={payloadTypes}
                         onSubmit={handleSubmit}
                         mode={editorMode}
-                        // @ts-ignore
                         username={me?.user?.username || ''}
                     />
                 )}

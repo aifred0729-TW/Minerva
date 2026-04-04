@@ -7,7 +7,7 @@
 //  Dependency chain:  state → time → websocket → auth  (no cycles)
 // ═══════════════════════════════════════════════════════════════════
 import { jwtDecode } from 'jwt-decode';
-import { meState, mePreferences, operatorSettingDefaults } from './state';
+import { meState, mePreferences, operatorSettingDefaults, type MythicUser } from './state';
 import { getSkewedNow } from './time';
 import { restartWebsockets } from './websocket';
 import { snackActions } from './snackbar';
@@ -16,10 +16,26 @@ import { dbg } from './utils';
 // ── Version tag ────────────────────────────────────────────────────
 export const mythicUIVersion = "0.3.106";
 
+// ── Auth header utilities ──────────────────────────────────────────
+
+const ACCESS_TOKEN_KEY = 'access_token';
+const REFRESH_TOKEN_KEY = 'refresh_token';
+const USER_KEY = 'user';
+
+/** Read the current access token from localStorage. */
+export const getAccessToken = (): string | null =>
+    localStorage.getItem(ACCESS_TOKEN_KEY);
+
+/** Build Authorization headers used by fetch calls and Apollo. */
+export const getAuthHeaders = (): Record<string, string> => ({
+    Authorization: `Bearer ${getAccessToken()}`,
+    MythicSource: 'web',
+});
+
 // ── JWT helpers ────────────────────────────────────────────────────
 
 export const isJWTValid = (): boolean => {
-    let access_token = localStorage.getItem("access_token");
+    let access_token = getAccessToken();
     if (!access_token) {
         const cookie = document.cookie;
         if (cookie && cookie !== "") {
@@ -38,7 +54,7 @@ export const isJWTValid = (): boolean => {
                         if ("access_token" in cookieJSON) {
                             successfulLogin(cookieJSON);
                             restartWebsockets();
-                            access_token = localStorage.getItem("access_token");
+                            access_token = getAccessToken();
                         } else {
                             snackActions.warning("Invalid Authentication");
                             dbg('auth', 'invalid cookie JSON', cookieJSON);
@@ -51,9 +67,9 @@ export const isJWTValid = (): boolean => {
         }
     }
     if (access_token) {
-        const decoded_token: any = jwtDecode(access_token);
-        if (getSkewedNow().getTime() > decoded_token.exp * 1000) {
-            dbg('auth', 'token expired', decoded_token.exp * 1000, getSkewedNow().getTime());
+        const decoded: { exp: number } = jwtDecode(access_token);
+        if (getSkewedNow().getTime() > decoded.exp * 1000) {
+            dbg('auth', 'token expired', decoded.exp * 1000, getSkewedNow().getTime());
             return false;
         }
         return true;
@@ -62,10 +78,10 @@ export const isJWTValid = (): boolean => {
 };
 
 export const JWTTimeLeft = (): number => {
-    const access_token = localStorage.getItem("access_token");
+    const access_token = getAccessToken();
     if (access_token) {
-        const decoded_token: any = jwtDecode(access_token);
-        return (decoded_token.exp * 1000) - (getSkewedNow() as any);
+        const decoded: { exp: number } = jwtDecode(access_token);
+        return (decoded.exp * 1000) - getSkewedNow().getTime();
     }
     return 0;
 };
@@ -80,12 +96,11 @@ export const GetNewToken = async (): Promise<boolean> => {
         method: "POST",
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            'MythicSource': "web",
+            ...getAuthHeaders(),
         },
         body: JSON.stringify({
-            refresh_token: localStorage.getItem("refresh_token"),
-            access_token: localStorage.getItem("access_token"),
+            refresh_token: localStorage.getItem(REFRESH_TOKEN_KEY),
+            access_token: getAccessToken(),
         }),
     };
     try {
@@ -95,32 +110,29 @@ export const GetNewToken = async (): Promise<boolean> => {
                 if ("access_token" in data) {
                     successfulRefresh(data);
                     dbg('auth', 'successfully got new access_token');
-                    fetchingNewToken = false;
                     return true;
                 }
                 dbg('auth', 'FailedRefresh from GetNewToken');
                 FailedRefresh();
-                fetchingNewToken = false;
                 return false;
             }).catch((error) => {
                 dbg('auth', 'GetNewToken JSON parse error', error);
                 FailedRefresh();
-                fetchingNewToken = false;
                 return false;
             });
         } else if (response.status === 403) {
             FailedRefresh();
-            fetchingNewToken = false;
             return false;
         } else {
-            fetchingNewToken = false;
-            return true;
+            dbg('auth', `GetNewToken server error (HTTP ${response.status})`);
+            return false;
         }
     } catch (error) {
         dbg('auth', 'GetNewToken fetch error', error);
         FailedRefresh();
-        fetchingNewToken = false;
         return false;
+    } finally {
+        fetchingNewToken = false;
     }
 };
 
@@ -159,44 +171,42 @@ export const handleSessionExpired = (source: string): void => {
 
 // ── Login / Refresh / Logout actions ───────────────────────────────
 
-export const successfulLogin = (data: any): void => {
-    localStorage.setItem("access_token", data.access_token);
-    localStorage.setItem("refresh_token", data.refresh_token);
+interface AuthResponse {
+    access_token: string;
+    refresh_token: string;
+    user: Omit<MythicUser, 'server_skew' | 'login_time'> & { current_utc_time: string };
+}
+
+const applyAuthResponse = (data: AuthResponse, existingUser?: MythicUser | null): void => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+    localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
     const now = new Date();
     const serverNow = new Date(data.user.current_utc_time);
     const difference = serverNow.getTime() - now.getTime();
-    const me = { ...data.user, server_skew: difference, login_time: now };
+    const me: MythicUser = { ...(existingUser ?? data.user), ...data.user, server_skew: difference, login_time: now } as MythicUser;
     meState({
         loggedIn: true,
         access_token: data.access_token,
         refresh_token: data.refresh_token,
-        user: { ...me },
+        user: me,
     });
-    localStorage.setItem("user", JSON.stringify(me));
+    localStorage.setItem(USER_KEY, JSON.stringify(me));
+};
+
+export const successfulLogin = (data: AuthResponse): void => {
+    applyAuthResponse(data);
     restartWebsockets();
 };
 
-export const successfulRefresh = (data: any): void => {
-    localStorage.setItem("access_token", data.access_token);
-    localStorage.setItem("refresh_token", data.refresh_token);
-    const now = new Date();
-    const serverNow = new Date(data.user.current_utc_time);
-    const difference = serverNow.getTime() - now.getTime();
-    const me = { ...meState().user, server_skew: difference, login_time: now };
-    meState({
-        loggedIn: true,
-        access_token: data.access_token,
-        refresh_token: data.refresh_token,
-        user: { ...me },
-    });
-    localStorage.setItem("user", JSON.stringify(me));
+export const successfulRefresh = (data: AuthResponse): void => {
+    applyAuthResponse(data, meState().user);
 };
 
 export const FailedRefresh = (restart_websockets?: boolean): void => {
     dbg('auth', 'failed refresh');
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("user");
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
     // Clear all cookies
     const cookies = document.cookie.split(';');
     for (let i = 0; i < cookies.length; i++) {

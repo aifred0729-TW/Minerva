@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
 import {
     Terminal,
     X,
@@ -311,7 +311,7 @@ export const TaskMultipleDialog = ({ selectedDisplayIds, allCallbacks, onClose }
     const [command, setCommand] = useState('');
     const [params, setParams] = useState('');
     const [tasking, setTasking] = useState(false);
-    const [createTaskBulk] = useMutation(CREATE_TASK_BULK);
+    const [createTaskBulk] = useMutation<any>(CREATE_TASK_BULK);
 
     // Determine the payloadtype_id from the first selected callback — enforce same agent type
     const firstSelected = allCallbacks.find(c => selectedDisplayIds.includes(c.display_id));
@@ -404,7 +404,7 @@ export const TaskMultipleDialog = ({ selectedDisplayIds, allCallbacks, onClose }
 export const ImportConfigModal = ({ onClose }: { onClose: () => void }) => {
     const [fileName, setFileName] = useState('');
     const [fileContents, setFileContents] = useState('');
-    const [importConfig] = useMutation(IMPORT_CALLBACK_CONFIG);
+    const [importConfig] = useMutation<any>(IMPORT_CALLBACK_CONFIG);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

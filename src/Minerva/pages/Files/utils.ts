@@ -1,19 +1,8 @@
 import { parseIPString } from '../../lib/utils';
+import { TASK_UPLOAD_URL } from '../../lib/urls';
+import { getAuthHeaders } from '../../lib/auth';
 export { formatBytes, b64DecodeUnicode, parseIPString } from '../../lib/utils';
-
-export const formatTimeAgo = (timestamp: string) => {
-    const now = new Date();
-    const then = new Date(timestamp);
-    const diffMs = now.getTime() - then.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-};
+export { timeAgo as formatTimeAgo } from '../../lib/time';
 
 // Upload function
 export const uploadFileToMythic = async (file: File, comment: string): Promise<string | null> => {
@@ -22,13 +11,10 @@ export const uploadFileToMythic = async (file: File, comment: string): Promise<s
     formData.append('comment', comment);
     
     try {
-        const response = await fetch('/api/v1.4/task_upload_file_webhook', {
+        const response = await fetch(TASK_UPLOAD_URL, {
             method: 'POST',
             body: formData,
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-                'MythicSource': 'web'
-            }
+            headers: getAuthHeaders()
         });
         
         const data = await response.json();

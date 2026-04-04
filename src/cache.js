@@ -13,7 +13,6 @@
 // State & config
 export {
     meState,
-    alertCount,
     mePreferences,
     operatorSettingDefaults,
     taskTimestampDisplayFieldOptions,

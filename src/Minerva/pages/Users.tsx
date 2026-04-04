@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { useMutation, useQuery, useLazyQuery } from '@apollo/client'
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../lib/useQueryCompat";
+import { usePageVisible } from '../lib/usePageVisible';
 import {
     GET_OPERATORS,
     CREATE_OPERATOR_MUTATION,
@@ -38,10 +40,12 @@ import { copyStringToClipboard } from '../lib/clipboard';
 import { cn, getErrorMessage } from '../lib/utils';
 import { useAppStore } from '../store';
 import type { Operator }from '../types/operations';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 // --- Main Page Component ---
 export default function UsersPage() {
   const { isSidebarCollapsed } = useAppStore();
+  const pageVisible = usePageVisible();
   const [activeTab, setActiveTab] = useState<'users' | 'invites'>('users');
   const [selectedUser, setSelectedUser] = useState<Operator | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -51,12 +55,14 @@ export default function UsersPage() {
   const [actionsMenuOpenId, setActionsMenuOpenId] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
 
-  const { data, loading, refetch } = useQuery(GET_OPERATORS, {
-    pollInterval: 10000,
+  const POLL_INTERVAL_MS = 10_000;
+
+  const { data, loading, refetch } = useQuery<any>(GET_OPERATORS, {
+    pollInterval: pageVisible ? POLL_INTERVAL_MS : 0,
     fetchPolicy: 'network-only'
   });
 
-  const [updateStatus] = useMutation(UPDATE_OPERATOR_STATUS_MUTATION);
+  const [updateStatus] = useMutation<any>(UPDATE_OPERATOR_STATUS_MUTATION);
 
   const handleCreate = () => {
     setShowCreateModal(true);
@@ -284,7 +290,7 @@ export default function UsersPage() {
           {activeTab === 'users' && (
             <CyberTable 
               data={[...(data?.operator || [])].sort((a: Operator, b: Operator) => a.id - b.id)} 
-              columns={columns as any} 
+              columns={columns} 
               isLoading={loading}
               onRowClick={(row) => handleEdit(row)}
             />
@@ -299,7 +305,7 @@ export default function UsersPage() {
         {showEditModal && selectedUser && <EditUserModal user={selectedUser} onClose={() => setShowEditModal(false)} onSuccess={() => { setShowEditModal(false); refetch(); }} />}
         {showPasswordModal && selectedUser && <ChangePasswordModal user={selectedUser} onClose={() => setShowPasswordModal(false)} onSuccess={() => { setShowPasswordModal(false); refetch(); }} />}
         {showDeleteConfirm && selectedUser && (
-            <ConfirmationModal 
+            <ConfirmDialog 
                 title="DELETE_USER" 
                 message={`Are you sure you want to delete user "${selectedUser.username}"? This action cannot be undone.`}
                 onConfirm={handleDeleteConfirm} 
@@ -343,7 +349,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void, onSucces
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [email, setEmail] = useState("");
-    const [createOp, { loading }] = useMutation(CREATE_OPERATOR_MUTATION);
+    const [createOp, { loading }] = useMutation<any>(CREATE_OPERATOR_MUTATION);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -438,7 +444,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void, onSucces
 
 function EditUserModal({ user, onClose, onSuccess }: { user: Operator, onClose: () => void, onSuccess: () => void }) {
     const [username, setUsername] = useState(user.username);
-    const [updateUser, { loading }] = useMutation(UPDATE_OPERATOR_USERNAME_MUTATION);
+    const [updateUser, { loading }] = useMutation<any>(UPDATE_OPERATOR_USERNAME_MUTATION);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -489,7 +495,7 @@ function ChangePasswordModal({ user, onClose, onSuccess }: { user: Operator, onC
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [email, setEmail] = useState(user.email || "");
-    const [updatePass, { loading }] = useMutation(UPDATE_OPERATOR_PASSWORD_MUTATION);
+    const [updatePass, { loading }] = useMutation<any>(UPDATE_OPERATOR_PASSWORD_MUTATION);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -561,31 +567,6 @@ function ChangePasswordModal({ user, onClose, onSuccess }: { user: Operator, onC
     );
 }
 
-function ConfirmationModal({ title, message, onConfirm, onCancel, confirmText = "CONFIRM", isDestructive = false }: any) {
-    return (
-        <ModalBackdrop onClose={onCancel}>
-            <div className="p-6 max-w-sm">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-signal">
-                    <AlertTriangle className={isDestructive ? "text-red-500" : "text-signal"} /> {title}
-                </h2>
-                <p className="text-sm text-gray-300 mb-6 font-mono">{message}</p>
-                <div className="flex justify-end gap-3">
-                    <button onClick={onCancel} className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                    <button 
-                        onClick={onConfirm}
-                        className={cn(
-                            "px-6 py-2 font-bold font-mono text-sm hover:opacity-80 transition-opacity",
-                            isDestructive ? "bg-red-600 text-white" : "bg-signal text-void"
-                        )}
-                    >
-                        {confirmText}
-                    </button>
-                </div>
-            </div>
-        </ModalBackdrop>
-    )
-}
-
 // ===== Invite Links Section =====
 const InviteLinksSection = () => {
     const [inviteLinks, setInviteLinks] = useState<any[]>([]);
@@ -593,9 +574,9 @@ const InviteLinksSection = () => {
     const [editingLink, setEditingLink] = useState<unknown>(null);
     const [operations, setOperations] = useState<any[]>([]);
 
-    const [getInviteLinks, { loading }] = useLazyQuery(GET_INVITE_LINKS, {
+    const [getInviteLinks, { loading }] = useLazyQuery<any>(GET_INVITE_LINKS, {
         fetchPolicy: 'no-cache',
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             if (data.getInviteLinks?.status === 'error') {
                 snackActions.error(data.getInviteLinks.error);
                 return;
@@ -606,8 +587,8 @@ const InviteLinksSection = () => {
         }
     });
 
-    useQuery(GET_OPERATIONS_LIST, {
-        onCompleted: (data) => {
+    useQuery<any>(GET_OPERATIONS_LIST, {
+        onCompleted: (data: any) => {
             const ops = data.operation?.filter((o: any) => !o.deleted && !o.complete) || [];
             ops.sort((a: any, b: any) => a.name.localeCompare(b.name));
             setOperations(ops);
@@ -770,8 +751,8 @@ const InviteLinkModal = ({
         total: existingLink?.total || 1,
     });
 
-    const [createLink] = useMutation(CREATE_INVITE_LINK, {
-        onCompleted: (result) => {
+    const [createLink] = useMutation<any>(CREATE_INVITE_LINK, {
+        onCompleted: (result: any) => {
             if (result.createInviteLink.status === 'success') {
                 copyStringToClipboard(result.createInviteLink.link);
                 snackActions.success('Invite link created and copied to clipboard');
@@ -785,8 +766,8 @@ const InviteLinkModal = ({
         }
     });
 
-    const [updateLink] = useMutation(UPDATE_INVITE_LINK, {
-        onCompleted: (result) => {
+    const [updateLink] = useMutation<any>(UPDATE_INVITE_LINK, {
+        onCompleted: (result: any) => {
             if (result.updateInviteLink.status === 'success') {
                 snackActions.success('Invite link updated');
                 onClose();

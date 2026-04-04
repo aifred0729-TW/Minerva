@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useSubscription } from '@apollo/client';
+import { useSubscription } from "@apollo/client/react";
 import {
     ReactFlow,
     Background,
+    BackgroundVariant,
     useNodesState,
     useEdgesState,
     Node,
@@ -186,7 +187,7 @@ export default function Tunnels() {
             const { nodes: n, edges: e } = buildTunnelGraph(visible);
             setNodes(n);
             setEdges(e);
-        }, 80);
+        }, 80); // debounce to batch rapid state changes
         return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ports, showStopped, hiddenPorts]);
@@ -205,9 +206,9 @@ export default function Tunnels() {
     };
 
     // Real-time stream subscription
-    useSubscription(CALLBACKPORT_STREAM, {
+    useSubscription<any>(CALLBACKPORT_STREAM, {
         fetchPolicy: 'no-cache',
-        onData: ({ data }: { data: Record<string, unknown> }) => {
+        onData: ({ data }: any) => {
             const incoming: CallbackPort[] = data?.data?.callbackport_stream || [];
             if (!incoming.length) return;
             setPorts(prev => {
@@ -452,7 +453,7 @@ export default function Tunnels() {
                                     style={{ background: '#030303' }}
                                 >
                                     <Background
-                                        variant={"dots" as any}
+                                        variant={"dots" as BackgroundVariant}
                                         gap={22}
                                         size={0.8}
                                         color="#111111"

@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback, Suspense, useMemo } from 'rea
 import type { Callback, CallbackGraphEdge } from '../../types/callbacks';
 import * as THREE from 'three';
 import { Canvas, ThreeEvent } from '@react-three/fiber';
-import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
+import { useMutation, useLazyQuery } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -68,24 +69,28 @@ import { QuickHackOverlayWrapper, QuickHackSubscriptionMonitor, NodeFollower } f
 import { ContextMenu3D, DetailPanel, StatsHUD, ScreenProjector, TopologyScene } from './DetailPanel';
 import { Html } from '@react-three/drei';
 import { QuickHackPanel, IPSelectionMenu } from './QuickHack';
+import { Topology3DModals } from './Topology3DModals';
+import { usePageVisible } from '../../lib/usePageVisible';
 
 export default function Topology3D() {
     const navigate = useNavigate();
     const { isSidebarCollapsed } = useAppStore();
     const quickHacks = useQuickHacks();
 
+    const pageVisible = usePageVisible();
+
     // Play 3D loading sound on mount
     useEffect(() => { playThreeLoad(); }, []);
 
     // ── Data fetching (matching 2D CallbackGraph queries) ──
-    const { data: callbacksData, refetch: refetchCallbacks } = useQuery(GET_CALLBACKS, { variables: { limit: 5000 }, pollInterval: 10000 });
-    const { data: edgesData, loading: edgesLoading, refetch: refetchEdges } = useQuery(GET_CALLBACK_GRAPH_EDGES, { pollInterval: 10000 });
-    const { data: customNodesData, refetch: refetchCustomNodes } = useQuery(GET_CUSTOM_GRAPH_NODES);
-    const { data: customEdgesData, refetch: refetchCustomEdges } = useQuery(GET_CUSTOM_GRAPH_EDGES);
-    const { data: linkFocusData } = useQuery(GET_LINK_FOCUS, { pollInterval: 10000 });
+    const { data: callbacksData, refetch: refetchCallbacks } = useQuery<any>(GET_CALLBACKS, { variables: { limit: 5000 }, pollInterval: pageVisible ? 10000 : 0 });
+    const { data: edgesData, loading: edgesLoading, refetch: refetchEdges } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES, { pollInterval: pageVisible ? 10000 : 0 });
+    const { data: customNodesData, refetch: refetchCustomNodes } = useQuery<any>(GET_CUSTOM_GRAPH_NODES);
+    const { data: customEdgesData, refetch: refetchCustomEdges } = useQuery<any>(GET_CUSTOM_GRAPH_EDGES);
+    const { data: linkFocusData } = useQuery<any>(GET_LINK_FOCUS, { pollInterval: pageVisible ? 10000 : 0 });
 
-    const [hideCallback] = useMutation(HIDE_CALLBACK_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => {
+    const [hideCallback] = useMutation<any>(HIDE_CALLBACK_MUTATION, {
+        onCompleted: (d: any) => {
             if (d.updateCallback?.status === 'success') {
                 snackActions.success('Callback hidden');
                 refetchCallbacks();
@@ -95,24 +100,24 @@ export default function Topology3D() {
             }
         },
     });
-    const [lockCallback] = useMutation(LOCK_CALLBACK_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => d.updateCallback?.status === 'success'
+    const [lockCallback] = useMutation<any>(LOCK_CALLBACK_MUTATION, {
+        onCompleted: (d: any) => d.updateCallback?.status === 'success'
             ? snackActions.success('Lock state updated') : snackActions.error(d.updateCallback?.error || 'Failed'),
     });
-    const [updateDescription] = useMutation(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
-    const [addEdge] = useMutation(ADD_EDGE_MUTATION);
-    const [removeEdge] = useMutation(REMOVE_EDGE_MUTATION);
-    const [createTask] = useMutation(CREATE_TASK_MUTATION);
-    const [updateCustomNodeMutation] = useMutation(UPDATE_CUSTOM_GRAPH_NODE);
-    const [deleteCustomNodeMutation] = useMutation(DELETE_CUSTOM_GRAPH_NODE);
-    const [createCustomEdgeMutation] = useMutation(CREATE_CUSTOM_GRAPH_EDGE);
-    const [deleteCustomEdgeMutation] = useMutation(DELETE_CUSTOM_GRAPH_EDGE);
-    const [setLinkFocusMutation] = useMutation(SET_LINK_FOCUS);
-    const [clearLinkFocusMutation] = useMutation(CLEAR_LINK_FOCUS);
+    const [updateDescription] = useMutation<any>(UPDATE_CALLBACK_DESCRIPTION_MUTATION);
+    const [addEdge] = useMutation<any>(ADD_EDGE_MUTATION);
+    const [removeEdge] = useMutation<any>(REMOVE_EDGE_MUTATION);
+    const [createTask] = useMutation<any>(CREATE_TASK_MUTATION);
+    const [updateCustomNodeMutation] = useMutation<any>(UPDATE_CUSTOM_GRAPH_NODE);
+    const [deleteCustomNodeMutation] = useMutation<any>(DELETE_CUSTOM_GRAPH_NODE);
+    const [createCustomEdgeMutation] = useMutation<any>(CREATE_CUSTOM_GRAPH_EDGE);
+    const [deleteCustomEdgeMutation] = useMutation<any>(DELETE_CUSTOM_GRAPH_EDGE);
+    const [setLinkFocusMutation] = useMutation<any>(SET_LINK_FOCUS);
+    const [clearLinkFocusMutation] = useMutation<any>(CLEAR_LINK_FOCUS);
 
-    const { data: p2pData, refetch: refetchP2P } = useQuery(GET_P2P_PROFILES_AND_CALLBACKS, { fetchPolicy: 'network-only' });
-    const { data: allC2Data, refetch: refetchAllC2 } = useQuery(GET_C2_PROFILES, { fetchPolicy: 'network-only' });
-    const [getLinkCommands, { data: linkCommandsData, loading: linkCommandsLoading }] = useLazyQuery(GET_LINK_COMMANDS_FOR_CALLBACK, { fetchPolicy: 'network-only' });
+    const { data: p2pData, refetch: refetchP2P } = useQuery<any>(GET_P2P_PROFILES_AND_CALLBACKS, { fetchPolicy: 'network-only' });
+    const { data: allC2Data, refetch: refetchAllC2 } = useQuery<any>(GET_C2_PROFILES, { fetchPolicy: 'network-only' });
+    const [getLinkCommands, { data: linkCommandsData, loading: linkCommandsLoading }] = useLazyQuery<any>(GET_LINK_COMMANDS_FOR_CALLBACK, { fetchPolicy: 'network-only' });
 
     // ── State ──
     const [showInactive, setShowInactive] = useState(true);
@@ -125,25 +130,25 @@ export default function Topology3D() {
     const toolMenuRef = useRef<HTMLDivElement>(null);
 
     // ── Modal/Dialog State ──
-    const [editDescriptionModal, setEditDescriptionModal] = useState<unknown>(null);
+    const [editDescriptionModal, setEditDescriptionModal] = useState<Callback | null>(null);
     const [newDescription, setNewDescription] = useState('');
-    const [detailsModal, setDetailsModal] = useState<unknown>(null);
-    const [setParentModal, setSetParentModal] = useState<unknown>(null);
-    const [selectedProfile, setSelectedProfile] = useState<unknown>(null);
-    const [selectedDestination, setSelectedDestination] = useState<unknown>(null);
+    const [detailsModal, setDetailsModal] = useState<Callback | null>(null);
+    const [setParentModal, setSetParentModal] = useState<Callback | null>(null);
+    const [selectedProfile, setSelectedProfile] = useState<Record<string, unknown> | null>(null);
+    const [selectedDestination, setSelectedDestination] = useState<Record<string, unknown> | null>(null);
     const [edgeLabel, setEdgeLabel] = useState('');
     const [isP2PConnection, setIsP2PConnection] = useState(true);
-    const [editCustomNodeModal, setEditCustomNodeModal] = useState<unknown>(null);
+    const [editCustomNodeModal, setEditCustomNodeModal] = useState<Callback | null>(null);
     const [customNodeForm, setCustomNodeForm] = useState({ host: '', os: 'Windows', ip: '', user: '', description: '', architecture: 'x64' });
-    const [taskForEdgeModal, setTaskForEdgeModal] = useState<unknown>(null);
-    const [taskForEdgeCommand, setTaskForEdgeCommand] = useState<unknown>(null);
+    const [taskForEdgeModal, setTaskForEdgeModal] = useState<Record<string, unknown> | null>(null);
+    const [taskForEdgeCommand, setTaskForEdgeCommand] = useState<Record<string, unknown> | null>(null);
     const [taskForEdgeParams, setTaskForEdgeParams] = useState('');
     const [taskingForEdge, setTaskingForEdge] = useState(false);
-    const [showEventingDialog, setShowEventingDialog] = useState<unknown>(null);
-    const [removeEdgeModal, setRemoveEdgeModal] = useState<unknown>(null);
-    const [manuallyAddEdgeModal, setManuallyAddEdgeModal] = useState<unknown>(null);
-    const [addEdgeSelectedProfile, setAddEdgeSelectedProfile] = useState<unknown>(null);
-    const [addEdgeSelectedDest, setAddEdgeSelectedDest] = useState<unknown>(null);
+    const [showEventingDialog, setShowEventingDialog] = useState<Callback | null>(null);
+    const [removeEdgeModal, setRemoveEdgeModal] = useState<any[] | null>(null);
+    const [manuallyAddEdgeModal, setManuallyAddEdgeModal] = useState<Callback | null>(null);
+    const [addEdgeSelectedProfile, setAddEdgeSelectedProfile] = useState<Record<string, unknown> | null>(null);
+    const [addEdgeSelectedDest, setAddEdgeSelectedDest] = useState<Record<string, unknown> | null>(null);
     const [addEdgeDestOptions, setAddEdgeDestOptions] = useState<any[]>([]);
     const autoLinkedCallbacksRef = useRef(new Set<string>());
 
@@ -174,7 +179,7 @@ export default function Topology3D() {
     const userPositions = useRef<Map<string, THREE.Vector3>>(new Map());
 
     // ── Build topology ──
-    const customNodes = useMemo(() => {
+    const customNodes: any[] = useMemo(() => {
         if (!customNodesData?.agentstorage) return [];
         return parseAgentStorageResults(customNodesData.agentstorage);
     }, [customNodesData]);
@@ -190,7 +195,7 @@ export default function Topology3D() {
         if (!row) return null;
         try {
             const raw = row.data;
-            let parsed: Record<string, unknown> | null;
+            let parsed: any = null;
             if (typeof raw === 'string') {
                 try { parsed = JSON.parse(raw); } catch {
                     try { parsed = JSON.parse(decodeURIComponent(escape(atob(raw)))); } catch {
@@ -292,10 +297,10 @@ export default function Topology3D() {
     }, [nodePickingFor, nodes]);
 
     const handleContextMenu = useCallback((e: ThreeEvent<MouseEvent>, nodeId: string) => {
-        const nativeEvent = e.nativeEvent || (e as any);
+        const nativeEvent = e.nativeEvent || (e as unknown as MouseEvent);
         setCtxMenu({
-            x: nativeEvent.clientX ?? (e as any).clientX ?? 0,
-            y: nativeEvent.clientY ?? (e as any).clientY ?? 0,
+            x: nativeEvent.clientX ?? (e as unknown as MouseEvent).clientX ?? 0,
+            y: nativeEvent.clientY ?? (e as unknown as MouseEvent).clientY ?? 0,
             nodeId,
         });
     }, []);
@@ -315,7 +320,7 @@ export default function Topology3D() {
     // ── Context Menu Action Handlers (matching CallbackGraph) ──
 
     /** Helper: find the callback data object from a TopoNode for use in modals */
-    const resolveCallbackData = useCallback((node: TopoNode) => {
+    const resolveCallbackData = useCallback((node: TopoNode): any => {
         if (node.type === 'custom') {
             return { ...node.data, isCustom: true, id: node.data?.id, db_id: node.data?.db_id, display_id: node.data?.display_id, host: node.label, ip: node.sublabel || node.data?.ip, os: node.data?.os || node.data?.operating_system, architecture: node.data?.architecture, user: node.data?.user, description: node.data?.description, callback_id: node.data?.id };
         }
@@ -380,7 +385,7 @@ export default function Topology3D() {
     }, [edgesData, customEdges]);
 
     const handleDisconnectParent = useCallback(async (node: TopoNode) => {
-        const callback = resolveCallbackData(node);
+        const callback: any = resolveCallbackData(node);
         const parentEdge = getParentEdge(callback.id);
         if (!parentEdge) {
             snackActions.info('No parent connection found');
@@ -456,10 +461,10 @@ export default function Topology3D() {
         }
         try {
             const { unique_id, data } = prepareUpdateNodeData({
-                id: editCustomNodeModal.db_id, hostname: customNodeForm.host, ip_address: customNodeForm.ip,
+                id: editCustomNodeModal!.db_id as number, hostname: customNodeForm.host, ip_address: customNodeForm.ip,
                 operating_system: customNodeForm.os, architecture: customNodeForm.architecture,
                 username: customNodeForm.user || undefined, description: customNodeForm.description,
-                hidden: editCustomNodeModal.isHidden || false,
+                hidden: editCustomNodeModal!.isHidden || false,
             });
             const result = await updateCustomNodeMutation({ variables: { unique_id, data } });
             if (result.data?.update_agentstorage?.affected_rows > 0) {
@@ -476,7 +481,7 @@ export default function Topology3D() {
     }, [editCustomNodeModal, customNodeForm, updateCustomNodeMutation, refetchCustomNodes]);
 
     const handleDeleteCustomNode = useCallback(async (node: TopoNode) => {
-        const d = resolveCallbackData(node);
+        const d: any = resolveCallbackData(node);
         try {
             const unique_id = generateUniqueId(d.db_id);
             const result = await deleteCustomNodeMutation({ variables: { unique_id } });
@@ -803,15 +808,15 @@ export default function Topology3D() {
 
         if (isSourceCustom) {
             try {
-                const sourceNode = customNodes.find((n: Record<string, unknown>) => n.id === setParentModal.id);
+                const sourceNode = customNodes.find((n: any) => n.id === setParentModal.id);
                 if (!sourceNode) { snackActions.error('Source node not found'); return; }
                 const { unique_id, data } = prepareUpdateNodeData({
                     id: sourceNode.db_id, hostname: sourceNode.host, ip_address: sourceNode.ip,
                     operating_system: sourceNode.os, architecture: sourceNode.architecture,
                     username: sourceNode.user !== 'N/A' ? sourceNode.user : undefined,
                     description: sourceNode.description, hidden: sourceNode.isHidden,
-                    parent_id: isDestCustom ? selectedDestination.db_id : selectedDestination.id,
-                    parent_type: isDestCustom ? 'custom' : 'callback', c2profile: selectedProfile.name,
+                    parent_id: (isDestCustom ? selectedDestination.db_id : selectedDestination.id) as string | number,
+                    parent_type: isDestCustom ? 'custom' : 'callback', c2profile: selectedProfile.name as string,
                 });
                 const result = await updateCustomNodeMutation({ variables: { unique_id, data } });
                 if (result.data?.update_agentstorage?.affected_rows > 0) {
@@ -835,12 +840,12 @@ export default function Topology3D() {
                     sourceId: setParentModal.display_id, targetId: selectedDestination.db_id,
                     c2profile: selectedProfile.name,
                 };
-                const existingEdgesFromCallback = customEdges.filter((e: CallbackGraphEdge) => e.source === String(setParentModal.id));
+                const existingEdgesFromCallback = customEdges.filter((e: any) => e.source === String(setParentModal.id));
                 for (const edge of existingEdgesFromCallback) {
                     try { await deleteCustomEdgeMutation({ variables: { unique_id: generateEdgeUniqueId(edge.id) } }); } catch {}
                 }
                 await new Promise(resolve => setTimeout(resolve, 100));
-                const result = await createCustomEdgeMutation({ variables: { unique_id: generateEdgeUniqueId(edgeId), data: serializeEdgeData(newEdge) } });
+                const result = await createCustomEdgeMutation({ variables: { unique_id: generateEdgeUniqueId(edgeId), data: serializeEdgeData(newEdge as any) } });
                 if (result.data?.insert_agentstorage_one) {
                     snackActions.success(`Linked to Custom Node #${selectedDestination.db_id}`);
                     refetchCustomEdges();
@@ -1148,523 +1153,59 @@ export default function Topology3D() {
                     <LegendItem color="#22c55e" shape="box" label="SUBNET" />
                 </div>
 
-                {/* ═══════════════════════════════════════════════ */}
-                {/*  Modal Dialogs (matching CallbackGraph)        */}
-                {/* ═══════════════════════════════════════════════ */}
-
-                {/* Edit Description Modal */}
-                <AnimatePresence>
-                    {editDescriptionModal && (
-                        <CyberModal
-                            title="EDIT_DESCRIPTION"
-                            onClose={() => setEditDescriptionModal(null)}
-                            icon={<Edit />}
-                        >
-                            <div className="space-y-4">
-                                <div className="text-xs text-gray-400 font-mono mb-2">
-                                    Callback #{editDescriptionModal.display_id} - {editDescriptionModal.host}
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">DESCRIPTION</label>
-                                    <input
-                                        type="text"
-                                        value={newDescription}
-                                        onChange={(e) => setNewDescription(e.target.value)}
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono"
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="flex justify-end gap-3">
-                                    <button onClick={() => setEditDescriptionModal(null)} className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                    <button
-                                        onClick={handleSaveDescription}
-                                        className="px-6 py-2 bg-cyan-500 text-black font-bold font-mono text-sm hover:bg-white transition-colors"
-                                    >
-                                        SAVE
-                                    </button>
-                                </div>
-                            </div>
-                        </CyberModal>
-                    )}
-                </AnimatePresence>
-
-                {/* Edit Custom Node Modal */}
-                <AnimatePresence>
-                    {editCustomNodeModal && (
-                        <CyberModal
-                            title="EDIT_CUSTOM_NODE"
-                            onClose={() => setEditCustomNodeModal(null)}
-                            icon={<Edit />}
-                        >
-                            <div className="space-y-4">
-                                <div className="text-xs text-gray-400 mb-4">
-                                    Edit custom node #{editCustomNodeModal.display_id} - {editCustomNodeModal.host}
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">HOSTNAME *</label>
-                                    <input type="text" value={customNodeForm.host}
-                                        onChange={(e) => setCustomNodeForm({...customNodeForm, host: e.target.value})}
-                                        placeholder="TARGET-PC-01"
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-sm" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">OPERATING SYSTEM *</label>
-                                    <select value={customNodeForm.os}
-                                        onChange={(e) => setCustomNodeForm({...customNodeForm, os: e.target.value})}
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-sm">
-                                        <option value="Windows">Windows</option>
-                                        <option value="Linux">Linux</option>
-                                        <option value="macOS">macOS</option>
-                                        <option value="Unknown">Unknown</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">IP ADDRESS *</label>
-                                    <input type="text" value={customNodeForm.ip}
-                                        onChange={(e) => setCustomNodeForm({...customNodeForm, ip: e.target.value})}
-                                        placeholder="192.168.1.100"
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-sm" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">ARCHITECTURE</label>
-                                    <select value={customNodeForm.architecture}
-                                        onChange={(e) => setCustomNodeForm({...customNodeForm, architecture: e.target.value})}
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-sm">
-                                        <option value="x64">x64</option>
-                                        <option value="x86">x86</option>
-                                        <option value="arm64">ARM64</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">USER</label>
-                                    <input type="text" value={customNodeForm.user}
-                                        onChange={(e) => setCustomNodeForm({...customNodeForm, user: e.target.value})}
-                                        placeholder="Administrator"
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-sm" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">DESCRIPTION</label>
-                                    <textarea value={customNodeForm.description}
-                                        onChange={(e) => setCustomNodeForm({...customNodeForm, description: e.target.value})}
-                                        placeholder="Target system details..."
-                                        rows={3}
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-sm resize-none" />
-                                </div>
-                                <div className="flex justify-end gap-3 pt-4">
-                                    <button onClick={() => setEditCustomNodeModal(null)}
-                                        className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                    <button onClick={handleUpdateCustomNode}
-                                        className="px-6 py-2 bg-cyan-500 text-black font-bold font-mono text-sm hover:bg-white transition-colors">UPDATE</button>
-                                </div>
-                            </div>
-                        </CyberModal>
-                    )}
-                </AnimatePresence>
-
-                {/* Details Modal */}
-                <AnimatePresence>
-                    {detailsModal && (
-                        <CyberModal
-                            title={detailsModal.isCustom ? "CUSTOM_NODE_DETAILS" : "CALLBACK_DETAILS"}
-                            onClose={() => setDetailsModal(null)}
-                            icon={<Info />}
-                        >
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-4 p-3 bg-black/30 border border-gray-800">
-                                    <div className={`p-2 border ${
-                                        detailsModal.isCustom
-                                            ? 'border-cyan-500 bg-cyan-500/10'
-                                            : (detailsModal.integrity_level > 2 ? 'border-yellow-500 bg-yellow-500/10' : 'border-cyan-500 bg-cyan-500/10')
-                                    }`}>
-                                        <Terminal size={20} className={detailsModal.isCustom ? 'text-cyan-500' : (detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-cyan-500')} />
-                                    </div>
-                                    <div>
-                                        <div className="text-lg font-bold text-white font-mono">
-                                            {detailsModal.isCustom ? 'CUSTOM_NODE' : 'CALLBACK'} #{detailsModal.display_id}
-                                            {detailsModal.locked && <Lock size={14} className="inline ml-2 text-red-500" />}
-                                        </div>
-                                        <div className="text-xs text-gray-500">{detailsModal.host}</div>
-                                    </div>
-                                    {!detailsModal.isCustom && detailsModal.integrity_level > 2 && (
-                                        <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-yellow-500/20 border border-yellow-500/50">
-                                            <Shield size={12} className="text-yellow-500" />
-                                            <span className="text-xs font-bold text-yellow-500">ADMIN</span>
-                                        </div>
-                                    )}
-                                    {detailsModal.isCustom && (
-                                        <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-cyan-500/20 border border-cyan-500/50">
-                                            <span className="text-xs font-bold text-cyan-400">CUSTOM</span>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                                    <div className="space-y-1"><div className="text-gray-500">USER</div><div className="text-white">{detailsModal.user}</div></div>
-                                    {!detailsModal.isCustom && <div className="space-y-1"><div className="text-gray-500">DOMAIN</div><div className="text-white">{detailsModal.domain || 'N/A'}</div></div>}
-                                    <div className="space-y-1"><div className="text-gray-500">IP_ADDRESS</div><div className="text-white">{detailsModal.ip}</div></div>
-                                    {!detailsModal.isCustom && <div className="space-y-1"><div className="text-gray-500">PID</div><div className="text-white">{detailsModal.pid}</div></div>}
-                                    <div className="space-y-1"><div className="text-gray-500">OS</div><div className="text-white">{detailsModal.os}</div></div>
-                                    <div className="space-y-1"><div className="text-gray-500">ARCHITECTURE</div><div className="text-white">{detailsModal.architecture}</div></div>
-                                    {!detailsModal.isCustom && (
-                                        <>
-                                            <div className="space-y-1"><div className="text-gray-500">AGENT</div><div className="text-white uppercase">{detailsModal.payloadType}</div></div>
-                                            <div className="space-y-1"><div className="text-gray-500">INTEGRITY</div><div className={detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-white'}>Level {detailsModal.integrity_level}</div></div>
-                                        </>
-                                    )}
-                                </div>
-                                {!detailsModal.isCustom && detailsModal.sleep_info && (
-                                    <div className="p-3 bg-black/30 border border-gray-800">
-                                        <div className="text-xs font-mono text-gray-500 mb-1">SLEEP_INFO</div>
-                                        <div className="text-sm font-mono text-cyan-400">{detailsModal.sleep_info}</div>
-                                    </div>
-                                )}
-                                <div className="p-3 bg-black/30 border border-gray-800">
-                                    <div className="text-xs font-mono text-gray-500 mb-1">DESCRIPTION</div>
-                                    <div className="text-sm text-gray-300 italic">{detailsModal.description || 'No description set'}</div>
-                                </div>
-                                <div className="flex justify-end">
-                                    <button onClick={() => setDetailsModal(null)}
-                                        className="px-6 py-2 bg-cyan-500 text-black font-bold font-mono text-sm hover:bg-white transition-colors">CLOSE</button>
-                                </div>
-                            </div>
-                        </CyberModal>
-                    )}
-                </AnimatePresence>
-
-                {/* Set Parent / Link to Parent Modal */}
-                <AnimatePresence>
-                    {setParentModal && (
-                        <CyberModal
-                            title="LINK_TO_PARENT"
-                            onClose={() => setSetParentModal(null)}
-                            icon={<GitBranch />}
-                        >
-                            <div className="space-y-4">
-                                <div className="text-xs text-gray-400 font-mono mb-2">
-                                    Link {setParentModal.isCustom ? 'Custom Node' : 'Callback'} #{setParentModal.display_id} ({setParentModal.host}) to another node.
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-2">TARGET_NODE</label>
-                                    <div className="grid gap-2 max-h-48 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                        {filteredCallbacksForParent.length > 0 ? (
-                                            filteredCallbacksForParent.map((callback: Callback) => {
-                                                const ip = callback.isCustom ? callback.ip : (() => { try { return JSON.parse(callback.ip)[0] } catch { return callback.ip } })();
-                                                return (
-                                                    <button key={callback.id} onClick={() => setSelectedDestination(callback)}
-                                                        className={`flex items-center gap-3 px-3 py-2.5 border text-left text-xs font-mono transition-colors ${
-                                                            selectedDestination?.id === callback.id
-                                                                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400'
-                                                                : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:bg-white/5'
-                                                        }`}>
-                                                        <div className={`w-2 h-2 rounded-full ${callback.isCustom ? 'bg-cyan-500' : (callback.integrity_level > 2 ? 'bg-yellow-500' : 'bg-green-500')}`} />
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="font-bold">#{callback.display_id}</span>
-                                                                <span className="text-gray-500">@</span>
-                                                                <span className="truncate">{callback.host}</span>
-                                                                {callback.isCustom && <span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-1 py-0.5 border border-cyan-500/30">CUSTOM</span>}
-                                                            </div>
-                                                            <div className="text-[11px] text-gray-600 flex items-center gap-2">
-                                                                <span>{callback.user}</span><span>·</span><span>{ip}</span>
-                                                            </div>
-                                                        </div>
-                                                        <span className="text-[11px] uppercase text-gray-600 border border-gray-700 px-1.5 py-0.5">
-                                                            {callback.isCustom ? 'CUSTOM' : callback.payload?.payloadtype?.name}
-                                                        </span>
-                                                    </button>
-                                                );
-                                            })
-                                        ) : (
-                                            <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_OTHER_NODES_AVAILABLE</div>
-                                        )}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-2">CONNECTION_TYPE</label>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => { setIsP2PConnection(true); setSelectedProfile(null); }}
-                                            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border text-xs font-mono transition-colors ${
-                                                isP2PConnection ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'
-                                            }`}>
-                                            <GitBranch size={14} /><span>P2P</span>
-                                        </button>
-                                        <button onClick={() => { setIsP2PConnection(false); setSelectedProfile(null); }}
-                                            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border text-xs font-mono transition-colors ${
-                                                !isP2PConnection ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'
-                                            }`}>
-                                            <Network size={14} /><span>EGRESS</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-2">{isP2PConnection ? 'P2P_PROFILE' : 'C2_PROFILE'}</label>
-                                    <div className="grid gap-2 max-h-32 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                        {isP2PConnection ? (
-                                            <>
-                                                {p2pData?.c2profile?.map((profile: { name: string; is_p2p: boolean }) => (
-                                                    <button key={profile.id} onClick={() => setSelectedProfile(profile)}
-                                                        className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                            selectedProfile?.id === profile.id ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                                        }`}>
-                                                        <GitBranch size={14} /><span>{profile.name}</span>
-                                                        <span className="ml-auto text-[11px] text-cyan-600 uppercase border border-cyan-800 px-1">P2P</span>
-                                                    </button>
-                                                ))}
-                                                {(!p2pData?.c2profile || p2pData.c2profile.length === 0) && (
-                                                    <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_P2P_PROFILES_AVAILABLE</div>
-                                                )}
-                                            </>
-                                        ) : (
-                                            <>
-                                                {allC2Data?.c2profile?.filter((p: { is_p2p: boolean; name: string }) => !p.is_p2p).map((profile: { name: string; is_p2p: boolean }) => (
-                                                    <button key={profile.id} onClick={() => setSelectedProfile(profile)}
-                                                        className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                            selectedProfile?.id === profile.id ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                                        }`}>
-                                                        <Network size={14} /><span>{profile.name}</span>
-                                                        <div className="ml-auto flex items-center gap-1">
-                                                            {profile.running
-                                                                ? <span className="text-[11px] text-green-500 border border-green-800 px-1">RUNNING</span>
-                                                                : <span className="text-[11px] text-red-500 border border-red-800 px-1">STOPPED</span>}
-                                                        </div>
-                                                    </button>
-                                                ))}
-                                                {(!allC2Data?.c2profile?.filter((p: { is_p2p: boolean; name: string }) => !p.is_p2p)?.length) && (
-                                                    <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_EGRESS_PROFILES_AVAILABLE</div>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-1">EDGE_LABEL <span className="text-gray-600">(optional)</span></label>
-                                    <input type="text" value={edgeLabel} onChange={(e) => setEdgeLabel(e.target.value)}
-                                        placeholder="e.g., SMB Link, Internal Pivot..."
-                                        className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-xs placeholder:text-gray-600" />
-                                </div>
-                                {selectedDestination && selectedProfile && (
-                                    <div className={`p-3 border text-xs font-mono ${isP2PConnection ? 'bg-cyan-900/20 border-cyan-500/30' : 'bg-purple-900/20 border-purple-500/30'}`}>
-                                        <div className={`mb-2 flex items-center gap-2 ${isP2PConnection ? 'text-cyan-400' : 'text-purple-400'}`}>
-                                            {isP2PConnection ? <GitBranch size={12} /> : <Network size={12} />}
-                                            <span>LINK_SUMMARY</span>
-                                            <span className={`text-[11px] px-1.5 py-0.5 border ${isP2PConnection ? 'border-cyan-600 text-cyan-500' : 'border-purple-600 text-purple-500'}`}>
-                                                {isP2PConnection ? 'P2P' : 'EGRESS'}
-                                            </span>
-                                        </div>
-                                        <div className="text-gray-300 flex items-center gap-2 flex-wrap">
-                                            <span className="text-cyan-400 font-bold">#{setParentModal.display_id}</span>
-                                            <span className="text-gray-600">({setParentModal.host})</span>
-                                            <span className={isP2PConnection ? 'text-cyan-500' : 'text-purple-500'}>→</span>
-                                            <span className={`px-2 py-0.5 ${isP2PConnection ? 'bg-cyan-900/50 text-cyan-400' : 'bg-purple-900/50 text-purple-400'}`}>{selectedProfile.name}</span>
-                                            <span className={isP2PConnection ? 'text-cyan-500' : 'text-purple-500'}>→</span>
-                                            <span className="text-cyan-400 font-bold">#{selectedDestination.display_id}</span>
-                                            <span className="text-gray-600">({selectedDestination.host})</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex justify-end gap-3 pt-2">
-                                    <button onClick={() => setSetParentModal(null)} className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                    <button onClick={handleSetParent} disabled={!selectedProfile || !selectedDestination}
-                                        className={`px-6 py-2 font-bold font-mono text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                                            isP2PConnection ? 'bg-cyan-600 text-white hover:bg-cyan-500' : 'bg-purple-600 text-white hover:bg-purple-500'
-                                        }`}>CREATE_LINK</button>
-                                </div>
-                            </div>
-                        </CyberModal>
-                    )}
-                </AnimatePresence>
-
-                {/* Task for Edge Modal */}
-                <AnimatePresence>
-                    {taskForEdgeModal && (
-                        <CyberModal
-                            title="TASK_FOR_EDGE"
-                            onClose={() => { setTaskForEdgeModal(null); setTaskForEdgeCommand(null); setTaskForEdgeParams(''); }}
-                            icon={<Link2 />}
-                        >
-                            <div className="space-y-4 min-w-[380px]">
-                                <div className="text-xs text-gray-400 font-mono">
-                                    Callback #{taskForEdgeModal.display_id} — {taskForEdgeModal.host}
-                                </div>
-                                {linkCommandsLoading && (
-                                    <div className="text-cyan-400 text-xs font-mono animate-pulse">LOADING_COMMANDS...</div>
-                                )}
-                                {!linkCommandsLoading && (linkCommandsData?.loadedcommands?.length ?? 0) === 0 && (
-                                    <div className="text-gray-500 text-xs font-mono">No link commands loaded on this callback.</div>
-                                )}
-                                {!linkCommandsLoading && (linkCommandsData?.loadedcommands?.length ?? 0) > 0 && (
-                                    <div className="space-y-2">
-                                        <div className="text-xs font-mono text-gray-400">SELECT_COMMAND</div>
-                                        {linkCommandsData!.loadedcommands.map((lc: { id: number; command: { cmd: string; id: number } }) => (
-                                            <button key={lc.command.id}
-                                                onClick={() => { setTaskForEdgeCommand(lc.command); setTaskForEdgeParams(''); }}
-                                                className={`w-full flex items-center gap-2 px-3 py-2 border text-xs font-mono text-left transition-colors ${
-                                                    taskForEdgeCommand?.id === lc.command.id
-                                                        ? 'bg-cyan-500/20 border-cyan-500/60 text-cyan-400'
-                                                        : 'bg-black border-white/10 text-gray-400 hover:border-cyan-500/40 hover:text-cyan-400/70'
-                                                }`}>
-                                                <Zap size={12} />
-                                                <span className="font-bold">{lc.command.cmd}</span>
-                                                {lc.command.description && <span className="text-gray-600 truncate">— {lc.command.description}</span>}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                                {taskForEdgeCommand && (
-                                    <div className="space-y-2">
-                                        <label className="block text-xs font-mono text-gray-400">PARAMS (JSON or raw)</label>
-                                        <textarea value={taskForEdgeParams} onChange={e => setTaskForEdgeParams(e.target.value)}
-                                            rows={3} placeholder='{}'
-                                            className="w-full bg-black/50 border border-gray-700 p-2 text-cyan-400 focus:border-cyan-500 outline-none font-mono text-xs resize-none" />
-                                    </div>
-                                )}
-                                <div className="flex justify-end gap-3">
-                                    <button onClick={() => { setTaskForEdgeModal(null); setTaskForEdgeCommand(null); setTaskForEdgeParams(''); }}
-                                        className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                    <button disabled={!taskForEdgeCommand || taskingForEdge}
-                                        onClick={async () => {
-                                            if (!taskForEdgeCommand) return;
-                                            setTaskingForEdge(true);
-                                            try {
-                                                await createTask({ variables: { callback_id: taskForEdgeModal.callback_id, command: taskForEdgeCommand.cmd, params: taskForEdgeParams || '{}', token_id: 0 } });
-                                                snackActions.success(`Tasked: ${taskForEdgeCommand.cmd}`);
-                                                setTaskForEdgeModal(null); setTaskForEdgeCommand(null); setTaskForEdgeParams('');
-                                            } catch (e: unknown) {
-                                                snackActions.error('Task failed: ' + getErrorMessage(e));
-                                            } finally {
-                                                setTaskingForEdge(false);
-                                            }
-                                        }}
-                                        className="px-6 py-2 bg-cyan-500 text-black font-bold font-mono text-sm hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                                        {taskingForEdge ? 'TASKING...' : 'TASK'}
-                                    </button>
-                                </div>
-                            </div>
-                        </CyberModal>
-                    )}
-                </AnimatePresence>
-
-                {/* Eventing Dialog */}
-                {showEventingDialog && (
-                    <MythicDialog
-                        fullWidth={true}
-                        maxWidth="xl"
-                        open={!!showEventingDialog}
-                        onClose={() => setShowEventingDialog(null)}
-                        innerDialog={
-                            <EventTriggerContextSelectDialog
-                                onClose={() => setShowEventingDialog(null)}
-                                triggerContext={{ name: 'callback_id', value: showEventingDialog.id }}
-                            />
-                        }
-                    />
-                )}
-
-                {/* Add P2P Edge Modal */}
-                <AnimatePresence>
-                    {manuallyAddEdgeModal && (
-                        <CyberModal
-                            title="ADD_P2P_EDGE"
-                            onClose={() => { setManuallyAddEdgeModal(null); setAddEdgeSelectedProfile(null); setAddEdgeSelectedDest(null); setAddEdgeDestOptions([]); }}
-                            icon={<Plus />}
-                        >
-                            <div className="space-y-4 min-w-[380px]">
-                                <p className="text-xs text-gray-400 font-mono">
-                                    Source: <span className="text-cyan-400">#{manuallyAddEdgeModal.display_id ?? manuallyAddEdgeModal.callback_id}</span>
-                                    {manuallyAddEdgeModal.host && <span className="text-gray-500 ml-2">({manuallyAddEdgeModal.host})</span>}
-                                </p>
-                                <div>
-                                    <label className="block text-xs font-mono text-gray-500 mb-2">P2P_PROFILE</label>
-                                    <div className="grid gap-2 max-h-32 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                        {p2pData?.c2profile?.map((profile: { name: string; is_p2p: boolean }) => (
-                                            <button key={profile.id}
-                                                onClick={() => {
-                                                    setAddEdgeSelectedProfile(profile);
-                                                    setAddEdgeSelectedDest(null);
-                                                    const srcId = manuallyAddEdgeModal.id ?? manuallyAddEdgeModal.callback_id;
-                                                    const dests = (profile.callbackc2profiles || []).map((cp: { callback: Callback }) => cp.callback).filter((c: Callback | null) => c && c.id !== srcId);
-                                                    setAddEdgeDestOptions(dests);
-                                                }}
-                                                className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                    addEdgeSelectedProfile?.id === profile.id ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                                }`}>
-                                                <GitBranch size={14} /><span>{profile.name}</span>
-                                                <span className="ml-auto text-[11px] text-cyan-600 uppercase border border-cyan-800 px-1">P2P</span>
-                                            </button>
-                                        ))}
-                                        {(!p2pData?.c2profile || p2pData.c2profile.length === 0) && (
-                                            <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_P2P_PROFILES_AVAILABLE</div>
-                                        )}
-                                    </div>
-                                </div>
-                                {addEdgeSelectedProfile && (
-                                    <div>
-                                        <label className="block text-xs font-mono text-gray-500 mb-2">DESTINATION_CALLBACK</label>
-                                        <div className="grid gap-2 max-h-32 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                            {addEdgeDestOptions.map((cb: Callback) => (
-                                                <button key={cb.id} onClick={() => setAddEdgeSelectedDest(cb)}
-                                                    className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${
-                                                        addEdgeSelectedDest?.id === cb.id ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                                                    }`}>
-                                                    <Monitor size={14} /><span>#{cb.display_id}</span>
-                                                    {cb.description && <span className="text-gray-500 ml-1 truncate max-w-[140px]">{cb.description}</span>}
-                                                </button>
-                                            ))}
-                                            {addEdgeDestOptions.length === 0 && (
-                                                <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_CALLBACKS_WITH_PROFILE</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex justify-end gap-3 pt-2">
-                                    <button onClick={() => { setManuallyAddEdgeModal(null); setAddEdgeSelectedProfile(null); setAddEdgeSelectedDest(null); setAddEdgeDestOptions([]); }}
-                                        className="px-4 py-2 text-gray-400 hover:text-white font-mono text-xs">CANCEL</button>
-                                    <button onClick={handleManuallyAddEdge} disabled={!addEdgeSelectedProfile || !addEdgeSelectedDest}
-                                        className="px-4 py-2 border border-cyan-500/50 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-500 font-mono text-xs disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                                        CONFIRM_EDGE
-                                    </button>
-                                </div>
-                            </div>
-                        </CyberModal>
-                    )}
-                </AnimatePresence>
-
-                {/* Remove Edge Modal */}
-                <AnimatePresence>
-                    {removeEdgeModal && (
-                        <CyberModal
-                            title="REMOVE_EDGE"
-                            onClose={() => setRemoveEdgeModal(null)}
-                            icon={<Trash2 />}
-                        >
-                            <div className="space-y-3 min-w-[340px]">
-                                <p className="text-xs text-gray-400 font-mono mb-2">Select an active edge to remove:</p>
-                                {removeEdgeModal.map((e: CallbackGraphEdge) => (
-                                    <button key={e.id}
-                                        onClick={async () => {
-                                            try {
-                                                await removeEdge({ variables: { edge_id: e.id } });
-                                                snackActions.success('Edge removed');
-                                            } catch (err: unknown) {
-                                                snackActions.error('Failed: ' + err.message);
-                                            }
-                                            setRemoveEdgeModal(null);
-                                        }}
-                                        className="w-full flex items-center gap-3 px-3 py-2 border border-white/10 hover:border-orange-500/40 text-xs font-mono text-left text-gray-300 hover:text-orange-300 hover:bg-orange-900/20 transition-colors">
-                                        <Trash2 size={12} className="text-orange-500 shrink-0" />
-                                        <span>
-                                            #{e.source?.display_id} → #{e.destination?.display_id}
-                                            {e.c2profile?.name && <span className="text-gray-500 ml-2">[{e.c2profile.name}]</span>}
-                                        </span>
-                                    </button>
-                                ))}
-                                <div className="flex justify-end pt-2">
-                                    <button onClick={() => setRemoveEdgeModal(null)}
-                                        className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                </div>
-                            </div>
-                        </CyberModal>
-                    )}
-                </AnimatePresence>
+                <Topology3DModals
+                    editDescriptionModal={editDescriptionModal}
+                    setEditDescriptionModal={setEditDescriptionModal}
+                    newDescription={newDescription}
+                    setNewDescription={setNewDescription}
+                    handleSaveDescription={handleSaveDescription}
+                    editCustomNodeModal={editCustomNodeModal}
+                    setEditCustomNodeModal={setEditCustomNodeModal}
+                    customNodeForm={customNodeForm}
+                    setCustomNodeForm={setCustomNodeForm}
+                    handleUpdateCustomNode={handleUpdateCustomNode}
+                    detailsModal={detailsModal}
+                    setDetailsModal={setDetailsModal}
+                    setParentModal={setParentModal}
+                    setSetParentModal={setSetParentModal}
+                    filteredCallbacksForParent={filteredCallbacksForParent}
+                    selectedDestination={selectedDestination}
+                    setSelectedDestination={setSelectedDestination}
+                    isP2PConnection={isP2PConnection}
+                    setIsP2PConnection={setIsP2PConnection}
+                    selectedProfile={selectedProfile}
+                    setSelectedProfile={setSelectedProfile}
+                    edgeLabel={edgeLabel}
+                    setEdgeLabel={setEdgeLabel}
+                    p2pData={p2pData}
+                    allC2Data={allC2Data}
+                    handleSetParent={handleSetParent}
+                    taskForEdgeModal={taskForEdgeModal}
+                    setTaskForEdgeModal={setTaskForEdgeModal}
+                    taskForEdgeCommand={taskForEdgeCommand}
+                    setTaskForEdgeCommand={setTaskForEdgeCommand}
+                    taskForEdgeParams={taskForEdgeParams}
+                    setTaskForEdgeParams={setTaskForEdgeParams}
+                    taskingForEdge={taskingForEdge}
+                    setTaskingForEdge={setTaskingForEdge}
+                    linkCommandsLoading={linkCommandsLoading}
+                    linkCommandsData={linkCommandsData}
+                    createTask={createTask}
+                    showEventingDialog={showEventingDialog}
+                    setShowEventingDialog={setShowEventingDialog}
+                    manuallyAddEdgeModal={manuallyAddEdgeModal}
+                    setManuallyAddEdgeModal={setManuallyAddEdgeModal}
+                    addEdgeSelectedProfile={addEdgeSelectedProfile}
+                    setAddEdgeSelectedProfile={setAddEdgeSelectedProfile}
+                    addEdgeSelectedDest={addEdgeSelectedDest}
+                    setAddEdgeSelectedDest={setAddEdgeSelectedDest}
+                    addEdgeDestOptions={addEdgeDestOptions}
+                    setAddEdgeDestOptions={setAddEdgeDestOptions}
+                    handleManuallyAddEdge={handleManuallyAddEdge}
+                    removeEdgeModal={removeEdgeModal}
+                    setRemoveEdgeModal={setRemoveEdgeModal}
+                    removeEdge={removeEdge}
+                />
             </div>
         </div>
     );

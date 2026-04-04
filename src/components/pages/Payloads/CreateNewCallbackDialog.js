@@ -5,7 +5,8 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import { snackActions } from '../../utilities/Snackbar';
 
-import {gql, useMutation} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
 import { Table, TableBody, TableContainer, TableRow, TableHead, Paper } from '@mui/material';
 import MythicTableCell from '../../MythicComponents/MythicTableCell';
 import MythicTextField from '../../MythicComponents/MythicTextField';

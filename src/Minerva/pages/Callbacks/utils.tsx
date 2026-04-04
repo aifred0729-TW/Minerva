@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import { Skull, Monitor } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { meState } from '../../lib/state';
+import { secondsToRelative } from '../../lib/time';
 
 export const loadingSound = process.env.PUBLIC_URL + '/audio/loading.m4a';
 
+const CHECKIN_WARNING_SECS = 60;
+const CHECKIN_STATUS_REFRESH_MS = 1_000;
+const CHECKIN_DANGER_SECS = 300;
+
 export const LastCheckinCell = ({ lastCheckin, agentType, dead }: { lastCheckin: string; agentType?: string; dead?: boolean }) => {
-    const me = useReactiveVar(meState) as any;
+    const me = useReactiveVar(meState);
     const serverSkewMs = (me?.user?.server_skew) || 0;
 
     const calculateTimeAgo = React.useCallback(() => {
@@ -18,13 +23,9 @@ export const LastCheckinCell = ({ lastCheckin, agentType, dead }: { lastCheckin:
             const now = new Date().getTime() - serverSkewMs;
             const diff = Math.floor((now - last) / 1000);
             let color = "text-green-500";
-            if (diff > 60) color = "text-yellow-500";
-            if (diff > 300) color = "text-red-500";
-            let timeText = `${diff}s ago`;
-            if (diff < 0) timeText = "0s ago";
-            else if (diff >= 86400) timeText = `${Math.floor(diff / 86400)}d ago`;
-            else if (diff >= 3600) timeText = `${Math.floor(diff / 3600)}h ago`;
-            else if (diff >= 60) timeText = `${Math.floor(diff / 60)}m ago`;
+            if (diff > CHECKIN_WARNING_SECS) color = "text-yellow-500";
+            if (diff > CHECKIN_DANGER_SECS) color = "text-red-500";
+            const timeText = secondsToRelative(diff);
             const title = new Date(timeStr).toLocaleString();
             return { text: timeText, color, title };
         } catch { return { text: "ERROR", color: "text-red-500", title: '' }; }
@@ -32,7 +33,7 @@ export const LastCheckinCell = ({ lastCheckin, agentType, dead }: { lastCheckin:
     const [status, setStatus] = useState(calculateTimeAgo());
     React.useEffect(() => {
         setStatus(calculateTimeAgo());
-        const interval = setInterval(() => setStatus(calculateTimeAgo()), 1000);
+        const interval = setInterval(() => setStatus(calculateTimeAgo()), CHECKIN_STATUS_REFRESH_MS);
         return () => clearInterval(interval);
     }, [calculateTimeAgo]);
 
@@ -101,25 +102,43 @@ export const getPlatformIcon = (os: string, payloadType: string, size = 14, clas
 };
 
 /* ─────────── JSON Syntax Highlight helper ─────────── */
+type TokenType = 'key' | 'string' | 'number' | 'boolean' | 'null' | 'punct';
+const TOKEN_COLORS: Record<TokenType, string> = {
+    key: 'text-blue-300 font-semibold',
+    string: 'text-emerald-300',
+    number: 'text-yellow-300',
+    boolean: 'text-orange-300',
+    null: 'text-purple-300',
+    punct: '',
+};
+
+function tokenizeJson(formatted: string): { type: TokenType; text: string }[] {
+    const tokens: { type: TokenType; text: string }[] = [];
+    const re = /("(?:[^"\\]|\\.)*")\s*:|("(?:[^"\\]|\\.)*")|(-?\d+\.?\d*(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b)|(\bnull\b)|([{}[\]:,\s]+)/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(formatted)) !== null) {
+        if (match[1] != null) tokens.push({ type: 'key', text: match[1] + ':' });
+        else if (match[2] != null) tokens.push({ type: 'string', text: match[2] });
+        else if (match[3] != null) tokens.push({ type: 'number', text: match[3] });
+        else if (match[4] != null) tokens.push({ type: 'boolean', text: match[4] });
+        else if (match[5] != null) tokens.push({ type: 'null', text: match[5] });
+        else if (match[6] != null) tokens.push({ type: 'punct', text: match[6] });
+    }
+    return tokens;
+}
+
 export const JsonHighlight = ({ value }: { value: string }) => {
-    const html = React.useMemo(() => {
+    const tokens = React.useMemo(() => {
         try {
-            const formatted = JSON.stringify(JSON.parse(value), null, 2);
-            // Tokenize: keys → blue, string values → green, numbers → yellow, booleans → orange, null → purple
-            return formatted
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                .replace(/(")((?:[^"\\]|\\.)*)(")\s*:/g, '<span class="text-blue-300 font-semibold">"$2"</span>:')
-                .replace(/: (")((?:[^"\\]|\\.)*)(")(,?)$/gm, (_m: string, _q1: string, s: string, _q2: string, comma: string) => `: <span class="text-emerald-300">"${s}"</span>${comma}`)
-                .replace(/: (-?\d+\.?\d*)(,?)$/gm, (_m: string, n: string, c: string) => `: <span class="text-yellow-300">${n}</span>${c}`)
-                .replace(/: (true|false)(,?)$/gm, (_m: string, b: string, c: string) => `: <span class="text-orange-300">${b}</span>${c}`)
-                .replace(/: (null)(,?)$/gm, (_m: string, _n: string, c: string) => `: <span class="text-purple-300">null</span>${c}`);
-        } catch { return ''; }
+            return tokenizeJson(JSON.stringify(JSON.parse(value), null, 2));
+        } catch { return null; }
     }, [value]);
-    if (!html) return null;
+    if (!tokens) return null;
     return (
-        <pre
-            className="bg-black/60 border border-white/5 rounded p-2 text-xs font-mono overflow-auto max-h-[160px] cyber-scrollbar leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <pre className="bg-black/60 border border-white/5 rounded p-2 text-xs font-mono overflow-auto max-h-[160px] cyber-scrollbar leading-relaxed">
+            {tokens.map((t, i) =>
+                t.type === 'punct' ? t.text : <span key={i} className={TOKEN_COLORS[t.type]}>{t.text}</span>
+            )}
+        </pre>
     );
 };

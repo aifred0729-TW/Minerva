@@ -1,5 +1,7 @@
 import React, {useState} from 'react';
-import {useQuery, gql, useMutation} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import { snackActions } from '../../utilities/Snackbar';
 import {MythicConfirmDialog} from "../../MythicComponents/MythicConfirmDialog";
 import Typography from '@mui/material/Typography';

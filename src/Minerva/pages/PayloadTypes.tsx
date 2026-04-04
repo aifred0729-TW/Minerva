@@ -1,8 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { useSubscription } from '@apollo/client';
+import { useMutation, useSubscription } from "@apollo/client/react";
 
 import { cn } from '../lib/utils';
-import { SUB_PAYLOAD_TYPES, SUB_CONSUMING_CONTAINERS, SUB_TRANSLATION_CONTAINERS, SUB_CUSTOM_BROWSERS } from '../lib/api';
+import { snackActions } from '../lib/snackbar';
+import {
+    SUB_PAYLOAD_TYPES, SUB_CONSUMING_CONTAINERS, SUB_TRANSLATION_CONTAINERS, SUB_CUSTOM_BROWSERS,
+    TOGGLE_CONSUMING_DELETE, TEST_WEBHOOK, TEST_LOG,
+} from '../lib/api';
 import {
     Package,
     ChevronDown,
@@ -19,6 +23,10 @@ import {
     ExternalLink,
     Puzzle,
     MonitorCog,
+    Trash2,
+    RotateCcw,
+    Play,
+    KeyRound,
 }from 'lucide-react';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -175,20 +183,87 @@ const TranslationRow = ({ tc }: { tc: any }) => {
 
 // ── Consuming Container Row ────────────────────────────────────────────────────
 
+const WEBHOOK_EVENTS = ['new_alert', 'new_callback', 'new_custom', 'new_feedback', 'new_startup'] as const;
+const LOG_EVENTS = ['new_artifact', 'new_callback', 'new_credential', 'new_file', 'new_keylog', 'new_payload', 'new_response', 'new_task'] as const;
+
 const ConsumingRow = ({ cc }: { cc: any }) => {
     const [expanded, setExpanded] = useState(false);
-    const subs: string[] = Array.isArray(cc.subscriptions)
-        ? cc.subscriptions
-        : (cc.subscriptions ? [cc.subscriptions] : []);
+    const [idpMeta, setIdpMeta] = useState<{ name: string; data: string } | null>(null);
+    const [toggleDelete] = useMutation(TOGGLE_CONSUMING_DELETE);
+    const [testWebhook] = useMutation(TEST_WEBHOOK);
+    const [testLog] = useMutation(TEST_LOG);
+
+    const subs: any[] = Array.isArray(cc.subscriptions) ? cc.subscriptions : (cc.subscriptions ? [cc.subscriptions] : []);
+    const isEventing = cc.type === 'eventing';
+    const isAuth = cc.type === 'auth';
+    const isWebhook = cc.type === 'webhook';
+    const isLogger = cc.type === 'logging';
+
+    const handleDelete = async () => {
+        try {
+            await toggleDelete({ variables: { id: cc.id, deleted: !cc.deleted } });
+            snackActions.success(cc.deleted ? 'Restored' : 'Deleted');
+        } catch (e: any) { snackActions.error(e.message); }
+    };
+
+    const handleTest = async (eventType: string) => {
+        try {
+            const mutation = isWebhook ? testWebhook : testLog;
+            const { data } = await mutation({ variables: { service_type: eventType } });
+            const result = isWebhook ? (data as any)?.consumingServicesTestWebhook : (data as any)?.consumingServicesTestLog;
+            if (result?.status === 'success') snackActions.success(`Test ${eventType} sent`);
+            else snackActions.error(result?.error || 'Test failed');
+        } catch (e: any) { snackActions.error(e.message); }
+    };
+
+    const fetchIdpMetadata = async (idpName: string) => {
+        try {
+            const resp = await fetch(`/auth_metadata/${encodeURIComponent(cc.name)}/${encodeURIComponent(idpName)}`);
+            const json = await resp.json();
+            if (json.status === 'success') setIdpMeta({ name: idpName, data: json.metadata });
+            else snackActions.error(json.error || 'Failed to fetch metadata');
+        } catch (e: any) { snackActions.error(e.message); }
+    };
+
+    const parseSubscription = (sub: any, idx: number) => {
+        if (isEventing && typeof sub === 'object' && sub !== null) {
+            return (
+                <div key={idx} className="flex items-center gap-2 py-1 border-b border-white/5 last:border-0">
+                    <span className="text-[10px] font-mono text-blue-300 font-bold min-w-[120px]">{sub.name}</span>
+                    {sub.description && <span className="text-[10px] text-gray-400">{sub.description}</span>}
+                </div>
+            );
+        }
+        if (isAuth && typeof sub === 'object' && sub !== null) {
+            return (
+                <div key={idx} className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 text-[10px] font-mono border border-blue-400/25 text-blue-300 rounded-sm">{sub.name}</span>
+                    {sub.type && <span className="text-[9px] text-gray-500 font-mono">[{sub.type}]</span>}
+                    <button onClick={() => fetchIdpMetadata(sub.name)} title="Fetch IDP Metadata"
+                        className="text-gray-500 hover:text-amber-400 transition-colors">
+                        <KeyRound size={10} />
+                    </button>
+                </div>
+            );
+        }
+        const label = typeof sub === 'string' ? sub : JSON.stringify(sub);
+        return <span key={idx} className="px-1.5 py-0.5 text-[10px] font-mono border border-blue-400/25 text-blue-300 rounded-sm">{label}</span>;
+    };
+
     return (
-        <div className="border border-blue-400/20 bg-blue-400/3 hover:border-blue-400/40 transition-all">
+        <div className={cn("border transition-all", cc.deleted ? "border-red-500/20 bg-red-500/3 opacity-60" : "border-blue-400/20 bg-blue-400/3 hover:border-blue-400/40")}>
             <div className="flex items-center gap-3 px-4 py-3">
                 <StatusDot running={cc.container_running} />
                 <Server size={12} className="text-blue-400 shrink-0" />
-                <span className="font-mono text-sm text-blue-200 font-bold flex-1 truncate">{cc.name}</span>
+                <span className={cn("font-mono text-sm font-bold flex-1 truncate", cc.deleted ? "text-red-300 line-through" : "text-blue-200")}>{cc.name}</span>
+                {cc.type && <span className="text-[9px] text-gray-500 font-mono border border-white/10 px-1.5 py-0.5 rounded-sm uppercase">{cc.type}</span>}
                 {subs.length > 0 && (
                     <span className="text-[10px] text-gray-500 font-mono shrink-0">{subs.length} sub{subs.length !== 1 ? 's' : ''}</span>
                 )}
+                <button onClick={handleDelete} title={cc.deleted ? 'Restore' : 'Delete'}
+                    className="text-gray-500 hover:text-red-400 transition-colors">
+                    {cc.deleted ? <RotateCcw size={12} /> : <Trash2 size={12} />}
+                </button>
                 <button onClick={() => setExpanded(v => !v)} className="text-gray-500 hover:text-blue-400 transition-colors">
                     {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
@@ -196,14 +271,47 @@ const ConsumingRow = ({ cc }: { cc: any }) => {
             {expanded && (
                 <div className="border-t border-white/5 px-4 py-3 space-y-2">
                     {cc.description && <p className="text-xs text-gray-400">{cc.description}</p>}
-                    {subs.length > 0 && (
+                    {cc.semver && <p className="text-[10px] text-gray-500 font-mono">v{cc.semver}</p>}
+
+                    {/* Test buttons for webhook/logger */}
+                    {(isWebhook || isLogger) && (
                         <div>
-                            <p className="text-[10px] text-gray-500 font-mono mb-1 uppercase tracking-widest">Subscriptions</p>
+                            <p className="text-[10px] text-gray-500 font-mono mb-1 uppercase tracking-widest">Test Events</p>
                             <div className="flex flex-wrap gap-1">
-                                {subs.map((s: string, i: number) => (
-                                    <span key={i} className="px-1.5 py-0.5 text-[10px] font-mono border border-blue-400/25 text-blue-300 rounded-sm">{s}</span>
+                                {(isWebhook ? WEBHOOK_EVENTS : LOG_EVENTS).map(evt => (
+                                    <button key={evt} onClick={() => handleTest(evt)}
+                                        className="flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-mono border border-blue-400/20 text-blue-300 rounded-sm hover:border-signal/40 hover:text-signal transition-colors">
+                                        <Play size={8} />{evt}
+                                    </button>
                                 ))}
                             </div>
+                        </div>
+                    )}
+
+                    {/* Subscriptions */}
+                    {subs.length > 0 && (
+                        <div>
+                            <p className="text-[10px] text-gray-500 font-mono mb-1 uppercase tracking-widest">
+                                {isEventing ? 'Functions' : 'Subscriptions'}
+                            </p>
+                            {isEventing ? (
+                                <div className="bg-black/20 rounded px-2 py-1">{subs.map((s, i) => parseSubscription(s, i))}</div>
+                            ) : (
+                                <div className="flex flex-wrap gap-1">{subs.map((s, i) => parseSubscription(s, i))}</div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* IDP Metadata dialog */}
+                    {idpMeta && (
+                        <div className="bg-black/30 border border-amber-500/20 rounded p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <p className="text-[10px] text-amber-400 font-mono uppercase tracking-widest">IDP Metadata — {idpMeta.name}</p>
+                                <button onClick={() => setIdpMeta(null)} className="text-gray-500 hover:text-white transition-colors text-xs">✕</button>
+                            </div>
+                            <pre className="text-[10px] text-gray-300 font-mono whitespace-pre-wrap break-all max-h-64 overflow-auto bg-black/40 p-2 rounded">
+                                {idpMeta.data}
+                            </pre>
                         </div>
                     )}
                 </div>
@@ -266,19 +374,32 @@ const EMPTY_HINTS: Record<string, { text: string; link?: string; linkText?: stri
 type TabKey = 'agents' | 'c2' | 'translation' | 'commandaugment' | 'thirdparty' | 'webhooks' | 'loggers' | 'eventing' | 'auth' | 'browsers';
 
 export default function PayloadTypes() {
-    const { data: ptData, loading: ptLoading } = useSubscription(SUB_PAYLOAD_TYPES);
-    const { data: ccData } = useSubscription(SUB_CONSUMING_CONTAINERS);
-    const { data: tcData } = useSubscription(SUB_TRANSLATION_CONTAINERS);
-    const { data: cbData } = useSubscription(SUB_CUSTOM_BROWSERS);
+    const { data: ptData, loading: ptLoading } = useSubscription<any>(SUB_PAYLOAD_TYPES, {
+        onError: (err) => { console.error('[SUB_PAYLOAD_TYPES] subscription error:', err); },
+    });
+    const { data: ccData } = useSubscription<any>(SUB_CONSUMING_CONTAINERS, {
+        onError: (err) => { console.error('[SUB_CONSUMING_CONTAINERS] subscription error:', err); },
+    });
+    const { data: tcData } = useSubscription<any>(SUB_TRANSLATION_CONTAINERS, {
+        onError: (err) => { console.error('[SUB_TRANSLATION_CONTAINERS] subscription error:', err); },
+    });
+    const { data: cbData } = useSubscription<any>(SUB_CUSTOM_BROWSERS, {
+        onError: (err) => { console.error('[SUB_CUSTOM_BROWSERS] subscription error:', err); },
+    });
     const loading = ptLoading;
 
     const [activeTab, setActiveTab] = useState<TabKey>('agents');
+    const [showDeleted, setShowDeleted] = useState(false);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const payloadTypes: any[] = ptData?.payloadtype ?? [];
     const translationContainers: any[] = tcData?.translationcontainer ?? [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const consumingContainers: any[] = ccData?.consumingcontainer ?? [];
+    const allConsumingContainers: any[] = ccData?.consumingcontainer ?? [];
+    const consumingContainers = useMemo(
+        () => showDeleted ? allConsumingContainers : allConsumingContainers.filter((c: any) => !c.deleted),
+        [allConsumingContainers, showDeleted]
+    );
     const customBrowsers: any[] = cbData?.custombrowser ?? [];
 
     // Split data into categories
@@ -289,12 +410,6 @@ export default function PayloadTypes() {
     const loggers = useMemo(() => consumingContainers.filter(c => c.type === 'logging'), [consumingContainers]);
     const eventingContainers = useMemo(() => consumingContainers.filter(c => c.type === 'eventing'), [consumingContainers]);
     const authContainers = useMemo(() => consumingContainers.filter(c => c.type === 'auth'), [consumingContainers]);
-
-    const __tabDataMap: Record<TabKey, any[]> = {
-        agents, c2: [], translation: translationContainers, commandaugment: commandAugments,
-        thirdparty: thirdParty, webhooks, loggers, eventing: eventingContainers,
-        auth: authContainers, browsers: customBrowsers,
-    };
 
     const tabs: { key: TabKey; label: string; icon: React.ReactNode; items: any[] }[] = [
         { key: 'agents', label: 'AGENTS', icon: <Package size={12} />, items: agents },
@@ -389,6 +504,13 @@ export default function PayloadTypes() {
                         <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
                         LIVE
                     </div>
+                    <button onClick={() => setShowDeleted(v => !v)}
+                        className={cn("flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border rounded-sm transition-colors",
+                            showDeleted ? "border-red-400/40 text-red-400" : "border-white/15 text-gray-500 hover:text-gray-300"
+                        )}>
+                        <Trash2 size={11} />
+                        {showDeleted ? 'HIDE DELETED' : 'SHOW DELETED'}
+                    </button>
                 </div>
 
                 {/* ── Tabs (scrollable) ── */}

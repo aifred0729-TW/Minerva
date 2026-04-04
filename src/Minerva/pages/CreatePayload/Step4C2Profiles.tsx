@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery, useLazyQuery, useReactiveVar } from '@apollo/client';
+import { useQuery, useLazyQuery, useReactiveVar } from "@apollo/client/react";
 import { GET_C2_PROFILES, GET_C2_INSTANCE_PARAMS, GET_C2_DEFAULTS } from './queries';
 import { CreatePayloadParameter } from './BuildParameters';
 import { Disc, Plus, X } from 'lucide-react';
 
 import { CyberDropdown } from '../../components/CyberDropdown';
-import * as RandExp from 'randexp';
+import RandExp from 'randexp';
 import { meState } from '../../lib/state';
 import { snackActions } from '../../lib/snackbar';
 
@@ -32,7 +32,7 @@ const getDefaultChoices = (param: any) => {
 
 const getDefaultValueForType = (parameter: any) => {
     if (parameter.randomize && parameter.format_string !== "") {
-        try { return new (RandExp as any)(parameter.format_string).gen(); } catch (e) { return parameter.default_value; }
+        try { return new RandExp(parameter.format_string).gen(); } catch (e) { return parameter.default_value; }
     }
     switch (parameter.parameter_type) {
         case "String": return parameter.default_value;
@@ -109,9 +109,9 @@ const getModifiedC2Params = (c2: any, c2profileparameters: any[], payloadTypeInf
 
 export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, payloadTypeInfo }: Step4Props) {
     const me = useReactiveVar(meState);
-    const operationId = (me as any)?.user?.current_operation_id || 0;
+    const operationId = me?.user?.current_operation_id || 0;
 
-    const { data, loading, error } = useQuery(GET_C2_PROFILES, {
+    const { data, loading, error } = useQuery<any>(GET_C2_PROFILES, {
         variables: { payloadType: payloadType, operation_id: operationId },
         fetchPolicy: "no-cache",
     });
@@ -119,8 +119,8 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
     const [selectedProfileId, setSelectedProfileId] = useState<string>("");
     const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
 
-    const [getC2InstanceParams] = useLazyQuery(GET_C2_INSTANCE_PARAMS, { fetchPolicy: "no-cache" });
-    const [getC2Defaults] = useLazyQuery(GET_C2_DEFAULTS, { fetchPolicy: "no-cache" });
+    const [getC2InstanceParams] = useLazyQuery<any>(GET_C2_INSTANCE_PARAMS, { fetchPolicy: "no-cache" });
+    const [getC2Defaults] = useLazyQuery<any>(GET_C2_DEFAULTS, { fetchPolicy: "no-cache" });
 
     useEffect(() => {
         if (data?.c2profile) {
@@ -166,7 +166,7 @@ export function Step4C2Profiles({ payloadType, os, currentC2Profiles, onUpdate, 
     const handleParamChange = (instanceId: number, paramName: string, value: any, hasError: boolean) => {
         const updatedProfiles = currentC2Profiles.map((p: Record<string, unknown>) => {
             if (p.instance_id === instanceId) {
-                const updatedParams = p.c2profileparameters.map((param: any) =>
+                const updatedParams = ((p as Record<string, unknown>).c2profileparameters as Record<string, unknown>[]).map((param: Record<string, unknown>) =>
                     param.name === paramName ? { ...param, value, error: hasError } : param
                 );
                 return { ...p, c2profileparameters: updatedParams };

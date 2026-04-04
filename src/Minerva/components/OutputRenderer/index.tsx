@@ -34,4 +34,4 @@ export { GraphPanel, DatabasePanel } from './graph';
 // High-level parsed output
 export { JsonPanel, ParsedOutput, BrowserScriptOutput, hasBuiltinStructuredRenderer, OutputModeToggle, RawOutput, StructuredResponseOutput } from './parsed';
 export type { ParsedOutputProps } from '../../types/output';
-export type { OutputModeToggleProps, RawOutputProps } from './parsed';
+export type { OutputMode, OutputModeToggleProps, RawOutputProps } from './parsed';

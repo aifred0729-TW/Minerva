@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@apollo/client';
+import { useQuery } from "@apollo/client/react";
 import {
     Download,
     Upload,
@@ -24,9 +24,12 @@ import {
 }from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, formatBytes, b64DecodeUnicode } from '../../lib/utils';
+import { timeAgo } from '../../lib/time';
+import { directDownloadUrl } from '../../lib/urls';
 import { snackActions } from '../../lib/snackbar';
 import { GET_MYTHIC_DOWNLOADS, GET_MYTHIC_UPLOADS, GET_MYTHIC_SCREENSHOTS } from '../../lib/api';
 import type { FileMeta } from '../../types/files';
+import { usePageVisible } from '../../lib/usePageVisible';
 
 export const MythicServerFiles = ({ 
     subTab, 
@@ -36,20 +39,21 @@ export const MythicServerFiles = ({
     setSubTab: (tab: 'downloads' | 'uploads' | 'screenshots') => void 
 }) => {
     const [previewFile, setPreviewFile] = useState<FileMeta | null>(null);
+    const pageVisible = usePageVisible();
     
-    const { data: downloadsData, loading: downloadsLoading, refetch: refetchDownloads } = useQuery(GET_MYTHIC_DOWNLOADS, {
+    const { data: downloadsData, loading: downloadsLoading, refetch: refetchDownloads } = useQuery<any>(GET_MYTHIC_DOWNLOADS, {
         skip: subTab !== 'downloads',
-        pollInterval: 15000
+        pollInterval: pageVisible ? 15000 : 0
     });
 
-    const { data: uploadsData, loading: uploadsLoading, refetch: refetchUploads } = useQuery(GET_MYTHIC_UPLOADS, {
+    const { data: uploadsData, loading: uploadsLoading, refetch: refetchUploads } = useQuery<any>(GET_MYTHIC_UPLOADS, {
         skip: subTab !== 'uploads',
-        pollInterval: 15000
+        pollInterval: pageVisible ? 15000 : 0
     });
 
-    const { data: screenshotsData, loading: screenshotsLoading, refetch: refetchScreenshots } = useQuery(GET_MYTHIC_SCREENSHOTS, {
+    const { data: screenshotsData, loading: screenshotsLoading, refetch: refetchScreenshots } = useQuery<any>(GET_MYTHIC_SCREENSHOTS, {
         skip: subTab !== 'screenshots',
-        pollInterval: 15000
+        pollInterval: pageVisible ? 15000 : 0
     });
 
     const handleRefresh = () => {
@@ -150,7 +154,7 @@ export const MythicServerFiles = ({
 export const FileMetaList = ({ files, type, onPreview }: { files: FileMeta[], type: 'downloads' | 'uploads', onPreview: (file: FileMeta) => void }) => {
     const handleDownloadFile = (file: FileMeta) => {
         if (file.agent_file_id) {
-            window.open(`/direct/download/${file.agent_file_id}`, '_blank');
+            window.open(directDownloadUrl(file.agent_file_id), '_blank');
         }
     };
 
@@ -240,7 +244,7 @@ export const UploadsView = ({ files, onPreview }: { files: FileMeta[]; onPreview
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
     const handleDownload = (file: FileMeta) => {
-        if (file.agent_file_id) window.open(`/direct/download/${file.agent_file_id}`, '_blank');
+        if (file.agent_file_id) window.open(directDownloadUrl(file.agent_file_id), '_blank');
     };
     const toggleHost = (h: string) => setExpandedHosts(prev => {
         const next = new Set(prev);
@@ -346,16 +350,7 @@ export const UploadsView = ({ files, onPreview }: { files: FileMeta[]; onPreview
                 </td>
                 {/* Time */}
                 <td className="px-2 py-2 w-28 font-mono text-[10px] text-gray-500 whitespace-nowrap">
-                    {(() => {
-                        const d = new Date(file.timestamp);
-                        const diff = Date.now() - d.getTime();
-                        const mins = Math.floor(diff / 60000);
-                        const hrs  = Math.floor(diff / 3600000);
-                        const days = Math.floor(diff / 86400000);
-                        if (mins < 60)  return `${mins}m ago`;
-                        if (hrs < 24)   return `${hrs}h ago`;
-                        return `${days}d ago`;
-                    })()}
+                    {timeAgo(file.timestamp)}
                 </td>
                 {/* Actions */}
                 <td className="pr-2 py-2 w-24">
@@ -447,7 +442,7 @@ export const UploadsView = ({ files, onPreview }: { files: FileMeta[]; onPreview
                     <button
                         onClick={() => {
                             files.filter(f => selected.has(f.id) && f.complete)
-                                .forEach(f => window.open(`/direct/download/${f.agent_file_id}`, '_blank'));
+                                .forEach(f => window.open(directDownloadUrl(f.agent_file_id), '_blank'));
                         }}
                         className="flex items-center gap-1 px-2 py-0.5 text-[10px] border border-blue-500/40 text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
                     >
@@ -540,7 +535,7 @@ export const ScreenshotGrid = ({ files, onPreview }: { files: FileMeta[], onPrev
                     className="relative aspect-video bg-black/40 rounded border border-ghost/30 overflow-hidden group cursor-pointer hover:border-purple-500/50 transition-colors"
                 >
                     <img
-                        src={`/direct/download/${file.agent_file_id}`}
+                        src={directDownloadUrl(file.agent_file_id)}
                         alt={b64DecodeUnicode(file.filename_text)}
                         className="w-full h-full object-cover"
                         loading="lazy"
@@ -612,7 +607,7 @@ export const FilePreviewModal = ({ file, onClose, allFiles, onNavigate }: { file
                     <div className="relative bg-black/40">
                         <div className={cn("p-4 flex items-start justify-center", zoom ? "overflow-auto" : "")}>
                             <img 
-                                src={`/direct/download/${file.agent_file_id}`}
+                                src={directDownloadUrl(file.agent_file_id)}
                                 alt={b64DecodeUnicode(file.filename_text)}
                                 className={cn(
                                     "rounded border border-white/10 transition-all",
@@ -715,7 +710,7 @@ export const FilePreviewModal = ({ file, onClose, allFiles, onNavigate }: { file
                     <div className="flex gap-2 pt-4 border-t border-white/10">
                         {file.complete && (
                             <a
-                                href={`/direct/download/${file.agent_file_id}`}
+                                href={directDownloadUrl(file.agent_file_id)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-xs hover:bg-blue-500/30 transition-colors"

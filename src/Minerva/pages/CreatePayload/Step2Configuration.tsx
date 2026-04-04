@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useQuery } from '@apollo/client';
+import { useQuery } from "@apollo/client/react";
 import { GET_BUILD_PARAMETERS } from './queries';
 import { CreatePayloadParameter } from './BuildParameters';
 import { Disc } from 'lucide-react';
@@ -78,7 +78,7 @@ const shouldHideParam = (param, allParams, selectedOS) => {
     if (param.supported_os && param.supported_os.length > 0) {
         if (!param.supported_os.includes(selectedOS)) return true;
     }
-    let conditions = [];
+    let conditions: any[] = [];
     if (param.hide_conditions) {
         if (typeof param.hide_conditions === 'string') {
             try { conditions = JSON.parse(param.hide_conditions); } catch (e) { conditions = []; }
@@ -121,11 +121,11 @@ const sortByUiPositionThenName = (a, b) => {
 };
 
 export function Step2Configuration({ payloadType, os, currentConfig, onUpdate, onPayloadTypeInfoLoad }) {
-    const { data, loading, error } = useQuery(GET_BUILD_PARAMETERS, {
+    const { data, loading, error } = useQuery<any>(GET_BUILD_PARAMETERS, {
         variables: { payloadtype: payloadType }
     });
 
-    const [parameters, setParameters] = useState([]);
+    const [parameters, setParameters] = useState<any[]>([]);
 
     useEffect(() => {
         if (data?.payloadtype?.[0]?.buildparameters) {

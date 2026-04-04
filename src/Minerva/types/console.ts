@@ -25,6 +25,7 @@ export interface ContextMenuState {
     isDir: boolean;
     path: string;
     name: string;
+    items?: Array<{ label: string; action: () => void; icon?: React.ReactNode }>;
 }
 
 export interface MzExtractedCred {
@@ -73,6 +74,7 @@ export interface ProcessRecord {
 
 /** Parsed process detail block */
 export interface ProcessDetails {
+    pid?: number;
     path: string;
     user: string;
     ppid: number;
@@ -80,6 +82,13 @@ export interface ProcessDetails {
     cmdLine: string;
     signer: string;
     startTime: string;
+    integrityLevel?: number;
+    binPath?: string;
+    sessionId?: number;
+    description?: string;
+    companyName?: string;
+    windowTitle?: string;
+    [key: string]: unknown;
 }
 
 /** Process tree node for process list viewer */

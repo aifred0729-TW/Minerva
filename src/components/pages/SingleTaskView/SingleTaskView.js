@@ -1,6 +1,8 @@
 import React, {useEffect} from 'react';
 import {TaskDisplay} from '../Callbacks/TaskDisplay';
-import {gql, useLazyQuery, useQuery } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useLazyQuery } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import  {useParams} from "react-router-dom";
 import {TaskMetadataTable} from './MetadataTable';
 import Typography from '@mui/material/Typography';
@@ -14,7 +16,7 @@ import Switch from '@mui/material/Switch';
 import {useTheme} from '@mui/material/styles';
 import {taskingDataFragment} from '../Callbacks/CallbackMutations'
 import {meState} from "../../../cache";
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 
 const tasksQuery = gql`
 ${taskingDataFragment}

@@ -1,6 +1,8 @@
 import {MythicTabPanel, MythicTabLabel} from '../../MythicComponents/MythicTabPanel';
 import React, {useEffect, useRef} from 'react';
-import {gql, useQuery, useSubscription, useLazyQuery } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useSubscription, useLazyQuery } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import { MythicDialog } from '../../MythicComponents/MythicDialog';
 import {useTheme} from '@mui/material/styles';
 import Grid from '@mui/material/Grid';

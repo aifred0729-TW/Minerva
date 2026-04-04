@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import {
     Download,
     Eye,
@@ -23,6 +24,7 @@ import {
     GET_C2_PROFILES_FOR_HOSTING, HOST_FILE_MUTATION,
 } from '../../lib/api/files';
 import type { FileMeta } from '../../types/files';
+import { directDownloadUrl } from '../../lib/urls';
 import { formatBytes } from './utils';
 import { TagsDisplay } from './FileTable';
 
@@ -32,11 +34,11 @@ export const HostFileModal = ({ file, onClose }: { file: FileMeta; onClose: () =
     const [alertOnDownload, setAlertOnDownload] = useState(false);
     const [isHosting, setIsHosting] = useState(false);
 
-    const { data: profileData, loading: profilesLoading } = useQuery(GET_C2_PROFILES_FOR_HOSTING, { fetchPolicy: 'network-only' });
+    const { data: profileData, loading: profilesLoading } = useQuery<any>(GET_C2_PROFILES_FOR_HOSTING, { fetchPolicy: 'network-only' });
     const c2Profiles: { id: number; name: string }[] = profileData?.c2profile || [];
 
-    const [hostFileMutation, { loading: hostLoading }] = useMutation(HOST_FILE_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => {
+    const [hostFileMutation, { loading: hostLoading }] = useMutation<any>(HOST_FILE_MUTATION, {
+        onCompleted: (d: any) => {
             if (d.c2HostFile?.status === 'success') {
                 if (isHosting) {
                     snackActions.success(`File removed from hosting`);
@@ -194,30 +196,30 @@ export const ViewEditTagsModal = ({ file, onClose }: { file: FileMeta; onClose: 
     const [formData, setFormData] = useState('{}');
     const [formDataError, setFormDataError] = useState('');
 
-    const { refetch: refetchTags } = useQuery(GET_FILE_TAGS, {
+    const { refetch: refetchTags } = useQuery<any>(GET_FILE_TAGS, {
         variables: { filemeta_id: file.id },
-        onCompleted: (d: Record<string, unknown>) => setTags(d.tag || []),
+        onCompleted: (d: any) => setTags(d.tag || []),
         fetchPolicy: 'network-only',
     });
 
-    useQuery(GET_FILE_TAGTYPES, {
-        onCompleted: (d: Record<string, unknown>) => {
+    useQuery<any>(GET_FILE_TAGTYPES, {
+        onCompleted: (d: any) => {
             setTagtypes(d.tagtype || []);
             if (d.tagtype?.length > 0) setFormTagTypeId(d.tagtype[0].id);
         },
         fetchPolicy: 'network-only',
     });
 
-    const [createTag] = useMutation(CREATE_TAG_MUTATION, {
-        onCompleted: (d: Record<string, unknown>) => {
+    const [createTag] = useMutation<any>(CREATE_TAG_MUTATION, {
+        onCompleted: (d: any) => {
             if (d.createTag?.status === 'success') { snackActions.success('Tag created'); refetchTags(); setMode('list'); }
             else snackActions.error(d.createTag?.error || 'Failed to create tag');
         },
     });
-    const [updateTag] = useMutation(UPDATE_TAG_MUTATION, {
+    const [updateTag] = useMutation<any>(UPDATE_TAG_MUTATION, {
         onCompleted: () => { snackActions.success('Tag updated'); refetchTags(); setMode('list'); },
     });
-    const [deleteTag] = useMutation(DELETE_TAG_MUTATION, {
+    const [deleteTag] = useMutation<any>(DELETE_TAG_MUTATION, {
         onCompleted: () => { snackActions.success('Tag deleted'); refetchTags(); },
     });
 
@@ -387,7 +389,7 @@ export const MediaPreviewModal = ({ file, onClose }: { file: FileMeta; onClose: 
                     <Eye size={16} className="text-signal" />
                     <span className="font-mono text-sm text-white truncate flex-1">{filename}</span>
                     <span className="text-[10px] text-gray-500 font-mono uppercase px-2 py-0.5 bg-white/5 rounded">{mediaType}</span>
-                    <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                    <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                         className="p-1 hover:bg-white/10 rounded text-blue-400" title="Download">
                         <Download size={16}/>
                     </a>
@@ -402,11 +404,11 @@ export const MediaPreviewModal = ({ file, onClose }: { file: FileMeta; onClose: 
                         </div>
                     ) : mediaType === 'image' ? (
                         <div className="flex items-center justify-center h-full p-4">
-                            <img src={`/direct/download/${file.agent_file_id}`} alt={filename}
+                            <img src={directDownloadUrl(file.agent_file_id)} alt={filename}
                                 className="max-w-full max-h-full object-contain" />
                         </div>
                     ) : mediaType === 'pdf' ? (
-                        <embed src={`/direct/download/${file.agent_file_id}`}
+                        <embed src={directDownloadUrl(file.agent_file_id)}
                             type="application/pdf" className="w-full h-full" style={{ minHeight: '70vh' }} />
                     ) : mediaType === 'text' ? (
                         textLoading ? (
@@ -420,7 +422,7 @@ export const MediaPreviewModal = ({ file, onClose }: { file: FileMeta; onClose: 
                         <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-500">
                             <FileText size={48} className="opacity-20" />
                             <p className="font-mono text-sm">UNSUPPORTED_FORMAT</p>
-                            <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                            <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                                 className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-sm hover:bg-blue-500/30 transition-colors">
                                 <Download size={14}/> Download File
                             </a>
@@ -458,7 +460,7 @@ export const FilePreviewModal = ({
             {/* Screenshot preview */}
             {file.is_screenshot && (
                 <div className="p-4 bg-black/40">
-                    <img src={`/direct/download/${file.agent_file_id}`} alt={b64DecodeUnicode(file.filename_text)}
+                    <img src={directDownloadUrl(file.agent_file_id)} alt={b64DecodeUnicode(file.filename_text)}
                         className="max-w-full rounded border border-white/10" />
                 </div>
             )}
@@ -526,7 +528,7 @@ export const FilePreviewModal = ({
                 {/* Actions */}
                 <div className="flex gap-2 pt-3 border-t border-white/10">
                     {file.complete && (
-                        <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                        <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                             className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded hover:bg-blue-500/30 transition-colors">
                             <Download size={14} /> Download
                         </a>
@@ -535,7 +537,7 @@ export const FilePreviewModal = ({
                         className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white border border-white/20 rounded hover:bg-white/20 transition-colors">
                         <Copy size={14} /> Copy UUID
                     </button>
-                    <a href={`/direct/download/${file.agent_file_id}`} target="_blank" rel="noopener noreferrer"
+                    <a href={directDownloadUrl(file.agent_file_id)} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white border border-white/20 rounded hover:bg-white/20 transition-colors">
                         <ExternalLink size={14} /> Open in New Tab
                     </a>

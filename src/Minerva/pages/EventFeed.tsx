@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useMutation, useLazyQuery, useSubscription } from '@apollo/client';
+import { useMutation, useSubscription } from "@apollo/client/react";
+import { useLazyQueryCompat as useLazyQuery } from "../lib/useQueryCompat";
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Bell, 
@@ -24,7 +25,7 @@ import { cn } from '../lib/utils';
 import { useAppStore } from '../store';
 import { snackActions } from '../lib/snackbar';
 import { meState } from '../lib/state';
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 import { toLocalTime } from '../lib/time';
 import {
     GET_EVENT_FEED,
@@ -217,15 +218,15 @@ const EventItem = ({
 export default function EventFeed() {
     const { isSidebarCollapsed, alertCount } = useAppStore();
     const me = useReactiveVar(meState);
-    // @ts-ignore
-    const viewUtc = me?.user?.view_utc_time || false;
+    const viewUtc = (me?.user?.view_utc_time as boolean) || false;
     
     const [events, setEvents] = useState<EventLog[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [levelFilter, setLevelFilter] = useState<LevelFilter>(alertCount > 0 ? 'warning_unresolved' : 'info');
     const [showFilterMenu, setShowFilterMenu] = useState(false);
     const [fromNow] = useState(new Date().toISOString());
-    const [pageData, setPageData] = useState({ totalCount: 0, limit: 100, offset: 0 });
+    const DEFAULT_PAGE_LIMIT = 100;
+    const [pageData, setPageData] = useState({ totalCount: 0, limit: DEFAULT_PAGE_LIMIT, offset: 0 });
 
     const levelOptions: { value: LevelFilter; label: string; icon: React.ReactNode }[] = [
         { value: 'all', label: 'All Levels', icon: <Filter size={14} /> },
@@ -239,10 +240,10 @@ export default function EventFeed() {
     ];
 
     // Subscription for real-time updates
-    useSubscription(SUBSCRIBE_EVENTS, {
+    useSubscription<any>(SUBSCRIBE_EVENTS, {
         variables: { fromNow },
         fetchPolicy: "no-cache",
-        onData: ({ data }) => {
+        onData: ({ data }: { data: any } ) => {
             if (data.data?.operationeventlog_stream) {
                 const newEvents = data.data.operationeventlog_stream;
                 setEvents(prev => {
@@ -257,12 +258,13 @@ export default function EventFeed() {
                     return updated.sort((a: EventLog, b: EventLog) => b.id - a.id);
                 });
             }
-        }
+        },
+        onError: (err) => { console.error('[SUBSCRIBE_EVENTS] subscription error:', err); },
     });
 
-    const [fetchEvents] = useLazyQuery(GET_EVENT_FEED, {
+    const [fetchEvents] = useLazyQuery<any>(GET_EVENT_FEED, {
         fetchPolicy: "no-cache",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setEvents(data.operationeventlog);
             setPageData(prev => ({ 
                 ...prev, 
@@ -271,9 +273,9 @@ export default function EventFeed() {
         }
     });
 
-    const [fetchEventsWithResolved] = useLazyQuery(GET_EVENT_FEED_WITH_RESOLVED, {
+    const [fetchEventsWithResolved] = useLazyQuery<any>(GET_EVENT_FEED_WITH_RESOLVED, {
         fetchPolicy: "no-cache",
-        onCompleted: (data) => {
+        onCompleted: (data: any) => {
             setEvents(data.operationeventlog);
             setPageData(prev => ({ 
                 ...prev, 
@@ -282,8 +284,8 @@ export default function EventFeed() {
         }
     });
 
-    const [updateResolution] = useMutation(UPDATE_RESOLUTION, {
-        onCompleted: (data) => {
+    const [updateResolution] = useMutation<any>(UPDATE_RESOLUTION, {
+        onCompleted: (data: any) => {
             const updated = data.update_operationeventlog_by_pk;
             setEvents(prev => prev.map(e => 
                 e.id === updated.id ? { ...e, resolved: updated.resolved } : e
@@ -292,8 +294,8 @@ export default function EventFeed() {
         }
     });
 
-    const [updateToWarning] = useMutation(UPDATE_TO_WARNING, {
-        onCompleted: (data) => {
+    const [updateToWarning] = useMutation<any>(UPDATE_TO_WARNING, {
+        onCompleted: (data: any) => {
             const updated = data.update_operationeventlog_by_pk;
             setEvents(prev => prev.map(e => 
                 e.id === updated.id ? { ...e, warning: true, resolved: false } : e
@@ -302,8 +304,8 @@ export default function EventFeed() {
         }
     });
 
-    const [resolveViewable] = useMutation(RESOLVE_ALL_VIEWABLE, {
-        onCompleted: (data) => {
+    const [resolveViewable] = useMutation<any>(RESOLVE_ALL_VIEWABLE, {
+        onCompleted: (data: any) => {
             const ids = data.update_operationeventlog.returning.map((e: any) => e.id);
             setEvents(prev => prev.map(e => 
                 ids.includes(e.id) ? { ...e, resolved: true } : e
@@ -312,8 +314,8 @@ export default function EventFeed() {
         }
     });
 
-    const [resolveAll] = useMutation(RESOLVE_ALL_ERRORS, {
-        onCompleted: (data) => {
+    const [resolveAll] = useMutation<any>(RESOLVE_ALL_ERRORS, {
+        onCompleted: (data: any) => {
             const ids = data.update_operationeventlog.returning.map((e: any) => e.id);
             setEvents(prev => prev.map(e => 
                 ids.includes(e.id) ? { ...e, resolved: true } : e

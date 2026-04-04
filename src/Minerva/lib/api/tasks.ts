@@ -182,15 +182,6 @@ export const GET_KILL_COMMAND = gql`
   }
 `;
 
-export const GET_CALLBACK_TASKS = gql`
-  ${TASK_FRAGMENT}
-  query GetCallbackTasks($callback_display_id: Int!) {
-    task(where: {callback: {display_id: {_eq: $callback_display_id}}, parent_task_id: {_is_null: true}}, order_by: {id: asc}) {
-      ...taskData
-    }
-  }
-`;
-
 export const STREAM_CALLBACK_TASKS = gql`
   ${TASK_FRAGMENT}
   subscription StreamCallbackTasks($callback_display_id: Int!) {

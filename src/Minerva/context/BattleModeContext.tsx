@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 export type OperationMode = 'normal' | 'recon' | 'combat';
 
@@ -14,21 +14,31 @@ const ModeContext = createContext<ModeContextType | undefined>(undefined);
 export function BattleModeProvider({ children }: { children: React.ReactNode }) {
     const [mode, setModeState] = useState<OperationMode>('normal');
 
-    const setMode = (newMode: OperationMode) => {
+    const setMode = useCallback((newMode: OperationMode) => {
         setModeState(newMode);
         window.dispatchEvent(new CustomEvent('mode-change', { detail: { mode: newMode } }));
-    };
+    }, []);
 
-    const toggleCombat = () => {
-        setMode(mode === 'combat' ? 'normal' : 'combat');
-    };
+    const toggleCombat = useCallback(() => {
+        setModeState(prev => {
+            const next = prev === 'combat' ? 'normal' : 'combat';
+            window.dispatchEvent(new CustomEvent('mode-change', { detail: { mode: next } }));
+            return next;
+        });
+    }, []);
 
-    const toggleRecon = () => {
-        setMode(mode === 'recon' ? 'normal' : 'recon');
-    };
+    const toggleRecon = useCallback(() => {
+        setModeState(prev => {
+            const next = prev === 'recon' ? 'normal' : 'recon';
+            window.dispatchEvent(new CustomEvent('mode-change', { detail: { mode: next } }));
+            return next;
+        });
+    }, []);
+
+    const value = useMemo(() => ({ mode, setMode, toggleCombat, toggleRecon }), [mode, setMode, toggleCombat, toggleRecon]);
 
     return (
-        <ModeContext.Provider value={{ mode, setMode, toggleCombat, toggleRecon }}>
+        <ModeContext.Provider value={value}>
             {children}
         </ModeContext.Provider>
     );

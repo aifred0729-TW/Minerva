@@ -5,7 +5,9 @@ import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableHead from '@mui/material/TableHead';
 import Typography from '@mui/material/Typography';
-import {useQuery, gql, useMutation} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import {useTheme} from '@mui/material/styles';
@@ -35,7 +37,7 @@ import MenuItem from '@mui/material/MenuItem';
 import {MythicAgentSVGIcon} from "../../MythicComponents/MythicAgentSVGIcon";
 import {ViewPayloadConfigJSON} from "./EditPayloadConfigDialog";
 import {meState} from "../../../cache";
-import { useReactiveVar } from '@apollo/client';
+import { useReactiveVar } from "@apollo/client/react";
 
 
 const GET_Payload_Details = gql`

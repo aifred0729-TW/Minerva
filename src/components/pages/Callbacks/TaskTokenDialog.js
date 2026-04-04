@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
-import {useQuery, gql} from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useQueryCompat as useQuery } from "../../../Minerva/lib/useQueryCompat";
 import {snackActions} from '../../utilities/Snackbar';
 import Button from '@mui/material/Button';
 import DialogActions from '@mui/material/DialogActions';

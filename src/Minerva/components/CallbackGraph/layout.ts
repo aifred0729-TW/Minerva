@@ -1,4 +1,3 @@
-// @ts-ignore
 import ELK from 'elkjs/lib/elk.bundled.js';
 import { Node, Edge } from '@xyflow/react';
 import { CyberNode, RootNode, GroupBoundNode, TaskNode, BrowserscriptNode, BsCallbackNode } from './nodes';

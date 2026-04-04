@@ -16,6 +16,7 @@
     "noFallthroughCasesInSwitch": true,
     "jsx": "react-jsx",
     "baseUrl": "src",
+    "ignoreDeprecations": "6.0",
 
     /* ── Phase 4 type-safety flags (incremental) ── */
     "strictNullChecks": true,
@@ -23,7 +24,8 @@
     "strictPropertyInitialization": true,
     "noImplicitReturns": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "types": ["node"]
   },
   "include": ["src"],
   "exclude": ["node_modules", "build"]

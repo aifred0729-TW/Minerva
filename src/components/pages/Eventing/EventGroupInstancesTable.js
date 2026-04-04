@@ -3,7 +3,8 @@ import {EventStepInstanceRenderDialog, GetStatusSymbol} from "./EventStepRender"
 import {toLocalTime} from "../../utilities/Time";
 import {MythicStyledTooltip} from "../../MythicComponents/MythicStyledTooltip";
 import {MythicConfirmDialog} from '../../MythicComponents/MythicConfirmDialog';
-import { gql, useMutation } from '@apollo/client';
+import { gql } from "@apollo/client";
+import { useMutation } from "@apollo/client/react";
 import CalendarMonthTwoToneIcon from '@mui/icons-material/CalendarMonthTwoTone';
 import AccessAlarmTwoToneIcon from '@mui/icons-material/AccessAlarmTwoTone';
 import CancelTwoToneIcon from '@mui/icons-material/CancelTwoTone';

@@ -136,6 +136,7 @@ export const BattleMode: React.FC = () => {
   useEffect(() => {
     return () => {
       document.body.classList.remove('combat-mode', 'recon-mode');
+      if (overlayTimer.current) clearTimeout(overlayTimer.current);
       setColors(normalSignal, normalAccent);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

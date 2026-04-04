@@ -77,7 +77,7 @@ export function PayloadDetailsModal({ payload, onClose, isOpen, initialTab = 'ov
                                             payload.build_phase === 'error' ? "text-red-400 border-red-900" : 
                                             "text-yellow-400 border-yellow-900"
                                         )}>
-                                            <Activity size={14} /> BUILD_{payload.build_phase.toUpperCase()}
+                                            <Activity size={14} /> BUILD_{(payload.build_phase ?? 'unknown').toUpperCase()}
                                         </div>
                                      </div>
                                      <button onClick={onClose} className="p-3 hover:bg-red-500/20 hover:text-red-500 text-gray-500 transition-all rounded-full border border-transparent hover:border-red-500/50">

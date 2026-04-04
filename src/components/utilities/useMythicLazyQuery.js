@@ -1,4 +1,4 @@
-import { useApolloClient } from '@apollo/client';
+import { useApolloClient } from "@apollo/client/react";
 import React from 'react';
 
 export function useMythicLazyQuery(query, options) {
