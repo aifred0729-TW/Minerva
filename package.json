@@ -1,6 +1,6 @@
 {
   "name": "mythic",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "homepage": "/new",
   "author": "@its_a_feature_",
@@ -56,8 +56,8 @@
     "react-router-dom": "^7.14.0",
     "react-toastify": "^11.0.5",
     "react-virtualized": "^9.22.6",
-    "react-virtualized-auto-sizer": "^2.0.3",
-    "react-window": "^2.2.7",
+    "react-virtualized-auto-sizer": "^1.0.24",
+    "react-window": "^1.8.11",
     "rxjs": "^7.8.2",
     "sql.js": "^1.13.0",
     "tailwind-merge": "^3.4.0",
