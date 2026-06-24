@@ -76,7 +76,7 @@ Compared to the stock Mythic UI, Minerva adds:
 
 Minerva can run two ways:
 
-1. **Standalone Docker** &mdash; A self-contained `minerva` container (Nginx + static build) that proxies `/graphql`, `/auth`, `/refresh`, `/msf-rpc`, `/direct` to an existing Mythic instance. Best for production / sealed deployments.
+1. **Standalone Docker** &mdash; `docker compose up -d` brings up two containers: `minerva-dev` (the React app served by `react-app-rewired`, the same way Mythic serves its own UI) behind a `minerva` Nginx container that terminates TLS on **443** and proxies `/graphql`, `/auth`, `/refresh`, `/msf-rpc`, `/direct` to an existing Mythic instance. Self-signs a TLS cert on first run.
 2. **Replace `mythic_react`** &mdash; Use `scripts/minerva_install.sh` to swap Minerva into Mythic's own `MythicReactUI` directory so it ships through Mythic's normal lifecycle (`./mythic-cli ...`).
 
 ---
@@ -451,10 +451,12 @@ The whole UI is mounted under `/new/...` (so it can co-exist with stock `mythic_
 git clone https://github.com/redmeow-tw/Minerva.git
 cd Minerva
 
-# Build static React bundle and Nginx image, then run
+# Build the app + Nginx images, then run (self-signed cert auto-generated)
 docker compose build
 docker compose up -d
 ```
+
+> First start compiles the React app inside `minerva-dev` &mdash; give it ~1&ndash;2 minutes, then `https://<host>/` serves. The `minerva` Nginx container proxies to it once it's up.
 
 Open **https://&lt;your-host&gt;/** &mdash; you'll be redirected to `/new/login`. Log in with your Mythic credentials.
 
@@ -470,7 +472,7 @@ To stop:
 docker compose down
 ```
 
-> The default `docker-compose.yml` exposes only Minerva (port 443). `MYTHIC_ADDRESS` is passed into Nginx as a template variable and used for `/graphql`, `/auth`, `/refresh`, `/invite`, `/direct` upstreams.
+> The default `docker-compose.yml` exposes only Minerva (port 443). `MYTHIC_ADDRESS` is passed into Nginx as a template variable and used for `/graphql`, `/auth`, `/refresh`, `/invite`, `/direct` upstreams. Drop your own `minerva.crt` / `minerva.key` into `nginx/ssl/` to replace the auto-generated self-signed cert.
 
 ### Replacing `mythic_react` (Recommended for Operators)
 

@@ -38,7 +38,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./nginx/nginx.dev.conf.template:/etc/nginx/templates/nginx.conf.template:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      # Writable so the entrypoint can self-sign a cert when nginx/ssl/ is empty.
+      - ./nginx/ssl:/etc/nginx/ssl
     depends_on:
       - minerva-dev
     restart: unless-stopped

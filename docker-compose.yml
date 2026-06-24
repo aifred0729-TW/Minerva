@@ -1,8 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Minerva — official deployment
+#
+#  Two services, mirroring how Mythic itself serves MythicReactUI in production:
+#    • minerva-dev  — the React app served by react-app-rewired (live source from
+#                     ./src, hot-reload capable). This is the canonical way Minerva
+#                     is served; the previous static-build path is kept only as a
+#                     reference Dockerfile (docker/Dockerfile.prod).
+#    • minerva      — Nginx: terminates TLS on 443, serves the app from minerva-dev,
+#                     and proxies /graphql /auth /api /refresh /invite /direct to
+#                     the Mythic instance named by MYTHIC_ADDRESS.
+#
+#  Fresh install:  docker compose build && docker compose up -d
+#  Then browse to  https://<host>/  → redirects to /new/login.
+# ─────────────────────────────────────────────────────────────────────────────
 services:
+  # React app server (source mounted live from ./src for hot reload)
+  minerva-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: minerva-dev
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./config-overrides.js:/app/config-overrides.js:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./tailwind.config.js:/app/tailwind.config.js:ro
+      - ./postcss.config.js:/app/postcss.config.js:ro
+      - ./.env:/app/.env:ro
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - FAST_REFRESH=true
+      - WDS_POLLING=true
+      - WDS_SOCKET_PATH=ws
+      - WDS_SOCKET_PORT=443
+      - PORT=3000
+      - BROWSER=none
+    restart: unless-stopped
+
+  # Nginx reverse proxy: TLS on 443 + API proxy to Mythic + app proxy to minerva-dev
   minerva:
     build:
       context: .
-      dockerfile: docker/Dockerfile.prod
+      dockerfile: docker/Dockerfile.nginx
     container_name: minerva
     ports:
       - "443:443"
@@ -10,4 +51,11 @@ services:
       - MYTHIC_ADDRESS=https://host.docker.internal:7443
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./nginx/nginx.dev.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      # Writable (NOT :ro) so the entrypoint can self-sign a cert on first run when
+      # nginx/ssl/ is empty. Drop your own minerva.crt / minerva.key here to override.
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - minerva-dev
     restart: unless-stopped
