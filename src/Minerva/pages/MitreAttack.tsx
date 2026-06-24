@@ -411,7 +411,7 @@ const TechniqueDetailModal = ({
 // ============================================
 const MitreAttack = () => {
     const me = useReactiveVar(meState);
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [viewMode, setViewMode] = useState<'commands' | 'tasks' | 'tasks_by_pt' | 'tags'>('tasks');
     const [attacksLoaded, setAttacksLoaded] = useState(false);
     const [attacks, setAttacks] = useState<ParsedAttack[]>([]);

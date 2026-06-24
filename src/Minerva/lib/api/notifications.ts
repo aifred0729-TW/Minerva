@@ -1,6 +1,9 @@
 import { gql } from '@apollo/client';
 
-// Subscription for new callbacks
+// Subscription for new callbacks.
+// We pull display_id + payload type alongside host/user so the
+// "new callback" broadcast can render the same identity chips MSF uses
+// (e.g. "New callback C42 · root@WIN-DC01 · POSEIDON").
 export const SUBSCRIBE_NEW_CALLBACKS = gql`
     subscription NewCallbackStream($fromNow: timestamp!) {
         callback_stream(
@@ -8,8 +11,14 @@ export const SUBSCRIBE_NEW_CALLBACKS = gql`
             batch_size: 1
         ) {
             id
+            display_id
             host
             user
+            payload {
+                payloadtype {
+                    name
+                }
+            }
         }
     }
 `;

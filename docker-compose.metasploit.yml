@@ -13,10 +13,26 @@ services:
     entrypoint: ["./msfrpcd", "-U", "${MSFRPC_USER:-msf}", "-P", "${MSFRPC_PASS:-minerva_msf}", "-p", "${MSFRPC_PORT:-55553}", "-S", "-f", "-a", "0.0.0.0"]
     ports:
       - "${MSFRPC_PORT:-55553}:${MSFRPC_PORT:-55553}"
+      # SOCKS tunnel range — one host port per active meterpreter
+      # session. Minerva's MSF SOCKS feature starts
+      # `auxiliary/server/socks_proxy` inside the container with
+      # SRVHOST=0.0.0.0 and SRVPORT picked from this range. proxychains4
+      # on the operator's laptop then connects to
+      # `<mythic-host>:<port>` with `socks5`. The range size caps the
+      # number of concurrent MSF tunnels (32 today; raise both ends if
+      # more are needed). Offset to 7100+ to leave Mythic's own SOCKS
+      # range (7000-7010 by default in mythic_server) untouched.
+      - "7100-7131:7100-7131"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - msf_data:/home/msf/.msf4
+      # Shared file storage with Mythic: every file uploaded via Mythic's
+      # file manager appears here as `<agent_file_id>` (UUID). Mounted
+      # read-only so MSF can `upload /mythic_files/<uuid> <target_path>`
+      # without needing a copy. See `scripts/minerva_install.sh` for the
+      # one-time `docker compose up -d` after editing this file.
+      - /opt/Mythic/mythic-docker/src/files:/mythic_files:ro
     restart: unless-stopped
 
 volumes:

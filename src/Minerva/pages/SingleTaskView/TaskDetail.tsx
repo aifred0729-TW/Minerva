@@ -220,10 +220,10 @@ export function TaskDetail({ task }: { task: any }) {
                     <div className="p-4">
                         <MetaRow label="status"     value={<span style={{ color: TIER_COLOR[tier] }}>{(task.status ?? '').toUpperCase()}</span>}/>
                         <MetaRow label="operator"   value={task.operator?.username}/>
-                        <MetaRow label="tasked from" value={task.taskinglocation}/>
+                        <MetaRow label="tasked from" value={task.tasking_location}/>
                         <MetaRow label="params"     value={task.original_params}/>
                         <MetaRow label="submitted"  value={fmtTs(task.status_timestamp_submitted)}/>
-                        <MetaRow label="completed"  value={fmtTs(task.completed_at || task.status_timestamp_processed)}/>
+                        <MetaRow label="completed"  value={fmtTs(task.status_timestamp_processed)}/>
                         {cb && <>
                             <SectionLabel>callback</SectionLabel>
                             <MetaRow label="session"    value={<CbBadge id={cb.display_id}/>}/>

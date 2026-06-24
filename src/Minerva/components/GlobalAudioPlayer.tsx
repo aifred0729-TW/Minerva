@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Music2, Pause, Play } from 'lucide-react';
 import { useAppStore } from '../store';
+import { useShallow } from 'zustand/shallow';
 import { getTrack } from '../lib/musicDB';
 
 export function GlobalAudioPlayer() {
@@ -15,7 +16,14 @@ export function GlobalAudioPlayer() {
         musicLibrary,
         musicPlaying,
         setMusicPlaying,
-    } = useAppStore();
+    } = useAppStore(useShallow(s => ({
+        musicEnabled: s.musicEnabled,
+        musicVolume: s.musicVolume,
+        musicTrackId: s.musicTrackId,
+        musicLibrary: s.musicLibrary,
+        musicPlaying: s.musicPlaying,
+        setMusicPlaying: s.setMusicPlaying,
+    })));
 
     const [trackName, setTrackName] = useState<string>('');
 

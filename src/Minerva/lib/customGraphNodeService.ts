@@ -32,6 +32,8 @@ export interface CustomGraphEdge {
   sourceId: number | string;
   targetId: number | string;
   c2profile: string;
+  /** Operation that owns this edge. Legacy rows without it adopt the current op. */
+  operation_id?: number;
 }
 
 // ============================================================================
@@ -183,6 +185,7 @@ export function prepareCreateNodeData(
     username: input.username,
     description: input.description,
     hidden: false,
+    operation_id: input.operation_id,
     timestamp: new Date().toISOString(),
     position: input.position,
   };
@@ -208,6 +211,7 @@ export function prepareUpdateNodeData(
     username: input.username,
     description: input.description,
     hidden: input.hidden ?? false,
+    operation_id: input.operation_id,
     timestamp: new Date().toISOString(),
     position: input.position,
     parent_id: input.parent_id,

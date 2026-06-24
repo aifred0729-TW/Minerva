@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useSubscription, useMutation } from "@apollo/client/react";
 import { Link } from 'react-router-dom';
 
@@ -12,6 +12,7 @@ import {
 import { motion } from 'framer-motion';
 import { cn, isCallbackAlive, parseFirstIP } from '../lib/utils';
 import { snackActions } from '../lib/snackbar';
+import { useMsfSyntheticCallbacks } from './Callbacks/msfSyntheticCallbacks';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,41 +46,109 @@ interface CallbackGroup {
     isDomain: boolean;
 }
 
-function groupCallbacks(callbacks: any[]): Record<string, CallbackGroup> {
-    const groups: Record<string, CallbackGroup> = {};
+/** Returns true when the reported `domain` is actually just the machine's own
+ *  hostname — e.g. Apollo on a non-domain-joined Windows host sets
+ *  `Domain = Environment.UserDomainName`, which falls back to the computer
+ *  name when the machine isn't AD-joined. Treating that string as a real
+ *  domain produces groups labelled with HOSTNAMES instead of DOMAINS. */
+function isDomainActuallyHostname(domain: string, host: string): boolean {
+    if (!domain || !host) return false;
+    const d = domain.trim().toUpperCase();
+    const h = host.trim().toUpperCase();
+    if (!d || !h) return false;
+    if (d === h) return true;
+    const hShort = h.split('.')[0];
+    if (d === hShort) return true;
+    const dShort = d.split('.')[0];
+    if (dShort === hShort) return true;
+    return false;
+}
 
+export type GroupMode = 'domain' | 'ip';
+
+/**
+ * Group callbacks into "section → host → sessions" while ensuring a single
+ * machine is never split across sections.
+ *
+ * The previous logic grouped per-session by domain-or-IP-range, which meant
+ * one machine with NICs in two subnets (e.g. 10.0.0.10 + 192.168.50.10)
+ * could land in two separate IP-range sections, even though all sessions
+ * belonged to the same host. We now:
+ *
+ *  1. Collapse callbacks by canonical hostname FIRST.
+ *  2. Pick a representative callback per host (alive, highest integrity)
+ *     and use ITS domain / IP to decide which section the whole host
+ *     lands in.
+ *
+ * The operator picks the section axis: `'domain'` (the real Active
+ * Directory domain when reported, falling back to a single WORKGROUP
+ * section) or `'ip'` (the /24 of the representative callback's IP).
+ */
+function groupCallbacks(callbacks: any[], mode: GroupMode): Record<string, CallbackGroup> {
+    // ── Pass 1: collapse by host ──────────────────────────────────────────
+    type Bucket = { sessions: any[]; canonicalDomain: string };
+    const byHost = new Map<string, Bucket>();
     for (const cb of callbacks) {
+        const rawDomain = (cb.domain || '').trim();
+        const hasRealDomain = rawDomain !== '' && !isDomainActuallyHostname(rawDomain, cb.host || '');
+        const host = normalizeHost(cb.host, hasRealDomain ? rawDomain : '');
+        const existing = byHost.get(host);
+        if (existing) {
+            existing.sessions.push(cb);
+            // Promote to the first non-empty domain we see for this host —
+            // some callbacks (MSF, shell sessions) won't fill the field.
+            if (!existing.canonicalDomain && hasRealDomain) {
+                existing.canonicalDomain = rawDomain.toUpperCase();
+            }
+        } else {
+            byHost.set(host, {
+                sessions: [cb],
+                canonicalDomain: hasRealDomain ? rawDomain.toUpperCase() : '',
+            });
+        }
+    }
+
+    // ── Pass 2: pick rep callback per host, assign each host to a section ─
+    const pickRep = (sessions: any[]): any => {
+        // Alive + highest integrity wins.
+        let best = sessions[0];
+        for (const s of sessions) {
+            const sDead = isSessionDead(s);
+            const bDead = isSessionDead(best);
+            if (bDead && !sDead) { best = s; continue; }
+            if (!bDead && sDead) continue;
+            if ((s.integrity_level ?? 0) > (best.integrity_level ?? 0)) best = s;
+        }
+        return best;
+    };
+
+    const groups: Record<string, CallbackGroup> = {};
+    for (const [host, bucket] of byHost.entries()) {
+        const rep = pickRep(bucket.sessions);
         let groupKey: string;
         let isDomain = false;
 
-        if (cb.domain && cb.domain.trim() !== '') {
-            groupKey = cb.domain.toUpperCase();
-            isDomain = true;
+        if (mode === 'domain') {
+            if (bucket.canonicalDomain) {
+                groupKey = bucket.canonicalDomain;
+                isDomain = true;
+            } else {
+                groupKey = 'WORKGROUP';
+                isDomain = false;
+            }
         } else {
-            groupKey = ipToRange(cb.ip);
+            groupKey = ipToRange(rep.ip);
         }
 
-        if (!groups[groupKey]) {
-            groups[groupKey] = { hosts: {}, isDomain };
-        }
-
-        const host = normalizeHost(cb.host, cb.domain);
-        if (!groups[groupKey].hosts[host]) {
-            groups[groupKey].hosts[host] = [];
-        }
-        groups[groupKey].hosts[host].push(cb);
-    }
-
-    // Sort sessions within each host: alive first, then highest integrity, then dead last
-    for (const group of Object.values(groups)) {
-        for (const host of Object.keys(group.hosts)) {
-            group.hosts[host].sort((a, b) => {
-                const aDead = isSessionDead(a);
-                const bDead = isSessionDead(b);
-                if (aDead !== bDead) return aDead ? 1 : -1; // Alive first
-                return (b.integrity_level ?? 0) - (a.integrity_level ?? 0); // Then by integrity
-            });
-        }
+        if (!groups[groupKey]) groups[groupKey] = { hosts: {}, isDomain };
+        // Sort sessions within the host: alive first, then highest integrity.
+        bucket.sessions.sort((a, b) => {
+            const aDead = isSessionDead(a);
+            const bDead = isSessionDead(b);
+            if (aDead !== bDead) return aDead ? 1 : -1;
+            return (b.integrity_level ?? 0) - (a.integrity_level ?? 0);
+        });
+        groups[groupKey].hosts[host] = bucket.sessions;
     }
 
     return groups;
@@ -348,16 +417,36 @@ const DomainSection = ({
 
 // ── main page ─────────────────────────────────────────────────────────────────
 
+const GROUP_MODE_KEY = 'minerva.consoleMatrix.groupMode';
+
 export default function ConsoleSelection() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [hideDead, setHideDead] = useState(false);
+    const [groupMode, setGroupMode] = useState<GroupMode>(() => {
+        try {
+            const stored = localStorage.getItem(GROUP_MODE_KEY);
+            return stored === 'ip' ? 'ip' : 'domain';
+        } catch { return 'domain'; }
+    });
+    const updateGroupMode = (next: GroupMode) => {
+        setGroupMode(next);
+        try { localStorage.setItem(GROUP_MODE_KEY, next); } catch { /* ignore */ }
+    };
+
     const { data, loading } = useSubscription<any>(SUBSCRIPTION_CONSOLE_CALLBACKS, {
         onError: (err) => { console.error('[SUBSCRIPTION_CONSOLE_CALLBACKS] subscription error:', err); },
     });
 
-    const callbacks: any[] = data?.callback || [];
+    // Merge Mythic-subscribed callbacks with the synthetic MSF callbacks
+    // so Metasploit sessions show up in the matrix alongside native ones.
+    const msfSynthetic = useMsfSyntheticCallbacks();
+    const callbacks: any[] = useMemo(
+        () => [...(data?.callback || []), ...msfSynthetic],
+        [data, msfSynthetic],
+    );
+
     const filteredCallbacks = hideDead ? callbacks.filter(cb => !isSessionDead(cb)) : callbacks;
-    const groups = groupCallbacks(filteredCallbacks);
+    const groups = useMemo(() => groupCallbacks(filteredCallbacks, groupMode), [filteredCallbacks, groupMode]);
     // Sort groups: domains/ranges with at least one alive session first
     const groupEntries = Object.entries(groups).sort(([, aGroup], [, bGroup]) => {
         const aAlive = Object.values(aGroup.hosts).some((sessions: any[]) => sessions.some(s => !isSessionDead(s)));
@@ -400,6 +489,35 @@ export default function ConsoleSelection() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                        {/* Group-by toggle: domain vs IP range. Operator preference
+                            survives reloads via localStorage. */}
+                        <div className="inline-flex border border-ghost/30 rounded-sm overflow-hidden font-mono text-xs">
+                            <button
+                                onClick={() => updateGroupMode('domain')}
+                                title="Group hosts by Active Directory domain"
+                                className={cn(
+                                    'flex items-center gap-1.5 px-3 py-2 transition-colors',
+                                    groupMode === 'domain'
+                                        ? 'bg-signal/10 text-signal'
+                                        : 'text-signal/80 hover:text-signal hover:bg-signal/5',
+                                )}
+                            >
+                                <Globe size={13} /> DOMAIN
+                            </button>
+                            <span className="w-px bg-ghost/30" />
+                            <button
+                                onClick={() => updateGroupMode('ip')}
+                                title="Group hosts by /24 IP range"
+                                className={cn(
+                                    'flex items-center gap-1.5 px-3 py-2 transition-colors',
+                                    groupMode === 'ip'
+                                        ? 'bg-signal/10 text-signal'
+                                        : 'text-signal/80 hover:text-signal hover:bg-signal/5',
+                                )}
+                            >
+                                <Network size={13} /> IP_RANGE
+                            </button>
+                        </div>
                         <button
                             onClick={() => setHideDead(!hideDead)}
                             className={cn(

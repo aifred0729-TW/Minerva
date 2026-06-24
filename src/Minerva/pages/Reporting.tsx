@@ -73,7 +73,7 @@ const OptionToggle = ({
 // Main Reporting Page
 // ============================================
 const Reporting = () => {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const fromNow = useRef((getSkewedNow()).toISOString());
     const [generating, setGenerating] = useState(false);
     const [lastReport, setLastReport] = useState<{ id: string; timestamp: Date } | null>(null);

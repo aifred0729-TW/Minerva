@@ -95,6 +95,14 @@ export interface Callback {
     callbackports: CallbackPortEntry[];
     payload: CallbackPayloadInfo;
     callbackc2profiles: CallbackC2Profile[];
+    /**
+     * Most-recent task whose response Mythic has finished processing
+     * for this callback. Used by the UI to display "time since last
+     * real response" for P2P-routed callbacks — `last_checkin` is
+     * unreliable for those because the parent's beacons constantly
+     * bump it. Empty array when the callback has never been tasked.
+     */
+    tasks?: { status_timestamp_processed: string }[];
     tags: CallbackTag[];
     // ── Runtime / graph-added properties ──
     /** True for custom graph nodes merged into callback list */
@@ -130,6 +138,14 @@ export interface Callback {
     _isChildRow?: boolean;
     /** Host key used for grouping */
     _hostKey?: string;
+    /** True for rows synthesized from Metasploit sessions */
+    _isMsfSession?: boolean;
+    /** Underlying Metasploit session id (string) when _isMsfSession */
+    _msfSessionId?: string;
+    /** MSF session type — 'meterpreter' | 'shell' | etc. */
+    _msfSessionType?: string;
+    /** Raw MSF session record (for detail views) */
+    _msfSession?: unknown;
     /** Index signature for additional dynamic properties */
     [key: string]: unknown;
 }

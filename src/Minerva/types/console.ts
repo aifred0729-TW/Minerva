@@ -32,7 +32,7 @@ export interface MzExtractedCred {
     account: string;
     realm: string;
     credential: string;
-    credType: 'hash' | 'plaintext';
+    credType: 'plaintext' | 'hash' | 'ticket' | 'certificate' | 'key' | 'hex';
     source: string;
 }
 

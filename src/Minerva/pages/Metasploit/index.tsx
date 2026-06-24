@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, lazy, Suspense } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import {
     RefreshCw, Wifi, WifiOff, Server, Bug, Shield, Terminal,
@@ -7,10 +7,14 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { cn } from '../../lib/utils';
+import { Link } from 'react-router-dom';
 import {
-    getFullStatus, getStoredCredentials, saveCredentials, killSession, stopJob,
+    getFullStatus, getStoredCredentials, saveCredentials, stopJob, pingMsfRpc,
+    filterSessionsByOperation,
     type MsfConnectionStatus, type MsfSession
 } from './msfrpc';
+import { useReactiveVar } from '@apollo/client/react';
+import { meState } from '../../lib/state';
 
 const LaunchAttack = lazy(() => import('./LaunchAttack'));
 const Operations = lazy(() => import('./Operations'));
@@ -18,7 +22,13 @@ const TaskBrowser = lazy(() => import('./TaskBrowser'));
 
 type MsfTab = 'dashboard' | 'attack' | 'operations' | 'history';
 
-const METASPLOIT_POLL_INTERVAL_MS = 15_000;
+// Online-indicator ping — cheap `core.version` RPC, runs often so the
+// red/green dot reacts within seconds when the MSF daemon flips state.
+const MSF_PING_INTERVAL_MS = 3_000;
+// Full status (module counts, session list, job list) — fetches 7 huge
+// module-name arrays. Runs on a slow cadence; also fires once whenever
+// the ping flips from offline → online so the dashboard fills in fast.
+const MSF_HEAVY_REFRESH_INTERVAL_MS = 60_000;
 
 // ── Animation Variants ──────────────────────────────────────────────────────
 const container: Variants = {
@@ -55,60 +65,50 @@ function StatCard({ icon, label, value, sub, color = 'signal' }: {
     );
 }
 
-// ── Sessions Table ──────────────────────────────────────────────────────────
-function SessionsPanel({ sessions, onKill }: { sessions: Record<string, MsfSession>; onKill: (id: string) => void }) {
+// ── Sessions are now managed from the Callbacks page (unified table + console).
+//    A small summary card here keeps a quick count, but interaction lives in /callbacks.
+function SessionsSummary({ sessions }: { sessions: Record<string, MsfSession> }) {
     const entries = Object.entries(sessions);
-    if (entries.length === 0) {
-        return (
-            <div className="border border-ghost/30 bg-void/50 p-6">
-                <div className="flex items-center gap-2 mb-4 text-gray-400 text-xs font-mono tracking-widest uppercase">
-                    <Crosshair size={16} /> ACTIVE SESSIONS
-                </div>
-                <div className="text-gray-500 font-mono text-sm text-center py-8">NO_ACTIVE_SESSIONS</div>
-            </div>
-        );
-    }
     return (
-        <div className="border border-ghost/30 bg-void/50 p-6 overflow-hidden">
-            <div className="flex items-center gap-2 mb-4 text-gray-400 text-xs font-mono tracking-widest uppercase">
-                <Crosshair size={16} /> ACTIVE SESSIONS ({entries.length})
+        <div className="border border-ghost/30 bg-void/50 p-6">
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-gray-400 text-xs font-mono tracking-widest uppercase">
+                    <Crosshair size={16} /> ACTIVE SESSIONS ({entries.length})
+                </div>
+                <Link to="/callbacks"
+                    className="text-[10px] font-mono text-signal/70 hover:text-signal border border-signal/30 px-2 py-1 transition-colors">
+                    OPEN IN CALLBACKS →
+                </Link>
             </div>
-            <div className="overflow-x-auto cyber-scrollbar">
-                <table className="w-full text-xs font-mono">
-                    <thead>
-                        <tr className="text-gray-500 border-b border-ghost/20">
-                            <th className="text-left py-2 px-2">ID</th>
-                            <th className="text-left py-2 px-2">TYPE</th>
-                            <th className="text-left py-2 px-2">INFO</th>
-                            <th className="text-left py-2 px-2">TARGET</th>
-                            <th className="text-left py-2 px-2">VIA</th>
-                            <th className="text-left py-2 px-2">ARCH</th>
-                            <th className="text-right py-2 px-2"></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {entries.map(([id, s]) => (
-                            <tr key={id} className="border-b border-ghost/10 hover:bg-signal/5 transition-colors">
-                                <td className="py-2 px-2 text-signal font-bold">{id}</td>
-                                <td className="py-2 px-2">
-                                    <span className={cn("px-1.5 py-0.5 rounded text-[10px]",
-                                        s.type === 'meterpreter' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
-                                    )}>{s.type?.toUpperCase()}</span>
-                                </td>
-                                <td className="py-2 px-2 text-gray-300 max-w-[200px] truncate">{s.info || '-'}</td>
-                                <td className="py-2 px-2 text-cyan-400">{s.session_host || s.target_host || '-'}:{s.session_port || '-'}</td>
-                                <td className="py-2 px-2 text-gray-400 max-w-[180px] truncate">{s.via_exploit || '-'}</td>
-                                <td className="py-2 px-2 text-gray-400">{s.arch || '-'}/{s.platform || '-'}</td>
-                                <td className="py-2 px-2 text-right">
-                                    <button onClick={() => onKill(id)} className="text-red-400/60 hover:text-red-400 transition-colors" title="Kill session">
-                                        <CircleStop size={14} />
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            {entries.length === 0 ? (
+                <div className="text-gray-500 font-mono text-sm text-center py-8">NO_ACTIVE_SESSIONS</div>
+            ) : (
+                <div className="space-y-1.5">
+                    {entries.slice(0, 6).map(([id, s]) => (
+                        <Link to="/callbacks" key={id}
+                            className="flex items-center justify-between border border-ghost/15 px-3 py-1.5 hover:border-signal/40 hover:bg-signal/5 transition-colors">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <span className="text-red-400 font-mono text-xs font-bold shrink-0">MSF-{id}</span>
+                                <span className={cn('text-[10px] px-1.5 py-0.5 rounded shrink-0',
+                                    s.type === 'meterpreter' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
+                                )}>{s.type?.toUpperCase()}</span>
+                                <span className="text-cyan-400 font-mono text-xs truncate">
+                                    {s.session_host || s.target_host || '-'}:{s.session_port || '-'}
+                                </span>
+                                <span className="text-gray-500 font-mono text-[10px] truncate hidden md:inline">
+                                    {s.info || s.via_exploit || ''}
+                                </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-gray-500 shrink-0">→ INTERACT</span>
+                        </Link>
+                    ))}
+                    {entries.length > 6 && (
+                        <div className="text-[10px] font-mono text-gray-500 text-center pt-1">
+                            +{entries.length - 6} more · view all in Callbacks
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -252,7 +252,7 @@ function ConnectionSettings({ open, onClose, onSaved }: { open: boolean; onClose
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function Metasploit() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [status, setStatus] = useState<MsfConnectionStatus | null>(null);
     const [loading, setLoading] = useState(true);
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -272,24 +272,85 @@ export default function Metasploit() {
         }
     }, []);
 
+    // Heavy refresh — initial load + slow background cadence. The fast
+    // ping below also triggers this when it flips offline → online.
     useEffect(() => {
         refresh();
-        const interval = setInterval(refresh, METASPLOIT_POLL_INTERVAL_MS);
+        const interval = setInterval(refresh, MSF_HEAVY_REFRESH_INTERVAL_MS);
         return () => clearInterval(interval);
     }, [refresh]);
 
-    const handleKillSession = async (id: string) => {
-        await killSession(id);
-        refresh();
-    };
+    // Fast online-indicator ping. Keeps the connection dot reactive
+    // without paying for module-list enumeration on every cycle. When
+    // the connection comes back, kick a heavy refresh immediately so
+    // the dashboard counters fill in instead of waiting up to 60s.
+    useEffect(() => {
+        let cancelled = false;
+        let prevConnected: boolean | null = null;
+        const tick = async () => {
+            const up = await pingMsfRpc();
+            if (cancelled) return;
+            setStatus(prev => {
+                if (!prev) {
+                    // Heavy refresh hasn't returned yet — set a minimal
+                    // record so the UI dot updates straight away.
+                    return { connected: up, sessions: {}, jobs: {} };
+                }
+                if (prev.connected === up) return prev;
+                return { ...prev, connected: up, error: up ? undefined : prev.error };
+            });
+            if (prevConnected === false && up) {
+                // Re-fetch the heavy data on reconnect so the page fills in.
+                refresh();
+            }
+            prevConnected = up;
+        };
+        tick();
+        const iv = setInterval(tick, MSF_PING_INTERVAL_MS);
+        return () => { cancelled = true; clearInterval(iv); };
+    }, [refresh]);
 
     const handleStopJob = async (id: string) => {
         await stopJob(id);
         refresh();
     };
 
-    const sessionCount = status ? Object.keys(status.sessions).length : 0;
+    // Scope sessions to the operator's current Mythic operation — MSF
+    // RPC's `session.list` is global across the daemon, but each session
+    // carries a `workspace` field that the boot bootstrap pins to
+    // `mythic-op-{id}`. Counters and the SessionsSummary panel read
+    // only the scoped subset so other operations don't leak in.
+    const me = useReactiveVar(meState);
+    const opId = me.user?.current_operation_id ?? 0;
+    const scopedSessions = useMemo(
+        () => status?.sessions ? filterSessionsByOperation(status.sessions, opId) : {},
+        [status?.sessions, opId],
+    );
+    const sessionCount = Object.keys(scopedSessions).length;
     const jobCount = status ? Object.keys(status.jobs).length : 0;
+
+    // Tri-state connection: 'connecting' before the first ping/heavy
+    // refresh returns, then 'online'/'offline' from the live status.
+    // Don't flash OFFLINE during the initial probe — operators have
+    // mistaken that for a real connection failure.
+    const connState: 'connecting' | 'online' | 'offline' = status === null
+        ? 'connecting'
+        : status.connected ? 'online' : 'offline';
+    const dotClass = connState === 'online'
+        ? 'bg-accent animate-pulse'
+        : connState === 'connecting'
+            ? 'bg-amber-400 animate-pulse'
+            : 'bg-red-500';
+    const dotText = connState === 'online'
+        ? 'RPC_CONNECTED'
+        : connState === 'connecting'
+            ? 'RPC_CONNECTING'
+            : 'RPC_OFFLINE';
+    const dotTextClass = connState === 'online'
+        ? 'text-accent'
+        : connState === 'connecting'
+            ? 'text-amber-400'
+            : 'text-red-500';
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void overflow-x-hidden">
@@ -303,36 +364,32 @@ export default function Metasploit() {
                                 <Server size={22} className="text-signal" />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-bold tracking-widest">METASPLOIT</h1>
-                                <p className="text-xs text-gray-400 font-mono tracking-widest">MSF_RPC_FRAMEWORK_INTERFACE</p>
+                                <h1 className="text-2xl font-bold tracking-widest text-signal">METASPLOIT</h1>
+                                <p className="text-xs text-signal font-mono tracking-widest">MSF_RPC_FRAMEWORK_INTERFACE</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-4">
-                            {/* Connection Status */}
-                            <div className="hidden md:flex items-center gap-3 text-xs font-mono text-gray-400">
-                                <span className="flex items-center gap-2">
-                                    <span className={cn("w-2 h-2 rounded-full",
-                                        status?.connected ? "bg-green-500 animate-pulse" : "bg-red-500"
-                                    )} />
-                                    {status?.connected ? 'RPC_CONNECTED' : 'RPC_OFFLINE'}
+                            {/* Connection Status — tri-state */}
+                            <div className="hidden md:flex items-center gap-4 text-xs font-mono text-signal">
+                                <span className={cn("flex items-center gap-2", dotTextClass)}>
+                                    <span className={cn("w-2 h-2 rounded-full", dotClass)} />
+                                    {dotText}
                                 </span>
                                 {status?.version && (
-                                    <>
-                                        <span>|</span>
-                                        <span>v{status.version.version}</span>
-                                    </>
+                                    <span className="flex items-center gap-4 before:content-[''] before:w-px before:h-3 before:bg-signal/20">
+                                        v{status.version.version}
+                                    </span>
                                 )}
                                 {lastRefresh && (
-                                    <>
-                                        <span>|</span>
-                                        <span>{lastRefresh.toLocaleTimeString()}</span>
-                                    </>
+                                    <span className="flex items-center gap-4 before:content-[''] before:w-px before:h-3 before:bg-signal/20">
+                                        {lastRefresh.toLocaleTimeString()}
+                                    </span>
                                 )}
                             </div>
-                            <button onClick={() => setSettingsOpen(true)} className="p-2 text-gray-400 hover:text-signal transition-colors" title="RPC Settings">
+                            <button onClick={() => setSettingsOpen(true)} className="p-2 text-signal hover:text-accent transition-colors" title="RPC Settings">
                                 <SettingsIcon size={18} />
                             </button>
-                            <button onClick={refresh} className={cn("p-2 text-gray-400 hover:text-signal transition-colors", loading && "animate-spin")} title="Refresh">
+                            <button onClick={refresh} className={cn("p-2 text-signal hover:text-accent transition-colors", loading && "animate-spin")} title="Refresh">
                                 <RefreshCw size={18} />
                             </button>
                         </div>
@@ -351,7 +408,7 @@ export default function Metasploit() {
                                 onClick={() => setActiveTab(tab.key)}
                                 className={cn(
                                     'flex items-center gap-2 px-5 py-2.5 text-xs font-mono uppercase tracking-widest border-b-2 transition-colors -mb-[1px]',
-                                    activeTab === tab.key ? 'border-signal text-signal' : 'border-transparent text-gray-500 hover:text-white'
+                                    activeTab === tab.key ? 'border-signal text-signal' : 'border-transparent text-signal hover:border-signal/40'
                                 )}
                             >
                                 {tab.icon} {tab.label}
@@ -359,22 +416,48 @@ export default function Metasploit() {
                         ))}
                     </div>
 
-                    {/* Error Banner */}
-                    {status && !status.connected && (
-                        <motion.div variants={item} className="mb-6 border border-red-500/30 bg-red-500/10 p-4 flex items-start gap-3">
-                            <WifiOff size={18} className="text-red-400 mt-0.5 shrink-0" />
+                    {/* Connecting hero — covers the initial probe so the page
+                        doesn't flash "OFFLINE" before the first ping returns. */}
+                    {connState === 'connecting' && (
+                        <motion.div variants={item} className="min-h-[70vh] flex items-center justify-center">
+                            <div className="flex flex-col items-center gap-8">
+                                <div className="relative w-24 h-24 flex items-center justify-center">
+                                    <span className="absolute inset-0 rounded-full border border-amber-400/30 animate-ping" />
+                                    <span className="absolute inset-3 rounded-full border border-amber-400/60" />
+                                    <Server size={32} className="text-amber-400 relative" strokeWidth={1.6} />
+                                </div>
+                                <div className="text-center space-y-3">
+                                    <div className="text-[11px] font-mono uppercase tracking-[0.3em] text-signal">
+                                        Establishing link
+                                    </div>
+                                    <div className="text-xl font-mono text-signal tracking-[0.2em] font-bold">
+                                        PROBING MSF-RPC DAEMON
+                                    </div>
+                                    <div className="text-xs font-mono text-signal pt-1 max-w-md">
+                                        Sending one <span className="text-amber-400">core.version</span> RPC. Status will resolve within a few seconds.
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {/* Error Banner — only after a real failed probe, not during the initial check. */}
+                    {connState === 'offline' && (
+                        <motion.div variants={item} className="mb-6 border border-red-500/30 bg-red-500/[0.04] p-4 flex items-start gap-3 rounded-md">
+                            <WifiOff size={18} className="text-red-500 mt-0.5 shrink-0" />
                             <div>
-                                <div className="text-sm font-mono text-red-400 font-bold">CONNECTION FAILED</div>
-                                <div className="text-xs font-mono text-gray-400 mt-1">{status.error || 'Cannot reach MSF-RPC daemon.'}</div>
-                                <button onClick={() => setSettingsOpen(true)} className="mt-2 text-xs font-mono text-red-400 hover:text-red-300 underline transition-colors">
+                                <div className="text-sm font-mono text-red-500 font-bold tracking-wider">CONNECTION FAILED</div>
+                                <div className="text-xs font-mono text-signal mt-1">{status?.error || 'Cannot reach MSF-RPC daemon.'}</div>
+                                <button onClick={() => setSettingsOpen(true)} className="mt-2 text-xs font-mono text-red-500 hover:text-red-400 underline transition-colors">
                                     CHECK CONNECTION SETTINGS
                                 </button>
                             </div>
                         </motion.div>
                     )}
 
-                    {/* Dashboard Tab */}
-                    {activeTab === 'dashboard' && (
+                    {/* Dashboard Tab — hidden during the initial probe; the
+                        connecting hero fills the page instead. */}
+                    {activeTab === 'dashboard' && connState !== 'connecting' && (
                         <>
                             {/* Stat Cards */}
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
@@ -422,7 +505,7 @@ export default function Metasploit() {
                             {status?.connected && (
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                                     <motion.div variants={item}>
-                                        <SessionsPanel sessions={status.sessions} onKill={handleKillSession} />
+                                        <SessionsSummary sessions={scopedSessions} />
                                     </motion.div>
                                     <motion.div variants={item}>
                                         <JobsPanel jobs={status.jobs} onStop={handleStopJob} />
@@ -474,7 +557,7 @@ export default function Metasploit() {
                     )}
 
                     {activeTab === 'attack' && status && !status.connected && (
-                        <div className="text-center py-20 text-gray-500 font-mono text-sm">
+                        <div className="text-center py-20 text-signal font-mono text-sm tracking-[0.15em]">
                             MSF-RPC must be connected to launch attacks.
                         </div>
                     )}
@@ -487,7 +570,7 @@ export default function Metasploit() {
                     )}
 
                     {activeTab === 'operations' && status && !status.connected && (
-                        <div className="text-center py-20 text-gray-500 font-mono text-sm">
+                        <div className="text-center py-20 text-signal font-mono text-sm tracking-[0.15em]">
                             MSF-RPC must be connected to view operations.
                         </div>
                     )}

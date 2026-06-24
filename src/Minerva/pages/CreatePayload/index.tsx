@@ -576,7 +576,7 @@ const PayloadCreationWizard = () => {
 
 // Main component for /payloads route
 export default function CreatePayloadRouter() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
 
     return (
         <div className="h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void flex">

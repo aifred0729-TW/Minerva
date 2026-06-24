@@ -3,27 +3,53 @@ import {
     Volume2, Music2, Play, Pause, Disc3, Upload, Trash2,
 } from 'lucide-react';
 import { useAppStore } from '../../store';
+import { useShallow } from 'zustand/shallow';
 import { cn } from '../../lib/utils';
 import { ToggleRow, SliderRow } from './SettingsRows';
 
 const ACCEPTED_AUDIO = '.mp3,.m4a,.ogg,.wav,.flac,.aac,.webm';
 
-const SFX_PREVIEWS = [
-    { label: 'CLICK',    fn: () => import('../../lib/soundEffects').then(m => m.playClick()) },
-    { label: 'CALLBACK', fn: () => import('../../lib/soundEffects').then(m => m.playCallback()) },
-    { label: 'LOADING',  fn: () => import('../../lib/soundEffects').then(m => m.playEnter()) },
-    { label: 'AUTHED',   fn: () => import('../../lib/soundEffects').then(m => m.playAuthed()) },
-    { label: 'TUNNEL',   fn: () => import('../../lib/soundEffects').then(m => m.playTunnel()) },
+// Per-sound toggle entries — `key` matches the soundKey gated in lib/soundEffects.ts.
+const SFX_ENTRIES: { key: string; label: string; description: string; play: () => void | Promise<void> }[] = [
+    { key: 'click',        label: 'CLICK',        description: 'UI element clicks',
+        play: () => import('../../lib/soundEffects').then(m => m.playClick()) },
+    { key: 'callback',     label: 'CALLBACK',     description: 'New callback alert',
+        play: () => import('../../lib/soundEffects').then(m => m.playCallback()) },
+    { key: 'enter',        label: 'LOADING',      description: 'Page transition / page enter',
+        play: () => import('../../lib/soundEffects').then(m => m.playEnter()) },
+    { key: 'authed',       label: 'AUTHED',       description: 'Login success handshake',
+        play: () => import('../../lib/soundEffects').then(m => m.playAuthed()) },
+    { key: 'tunnel',       label: 'TUNNEL',       description: 'Tunnel established / port forward',
+        play: () => import('../../lib/soundEffects').then(m => m.playTunnel()) },
+    { key: 'notification', label: 'NOTIFICATION', description: 'General notification chime',
+        play: () => import('../../lib/soundEffects').then(m => m.playNotification()) },
+    { key: 'threeLoad',    label: '3D LOAD',      description: '3D Topology scene load',
+        play: () => import('../../lib/soundEffects').then(m => m.playThreeLoad()) },
+    { key: 'selectQH',     label: 'SELECT QH',    description: 'QuickHack selected',
+        play: () => import('../../lib/soundEffects').then(m => m.playSelectQH()) },
+    { key: 'doneQH',       label: 'DONE QH',      description: 'QuickHack execution complete',
+        play: () => import('../../lib/soundEffects').then(m => m.playDoneQH()) },
 ];
 
 export const AudioSection = () => {
     const {
         musicEnabled, musicVolume, musicTrackId, musicLibrary, musicPlaying,
-        sfxEnabled, sfxVolume,
+        sfxEnabled, sfxVolume, sfxIndividualEnabled,
         setMusicEnabled, setMusicVolume, setMusicTrackId, setMusicPlaying,
         addMusicLibraryEntry, removeMusicLibraryEntry,
-        setSfxEnabled, setSfxVolume,
-    } = useAppStore();
+        setSfxEnabled, setSfxVolume, setSfxSoundEnabled,
+    } = useAppStore(useShallow(s => ({
+        musicEnabled: s.musicEnabled, musicVolume: s.musicVolume,
+        musicTrackId: s.musicTrackId, musicLibrary: s.musicLibrary,
+        musicPlaying: s.musicPlaying, sfxEnabled: s.sfxEnabled,
+        sfxVolume: s.sfxVolume, sfxIndividualEnabled: s.sfxIndividualEnabled,
+        setMusicEnabled: s.setMusicEnabled,
+        setMusicVolume: s.setMusicVolume, setMusicTrackId: s.setMusicTrackId,
+        setMusicPlaying: s.setMusicPlaying, addMusicLibraryEntry: s.addMusicLibraryEntry,
+        removeMusicLibraryEntry: s.removeMusicLibraryEntry,
+        setSfxEnabled: s.setSfxEnabled, setSfxVolume: s.setSfxVolume,
+        setSfxSoundEnabled: s.setSfxSoundEnabled,
+    })));
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
@@ -187,26 +213,60 @@ export const AudioSection = () => {
                 value={sfxVolume} onChange={setSfxVolume}
                 fmt={v => `${Math.round(v * 100)}%`} />
 
-            <div className="bg-black/40 border border-white/10 p-4 hover:border-white/20 transition-colors">
-                <div className="flex items-center gap-4 mb-3">
-                    <div className="w-9 h-9 bg-white/5 flex items-center justify-center shrink-0"><Play size={17} className="text-gray-400" /></div>
-                    <div><div className="text-sm font-medium text-white">Preview Sounds</div><div className="text-xs text-gray-500 mt-0.5">Click to test each sound effect at current volume</div></div>
+            <div className="bg-black/40 border border-white/10 hover:border-white/20 transition-colors">
+                <div className="flex items-center gap-4 px-4 py-3 border-b border-white/5">
+                    <div className="w-9 h-9 bg-white/5 flex items-center justify-center shrink-0"><Play size={17} className="text-zinc-300" /></div>
+                    <div>
+                        <div className="text-sm font-medium text-white">Per-Sound Toggles</div>
+                        <div className="text-xs text-zinc-300 mt-0.5">Toggle individual SFX on/off and preview at current volume. Master toggle still overrides all.</div>
+                    </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                    {SFX_PREVIEWS.map(sfx => (
-                        <button key={sfx.label}
-                            disabled={!sfxEnabled}
-                            onClick={() => sfx.fn()}
-                            className={cn(
-                                'flex items-center gap-1.5 px-3 py-1.5 border text-[11px] font-mono uppercase tracking-wider transition-colors',
-                                sfxEnabled
-                                    ? 'border-white/15 text-gray-400 hover:border-signal/40 hover:text-signal'
-                                    : 'border-white/5 text-gray-700 cursor-not-allowed'
-                            )}
-                        >
-                            <Play size={9} />{sfx.label}
-                        </button>
-                    ))}
+                <div className="divide-y divide-white/5">
+                    {SFX_ENTRIES.map(sfx => {
+                        const individuallyOn = sfxIndividualEnabled[sfx.key] !== false;
+                        const playable = sfxEnabled && individuallyOn;
+                        return (
+                            <div key={sfx.key} className="flex items-center gap-3 px-4 py-2.5">
+                                {/* Per-sound toggle */}
+                                <button
+                                    onClick={() => setSfxSoundEnabled(sfx.key, !individuallyOn)}
+                                    title={individuallyOn ? 'Disable this sound' : 'Enable this sound'}
+                                    className={cn(
+                                        'relative w-9 h-4 rounded-sm transition-colors shrink-0',
+                                        individuallyOn ? 'bg-signal/40' : 'bg-zinc-700'
+                                    )}
+                                >
+                                    <div className={cn(
+                                        'absolute top-0.5 w-3 h-3 bg-white transition-all rounded-sm',
+                                        individuallyOn ? 'left-[1.25rem]' : 'left-0.5'
+                                    )} />
+                                </button>
+                                {/* Label + description */}
+                                <div className="flex-1 min-w-0">
+                                    <span className={cn(
+                                        'text-[11px] font-mono font-bold tracking-[0.2em]',
+                                        individuallyOn ? 'text-white' : 'text-zinc-400'
+                                    )}>
+                                        {sfx.label}
+                                    </span>
+                                    <span className="text-[10px] text-zinc-300 ml-2">{sfx.description}</span>
+                                </div>
+                                {/* Preview */}
+                                <button
+                                    disabled={!playable}
+                                    onClick={() => sfx.play()}
+                                    className={cn(
+                                        'flex items-center gap-1.5 px-2.5 py-1 border text-[10px] font-mono uppercase tracking-[0.15em] transition-colors',
+                                        playable
+                                            ? 'border-white/15 text-zinc-200 hover:border-signal/50 hover:text-signal hover:bg-signal/10'
+                                            : 'border-white/10 text-zinc-500 cursor-not-allowed'
+                                    )}
+                                >
+                                    <Play size={9} /> TEST
+                                </button>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         </div>

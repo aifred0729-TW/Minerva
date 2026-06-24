@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { ErrorBoundary } from './ErrorBoundary';
+import { ImportantBroadcast } from './ImportantBroadcast';
 import { WifiOff } from 'lucide-react';
 
 function OfflineIndicator() {
@@ -31,6 +32,7 @@ export function Layout() {
     return (
         <>
             <OfflineIndicator />
+            <ImportantBroadcast />
             <Sidebar />
             <ErrorBoundary>
                 <Outlet />

@@ -15,8 +15,9 @@ import {
     Plus, Edit, Users, CheckCircle, Shield,
     UserPlus, Zap, ChevronDown,
     Globe, Bell, Palette, Ban, Search as SearchIcon,
-    X, Save,
+    X, Save, Clock, Calendar,
 } from 'lucide-react';
+import { parseSchedule, withSchedule, msToLocalInputValue, localInputValueToMs, tDelta } from '../../lib/operationSchedule';
 import { motion } from 'framer-motion';
 import { HexColorPicker } from 'react-colorful';
 import { snackActions } from '../../lib/snackbar';
@@ -98,17 +99,45 @@ export function RoleSelect({ value, onChange }: { value: string; onChange: (v: M
 // ── Create Operation ──────────────────────────────
 export function CreateOperationModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
     const [name, setName] = useState('');
-    const [createOp, { loading }] = useMutation<any>(CREATE_OPERATION_MUTATION);
-    const onSubmit = async (e: React.FormEvent) => {
+    const [submitted, setSubmitted] = useState(false);
+    const [createOp] = useMutation<any>(CREATE_OPERATION_MUTATION);
+
+    /*  Why we don't `await` the mutation:
+     *
+     *  The Mythic `createOperation` action invalidates EVERY operator's
+     *  Hasura claim cache server-side (operation_create_webhook.go calls
+     *  UpdateHasuraClaims with invalidateAllOthers=true) right before
+     *  returning. With Apollo Client v4 polling GET_OPERATIONS every 10s,
+     *  the response-arrival race against the next claim refresh can leave
+     *  the mutation promise unresolved indefinitely — the row IS written
+     *  to the DB, but the modal sits on "CREATING…" forever.
+     *
+     *  Fix: close the modal as soon as the request is dispatched and run
+     *  the mutation in the background. Success / failure feedback goes
+     *  through the snackbar; the parent's refetch() picks up the new row
+     *  regardless of whether the mutation promise resolved. */
+    const onSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name.trim()) return;
-        try {
-            const { data } = await createOp({ variables: { name: name.trim() } });
-            if (data?.createOperation?.status === 'error') throw new Error(data.createOperation.error);
-            snackActions.success('Operation created');
-            onSuccess();
-        } catch (err: any) { snackActions.error(err.message || 'Failed to create operation'); }
+        const trimmed = name.trim();
+        if (!trimmed || submitted) return;
+        setSubmitted(true);
+
+        // Optimistic close — list refetch will surface the new row.
+        onSuccess();
+
+        createOp({ variables: { name: trimmed } })
+            .then(({ data }: any) => {
+                if (data?.createOperation?.status === 'error') {
+                    snackActions.error(`Create failed: ${data.createOperation.error || 'unknown error'}`);
+                } else {
+                    snackActions.success(`Operation "${trimmed}" created`);
+                }
+            })
+            .catch((err: any) => {
+                snackActions.error(err?.message || 'Failed to create operation');
+            });
     };
+
     return (
         <ModalBackdrop onClose={onClose}>
             <div className="p-6">
@@ -122,9 +151,9 @@ export function CreateOperationModal({ onClose, onSuccess }: { onClose: () => vo
                     </Field>
                     <div className="flex justify-end gap-3 pt-2">
                         <button type="button" onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white font-mono text-xs">CANCEL</button>
-                        <button type="submit" disabled={loading || !name.trim()}
+                        <button type="submit" disabled={submitted || !name.trim()}
                             className="px-6 py-2 bg-signal text-void font-bold font-mono text-xs hover:bg-white disabled:opacity-50 transition-colors">
-                            {loading ? 'CREATING…' : 'INITIALIZE'}
+                            {submitted ? 'CREATING…' : 'INITIALIZE'}
                         </button>
                     </div>
                 </form>
@@ -184,37 +213,62 @@ export function CreateOperatorModal({ onClose }: { onClose: () => void }) {
 export function EditOperationModal({ operation, onClose, onSuccess }: {
     operation: Operation; onClose: () => void; onSuccess: () => void;
 }) {
+    const initialSched = parseSchedule(operation.banner_text);
     const [name, setName] = useState(operation.name);
     const [complete, setComplete] = useState(operation.complete);
     const [webhook, setWebhook] = useState(operation.webhook || '');
     const [channel, setChannel] = useState(operation.channel || '');
-    const [bannerText, setBannerText] = useState(operation.banner_text || '');
+    const [bannerText, setBannerText] = useState(initialSched.displayText);
     const [bannerColor, setBannerColor] = useState(operation.banner_color || '#be2a2a');
+    const [startLocal, setStartLocal] = useState(msToLocalInputValue(initialSched.startMs));
     const [showPicker, setShowPicker] = useState(false);
-    const [updateOp, { loading }] = useMutation<any>(UPDATE_OPERATION_MUTATION);
+    const [updateOp] = useMutation<any>(UPDATE_OPERATION_MUTATION);
+    const [submitted, setSubmitted] = useState(false);
 
-    const onSubmit = async (e: React.FormEvent) => {
+    /*  Same optimistic-close pattern as CreateOperationModal: the update
+     *  mutation can hang because the Hasura claim cache gets invalidated
+     *  mid-flight. Close immediately, update `meState` from local form
+     *  values (which ARE the new values), and let snackbar + refetch
+     *  reconcile the rest. */
+    const onSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        try {
-            const { data } = await updateOp({ variables: {
-                operation_id: operation.id, name, complete, webhook, channel,
-                banner_text: bannerText, banner_color: bannerColor,
+        if (submitted) return;
+        setSubmitted(true);
+
+        const startMs = localInputValueToMs(startLocal);
+        const composedBanner = withSchedule(bannerText, startMs);
+        const vars = {
+            operation_id: operation.id, name, complete, webhook, channel,
+            banner_text: composedBanner, banner_color: bannerColor,
+        };
+
+        // Optimistic local-state update for the current-operation chips.
+        const meCur = meState();
+        if (meCur?.user?.current_operation_id === operation.id) {
+            meState({ ...meCur, user: { ...meCur.user,
+                current_operation: name,
+                current_operation_complete: complete,
+                current_operation_banner_text: composedBanner,
+                current_operation_banner_color: bannerColor,
             }});
-            if (data?.updateOperation?.status === 'error') throw new Error(data.updateOperation.error);
-            const meCur = meState();
-            if (meCur?.user?.current_operation_id === operation.id) {
-                meState({ ...meCur, user: { ...meCur.user,
-                    current_operation: data.updateOperation.name,
-                    current_operation_complete: data.updateOperation.complete,
-                    current_operation_banner_text: data.updateOperation.banner_text,
-                    current_operation_banner_color: data.updateOperation.banner_color,
-                }});
-                localStorage.setItem('user', JSON.stringify(meState().user));
-            }
-            snackActions.success('Operation updated');
-            onSuccess();
-        } catch (err: any) { snackActions.error(err.message || 'Update failed'); }
+            localStorage.setItem('user', JSON.stringify(meState().user));
+        }
+        onSuccess();
+
+        updateOp({ variables: vars })
+            .then(({ data }: any) => {
+                if (data?.updateOperation?.status === 'error') {
+                    snackActions.error(`Update failed: ${data.updateOperation.error || 'unknown error'}`);
+                } else {
+                    snackActions.success('Operation updated');
+                }
+            })
+            .catch((err: any) => {
+                snackActions.error(err?.message || 'Update failed');
+            });
     };
+
+    const loading = submitted;
 
     return (
         <ModalBackdrop onClose={onClose} wide>
@@ -269,6 +323,49 @@ export function EditOperationModal({ operation, onClose, onSuccess }: {
                                     <HexColorPicker color={bannerColor} onChange={setBannerColor} />
                                 </div>
                             )}
+                        </div>
+                    </Field>
+                    <Field label="Operation Start Time (T-0)" icon={<Calendar size={11} />}>
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="datetime-local"
+                                    value={startLocal}
+                                    onChange={e => setStartLocal(e.target.value)}
+                                    className="flex-1 bg-black/50 border border-gray-700 focus:border-signal px-3 py-2 text-white outline-none font-mono text-sm"
+                                />
+                                {startLocal && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setStartLocal('')}
+                                        className="px-3 py-2 border border-gray-700 hover:border-red-500/50 text-xs font-mono text-gray-300 hover:text-red-400 transition-colors"
+                                        title="Clear schedule"
+                                    >
+                                        CLEAR
+                                    </button>
+                                )}
+                            </div>
+                            {(() => {
+                                const ms = localInputValueToMs(startLocal);
+                                if (!ms) return (
+                                    <div className="text-[10px] font-mono text-gray-500 leading-relaxed">
+                                        No schedule set. Setting a time triggers a T-1min broadcast to every operator.
+                                    </div>
+                                );
+                                const td = tDelta(ms);
+                                const utcStr = new Date(ms).toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+                                return (
+                                    <div className="flex items-center gap-3 text-[11px] font-mono">
+                                        <span className={cn(
+                                            "inline-flex items-center gap-1.5 px-2 py-0.5 border tabular-nums",
+                                            td && td.sign < 0 ? "border-yellow-400/60 text-yellow-300 bg-yellow-400/10" : "border-signal/60 text-signal bg-signal/10"
+                                        )}>
+                                            <Clock size={11} />{td?.formatted ?? '--'}
+                                        </span>
+                                        <span className="text-gray-400">UTC {utcStr}</span>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     </Field>
                     <div className="flex justify-end gap-3 pt-3 border-t border-white/10">

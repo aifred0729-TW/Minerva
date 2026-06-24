@@ -7,8 +7,9 @@ import {
     Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useMutation, useLazyQuery } from "@apollo/client/react";
+import { useMutation, useLazyQuery, useReactiveVar } from "@apollo/client/react";
 import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
+import { meState } from '../../lib/state';
 import { toSvg, toPng } from 'html-to-image';
 import {
     GET_CALLBACK_GRAPH_EDGES, GET_CALLBACKS,
@@ -42,6 +43,7 @@ import {
     Crosshair,
 }from 'lucide-react';
 import { snackActions } from '../../lib/snackbar';
+import { useMsfSyntheticCallbacks, consolePathFor } from '../../pages/Callbacks/msfSyntheticCallbacks';
 import { GraphModals } from './GraphModals';
 import { GraphConfigPanel } from './GraphConfigPanel';
 import { GraphContextMenus } from './GraphContextMenus';
@@ -82,9 +84,25 @@ interface GraphNodeData {
     [key: string]: unknown;
 }
 
-export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
+export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     const pageVisible = usePageVisible();
-    const { data: callbacksData, loading: callbacksLoading, refetch } = useQuery<any>(GET_CALLBACKS, { pollInterval: pageVisible ? 10000 : 0 });
+
+    // Current operation scopes custom nodes/edges — items belonging to other
+    // ops are hidden; legacy items (no operation_id) get adopted by the
+    // current op on first edit.
+    const me = useReactiveVar(meState);
+    const currentOpId: number = (me?.user?.current_operation_id as number) ?? 0;
+    const { data: callbacksData_raw, loading: callbacksLoading, refetch } = useQuery<any>(GET_CALLBACKS, { pollInterval: pageVisible ? 10000 : 0 });
+    // Inject Metasploit sessions as synthetic Callback rows so they appear
+    // as graph nodes alongside Mythic callbacks (grouped by host like any
+    // other callback).
+    const msfSynthetic = useMsfSyntheticCallbacks();
+    const callbacksData = useMemo(
+        () => callbacksData_raw
+            ? { ...callbacksData_raw, callback: [...(callbacksData_raw.callback || []), ...msfSynthetic] }
+            : (msfSynthetic.length > 0 ? { callback: msfSynthetic } : callbacksData_raw),
+        [callbacksData_raw, msfSynthetic],
+    );
     const { data: edgesData, refetch: refetchEdges } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES, { pollInterval: pageVisible ? 10000 : 0 });
     const { data: p2pData, refetch: refetchP2P } = useQuery<any>(GET_P2P_PROFILES_AND_CALLBACKS, { fetchPolicy: "network-only" });
     const { data: allC2Data, refetch: refetchAllC2 } = useQuery<any>(GET_C2_PROFILES, { fetchPolicy: "network-only" });
@@ -100,6 +118,11 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     const [nodes, setNodes, onNodesChange] = useNodesState([] as Node<Record<string, unknown>>[]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge<Record<string, unknown>>[]);
     const viewportRef = useRef({ x: 0, y: 0, zoom: 1 });
+    // Refs mirroring nodes/edges for stable callbacks that need current state
+    const nodesRef = useRef<Node[]>([]);
+    const edgesRef = useRef<Edge[]>([]);
+    useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+    useEffect(() => { edgesRef.current = edges; }, [edges]);
     // Track selected node IDs for edge-highlight feature
     const selectedNodeIds = useRef<Set<string>>(new Set());
     const [isInitialRender, setIsInitialRender] = useState(true);
@@ -108,11 +131,17 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     const navigate = useNavigate();
 
     // Context Menu State
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; callback: Callback } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; callback: Callback; nodeRect?: DOMRect | null } | null>(null);
     const [editDescriptionModal, setEditDescriptionModal] = useState<any | null>(null);
     const [newDescription, setNewDescription] = useState("");
     const [detailsModal, setDetailsModal] = useState<any | null>(null);
     const [setParentModal, setSetParentModal] = useState<any | null>(null);
+    // Anchor in FLOW (canvas) coordinates so the panel sticks to the node when the
+    // user pans/zooms — see LinkToParentPanel's screen-position computation.
+    const [setParentAnchor, setSetParentAnchor] = useState<{ flowX: number; flowY: number; width: number; height: number } | null>(null);
+    // Live viewport mirror — driven by ReactFlow's onMove. Used by panels that
+    // anchor to flow-space positions so they re-render every pan/zoom frame.
+    const [liveViewport, setLiveViewport] = useState<{ x: number; y: number; zoom: number }>({ x: 0, y: 0, zoom: 1 });
     // ── Link Focus (global, persisted in agentstorage) ──────────────────────
     const autoLinkedCallbacksRef = useRef<Set<string>>(new Set());
     const [selectedProfile, setSelectedProfile] = useState<Record<string, unknown> | null>(null);
@@ -183,8 +212,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     // GraphQL for custom nodes - use polling for real-time updates
     const { data: customNodesData, refetch: refetchCustomNodes } = useQuery<any>(GET_CUSTOM_GRAPH_NODES, {
         pollInterval: pageVisible ? 15000 : 0,
-        fetchPolicy: 'cache-and-network',
-        nextFetchPolicy: 'cache-first'
+        fetchPolicy: 'network-only',
     });
 
     // ── Link Focus: global persistent state via agentstorage ────────────────
@@ -226,8 +254,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     // GraphQL for custom edges - use polling for real-time updates
     const { data: customEdgesData, refetch: refetchCustomEdges } = useQuery<any>(GET_CUSTOM_GRAPH_EDGES, {
         pollInterval: pageVisible ? 15000 : 0,
-        fetchPolicy: 'cache-and-network',
-        nextFetchPolicy: 'cache-first'
+        fetchPolicy: 'network-only',
     });
 
     const [createCustomNodeMutation] = useMutation<any>(CREATE_CUSTOM_GRAPH_NODE);
@@ -243,9 +270,14 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         if (customNodesData?.agentstorage) {
             log(' Found agentstorage data:', customNodesData.agentstorage);
             try {
-                const parsedNodes = parseAgentStorageResults(customNodesData.agentstorage);
+                const parsedNodesRaw = parseAgentStorageResults(customNodesData.agentstorage);
+                // Keep nodes belonging to the current operation, plus legacy
+                // rows (no operation_id) that will be adopted on next edit.
+                const parsedNodes = parsedNodesRaw.filter((n: any) =>
+                    n.operation_id == null || n.operation_id === currentOpId
+                );
                 log(' Parsed nodes:', parsedNodes);
-                
+
                 const nodes = parsedNodes.map((node: any) => ({
                     id: `custom-${node.id}`,
                     db_id: node.id,
@@ -300,16 +332,21 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         } else {
             log(' No agentstorage data in customNodesData');
         }
-    }, [customNodesData]);
+    }, [customNodesData, currentOpId]);
 
     // Sync custom edges from GraphQL (stored edges in agentstorage)
     useEffect(() => {
         log(' customEdgesData changed:', customEdgesData);
-        
+
         if (customEdgesData?.agentstorage) {
             log(' Found custom edges data:', customEdgesData.agentstorage);
             try {
-                const storedCallbackEdges = parseEdgeStorageResults(customEdgesData.agentstorage);
+                const storedCallbackEdgesRaw = parseEdgeStorageResults(customEdgesData.agentstorage);
+                // Hide edges that belong to a different operation; legacy
+                // edges (no operation_id) are kept and rebound on next save.
+                const storedCallbackEdges = storedCallbackEdgesRaw.filter((e: any) =>
+                    e.operation_id == null || e.operation_id === currentOpId
+                );
                 log(' Parsed callback->custom edges:', storedCallbackEdges);
                 
                 // Update edges while preserving parent edges
@@ -328,14 +365,14 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             // No stored edges, remove callback edges but keep parent edges
             setCustomEdges(prevEdges => prevEdges.filter(e => e.id.startsWith('custom-edge-') && !e.id.includes('callback-')));
         }
-    }, [customEdgesData]);
+    }, [customEdgesData, currentOpId]);
 
     // Context menu handlers
     const handleContextMenu = useCallback((e: React.MouseEvent, callback: Callback, nodeRect: DOMRect | undefined) => {
         e.preventDefault();
         const x = e.clientX;
         const y = e.clientY;
-        setContextMenu({ x, y, callback });
+        setContextMenu({ x, y, callback, nodeRect: nodeRect ?? null });
     }, []);
 
     // Close context menu when clicking outside
@@ -386,7 +423,41 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         }
     };
 
-    const openSetParent = (callback: Callback) => {
+    const openSetParent = (callback: Callback, _anchor?: { x: number; y: number }) => {
+        // Sync the live viewport from the ref so the first paint uses an
+        // accurate transform (onMove only fires while the user actively pans).
+        setLiveViewport(viewportRef.current);
+        // Build the flow-space anchor. Preference order:
+        //   1) The DOM rect captured at right-click time → derive flow coords
+        //      via the current viewport. This is the most accurate source — it
+        //      reflects the node's actual rendered box including padding/border
+        //      that React Flow's `measured` sometimes misses or under-reports.
+        //   2) Fall back to ReactFlow node.position + measured.
+        const rfNode = nodes.find((n) => n.id === String(callback.id));
+        const rect = contextMenu?.nodeRect;
+        const vp = viewportRef.current;
+        if (rect && vp.zoom > 0) {
+            setSetParentAnchor({
+                flowX:  (rect.left   - vp.x) / vp.zoom,
+                flowY:  (rect.top    - vp.y) / vp.zoom,
+                width:   rect.width  / vp.zoom,
+                height:  rect.height / vp.zoom,
+            });
+        } else if (rfNode) {
+            // Last-resort fallback (rect should always be present). Defaults are
+            // intentionally larger than any real node so the panel always lands
+            // *outside* the node box rather than over it. The callback node is
+            // w-[250px] and ~100px tall; custom node is 128×128.
+            const measured = (rfNode as any).measured ?? {};
+            setSetParentAnchor({
+                flowX: rfNode.position.x,
+                flowY: rfNode.position.y,
+                width: measured.width ?? 280,
+                height: measured.height ?? 140,
+            });
+        } else {
+            setSetParentAnchor(null);
+        }
         setSetParentModal(callback);
         setSelectedProfile(null);
         setSelectedDestination(null);
@@ -427,7 +498,8 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 operating_system: customNodeForm.os,
                 architecture: customNodeForm.architecture,
                 username: customNodeForm.user || undefined,
-                description: customNodeForm.description
+                description: customNodeForm.description,
+                operation_id: currentOpId || undefined,
             }, nextId);
             
             log('[handleCreateCustomNode] unique_id:', unique_id);
@@ -501,7 +573,8 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 architecture: customNodeForm.architecture,
                 username: customNodeForm.user || undefined,
                 description: customNodeForm.description,
-                hidden: editCustomNodeModal.isHidden || false
+                hidden: editCustomNodeModal.isHidden || false,
+                operation_id: currentOpId || undefined,
             });
             
             const result = await updateCustomNodeMutation({
@@ -608,6 +681,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                         username: sanitise(node.user || node.username, '') || undefined,
                         description: sanitise(node.description, '') || undefined,
                         hidden: false,
+                        operation_id: currentOpId || undefined,
                     }, importNextId++);
                     await createCustomNodeMutation({ variables: { unique_id, data } });
                     createdCount++;
@@ -684,6 +758,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     username: sourceNode.user !== 'N/A' ? sourceNode.user : undefined,
                     description: sourceNode.description,
                     hidden: sourceNode.isHidden,
+                    operation_id: currentOpId || undefined,
                     parent_id: (isDestCustom ? selectedDestination.db_id : selectedDestination.id) as string | number,
                     parent_type: isDestCustom ? 'custom' : 'callback',
                     c2profile: selectedProfile.name as string
@@ -706,6 +781,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 snackActions.error("Failed to link: " + getErrorMessage(e));
             }
             setSetParentModal(null);
+            setSetParentAnchor(null);
             return;
         }
         
@@ -725,7 +801,8 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     target: selectedDestination.id, // custom node id (format: "custom-1")
                     sourceId: setParentModal.display_id,
                     targetId: selectedDestination.db_id,
-                    c2profile: selectedProfile.name
+                    c2profile: selectedProfile.name,
+                    operation_id: currentOpId || undefined,
                 };
                 
                 log('[handleSetParent] Saving edge to database:', newEdge);
@@ -768,6 +845,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 snackActions.error("Failed to link: " + getErrorMessage(e));
             }
             setSetParentModal(null);
+            setSetParentAnchor(null);
             return;
         }
         
@@ -813,6 +891,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             refetch();
             refetchEdges();
             setSetParentModal(null);
+            setSetParentAnchor(null);
         } catch (e: unknown) {
             snackActions.error("Failed to add edge: " + getErrorMessage(e));
         }
@@ -865,6 +944,7 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     username: callback.user !== 'N/A' ? callback.user : undefined,
                     description: callback.description,
                     hidden: callback.isHidden,
+                    operation_id: currentOpId || undefined,
                     parent_id: undefined,
                     parent_type: undefined,
                     c2profile: undefined
@@ -957,14 +1037,12 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
         const selIds = selectedNodeIds.current;
 
         if (event.shiftKey) {
-            // Shift+click: toggle node in/out of multi-selection
             if (selIds.has(node.id)) {
                 selIds.delete(node.id);
             } else {
                 selIds.add(node.id);
             }
         } else {
-            // Single click: if already the only selected node, clear; else select only this node
             if (selIds.size === 1 && selIds.has(node.id)) {
                 clearGraphSelection();
                 return;
@@ -979,21 +1057,19 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             return;
         }
 
-        // Get connected edges for ALL selected nodes (union)
-        const currentNodes = nodes;
-        const currentEdges = edges;
+        // Read current state from refs (stable — no dependency on nodes/edges)
+        const currentNodes = nodesRef.current;
+        const currentEdges = edgesRef.current;
         const selNodes = currentNodes.filter(n => currentSelIds.has(n.id));
         const connectedEdges = getConnectedEdges(selNodes, currentEdges);
         const connectedEdgeIds = new Set(connectedEdges.map(e => e.id));
 
-        // Determine which non-selected nodes are adjacent (connected via an edge)
         const adjacentNodeIds = new Set<string>();
         connectedEdges.forEach(e => {
             if (!currentSelIds.has(e.source)) adjacentNodeIds.add(e.source);
             if (!currentSelIds.has(e.target)) adjacentNodeIds.add(e.target);
         });
 
-        // Update edge styles: highlight connected, dim the rest
         setEdges(eds => eds.map(e => {
             if (connectedEdgeIds.has(e.id)) {
                 return {
@@ -1017,26 +1093,23 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             };
         }));
 
-        // Update node states: selected = highlighted, adjacent = visible, others = dimmed
         setNodes(nds => nds.map(n => {
             if (n.id === 'root') return n;
             const isSel = currentSelIds.has(n.id);
             const isAdj = adjacentNodeIds.has(n.id);
             return {
                 ...n,
-                data: {
-                    ...n.data,
-                    isHighlighted: isSel,
-                    isDimmed: !isSel && !isAdj,
-                },
+                data: { ...n.data, isHighlighted: isSel, isDimmed: !isSel && !isAdj },
             };
         }));
-    }, [nodes, edges, setEdges, setNodes, clearGraphSelection]);
+    }, [setEdges, setNodes, clearGraphSelection]);
 
     const onNodeDoubleClick = useCallback((event: React.MouseEvent, node: Node) => {
         if (node.type === 'root' || node.type === 'groupBound' || node.data?.isCustom) return;
-        if (node.data?.display_id) {
-            navigate(`/console/${node.data.display_id}`);
+        const data = node.data as Partial<Callback> | undefined;
+        if (data?.display_id) {
+            // Mythic + MSF share /console/<displayId>; Console picks mode by id range.
+            navigate(consolePathFor(data as Callback));
         }
     }, [navigate]);
     
@@ -1090,17 +1163,47 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
 
     // Track previous edges to detect topology changes
     const prevEdgesRef = useRef<string>('');
+    // Track structural hash to skip redundant ELK calls
+    const prevStructuralHashRef = useRef<string>('');
     // Track positions of nodes the user has explicitly dragged — preserved across re-layouts
     const userDraggedPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
     const onNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
         userDraggedPositionsRef.current.set(node.id, node.position);
     }, []);
+
+    // Keep the LINK_TO_PARENT anchor synced to the source node's flow POSITION
+    // when the user drags the node (or layout re-positions it). We DELIBERATELY
+    // do NOT touch width/height here: those were captured from the real DOMRect
+    // inside openSetParent and are the only reliable size source — ReactFlow's
+    // `measured` is frequently undefined or stale right after the panel opens,
+    // and overwriting our accurate size with a fallback like `?? 180 / ?? 64`
+    // shrinks the anchor box and causes the panel to overlap the node.
+    useEffect(() => {
+        if (!setParentModal) return;
+        const rfNode = nodes.find((n) => n.id === String(setParentModal.id));
+        if (!rfNode) return;
+        setSetParentAnchor((prev) => {
+            if (!prev) return prev; // anchor wasn't established yet — never seed here
+            if (prev.flowX === rfNode.position.x && prev.flowY === rfNode.position.y) {
+                return prev;
+            }
+            return { ...prev, flowX: rfNode.position.x, flowY: rfNode.position.y };
+        });
+    }, [nodes, setParentModal]);
     
     // Apply ELK layout when data changes (async)
     // ALL nodes (callbacks + custom) pass through ELK for a proper right-directed tree.
     // User-dragged node positions are preserved in userDraggedPositionsRef and restored after layout.
     React.useEffect(() => {
         if (graphData.nodes.length === 0) return;
+
+        // Structural hash: skip ELK if node IDs, edge connections, and direction haven't changed
+        const nodeIds = graphData.nodes.map(n => n.id).sort().join(',');
+        const edgeIds = graphData.edges.map(e => `${e.source}->${e.target}`).sort().join(',');
+        const structuralHash = `${nodeIds}|${edgeIds}|${layoutDir}|${groupBy}`;
+        if (structuralHash === prevStructuralHashRef.current) return;
+        prevStructuralHashRef.current = structuralHash;
+
         let cancelled = false;
 
         getElkLayoutedElements(graphData.nodes, graphData.edges, layoutDir).catch((err) => {
@@ -1436,7 +1539,12 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                     animated: false
                 }}
                 defaultViewport={viewportRef.current}
-                onMoveEnd={(_, viewport) => { viewportRef.current = viewport; }}
+                onMove={(_, viewport) => {
+                    // Update both ref (used by camera-restoration logic) and the
+                    // live state that drives flow-anchored panels (e.g. LINK_TO_PARENT).
+                    viewportRef.current = viewport;
+                    setLiveViewport(viewport);
+                }}
                 onNodeClick={onNodeClick}
                 onNodeDoubleClick={onNodeDoubleClick}
                 onEdgeContextMenu={onEdgeContextMenu}
@@ -1551,6 +1659,9 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
                 handleImportCustomNodes={handleImportCustomNodes}
                 setParentModal={setParentModal}
                 setSetParentModal={setSetParentModal}
+                setParentAnchor={setParentAnchor}
+                setSetParentAnchor={setSetParentAnchor}
+                liveViewport={liveViewport}
                 selectedDestination={selectedDestination as any}
                 setSelectedDestination={setSelectedDestination}
                 selectedProfile={selectedProfile}
@@ -1594,4 +1705,4 @@ export function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
             />
         </div>
     );
-}
+});

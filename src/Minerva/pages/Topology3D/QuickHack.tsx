@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSubscription } from "@apollo/client/react";
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, X, Crosshair, Monitor, Globe, Hash }from 'lucide-react';
-import * as THREE from 'three';
+import { ChevronRight, X, Crosshair, Monitor, Globe, Hash, AlertTriangle, Users }from 'lucide-react';
+import { Group, Vector3 } from 'three';
 import { cn } from '../../lib/utils';
 import type { TopoNode, QuickHackExecution } from '../../types/topology';
-import { QuickHackDef, QuickHackVariable } from '../../lib/quickhacks';
+import { QuickHackDef, QuickHackVariable, isHackCompatible, formatAgentTypes } from '../../lib/quickhacks';
 import { extractPrimaryIP } from './topology';
+import { isCallbackAlive } from '../../lib/utils';
 import { playDoneQH } from '../../lib/soundEffects';
 import { LucideIcon } from '../../lib/iconMap';
 import { createPortal } from 'react-dom';
 import { useFrame } from '@react-three/fiber';
 import { SUBSCRIBE_TASK_STATUS_BY_ID } from '../../lib/api';
+import type { Callback } from '../../types';
+import { isMsfCallback } from '../Callbacks/msfSyntheticCallbacks';
 
 const QUICKHACK_EXIT_DELAY_MS = 2_200;
 const QUICKHACK_REMOVE_DELAY_MS = 2_700;
@@ -66,17 +69,23 @@ export const QuickHackPanel = ({
     onSelectHack,
     onClose,
     hacks,
+    pendingHackId,
 }: {
     node: TopoNode;
     screenPos: { x: number; y: number };
     onSelectHack: (hack: QuickHackDef) => void;
     onClose: () => void;
     hacks: QuickHackDef[];
+    /** When the agent picker is open, the hack the operator already chose is dimmed-highlighted so the context stays visible. */
+    pendingHackId?: string | null;
 }) => {
     const panelRef = useRef<HTMLDivElement>(null);
     const [hoveredId, setHoveredId] = useState<string | null>(null);
     const cb = node.data;
     const accentColor = '#ff003c';
+
+    // Resolve the agent type from the node's payload info
+    const nodeAgentType = cb?.payload?.payloadtype?.name?.toLowerCase() ?? null;
 
     // Close on outside click
     useEffect(() => {
@@ -147,56 +156,275 @@ export const QuickHackPanel = ({
                     {cb?.ip && <span className="text-[8px] text-gray-400 ml-auto">{extractPrimaryIP(cb.ip)}</span>}
                 </div>
 
+                {/* Agent type indicator strip */}
+                {nodeAgentType && (
+                    <div className="px-3 py-1 flex items-center gap-1.5 border-b border-white/5 bg-white/[0.01]">
+                        <span className="text-[8px] text-gray-600 uppercase tracking-[0.15em]">AGENT</span>
+                        <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-px"
+                            style={{ color: '#22d3ee', border: '1px solid rgba(34,211,238,0.25)', background: 'rgba(34,211,238,0.06)' }}>
+                            {nodeAgentType}
+                        </span>
+                    </div>
+                )}
+
                 {/* QuickHack list */}
                 <div className="py-1">
-                    {hacks.map(hack => (
-                        <button
-                            key={hack.id}
-                            onClick={() => onSelectHack(hack)}
-                            onMouseEnter={() => setHoveredId(hack.id)}
-                            onMouseLeave={() => setHoveredId(null)}
-                            className="w-full px-3 py-2 text-left transition-all duration-150 relative"
-                            style={{
-                                background: hoveredId === hack.id ? `${hack.color}0d` : 'transparent',
-                            }}
-                        >
-                            {/* Hover left accent */}
-                            {hoveredId === hack.id && (
-                                <motion.div
-                                    layoutId="qh-accent"
-                                    className="absolute left-0 top-0 bottom-0 w-[2px]"
-                                    style={{ background: hack.color }}
-                                />
-                            )}
+                    {hacks.map(hack => {
+                        const compatible = isHackCompatible(hack, nodeAgentType);
+                        const isPending = pendingHackId === hack.id;
+                        return (
+                            <button
+                                key={hack.id}
+                                onClick={() => compatible && !isPending && onSelectHack(hack)}
+                                onMouseEnter={() => setHoveredId(hack.id)}
+                                onMouseLeave={() => setHoveredId(null)}
+                                disabled={!compatible || isPending}
+                                className={cn(
+                                    "w-full px-3 py-2 text-left transition-all duration-150 relative",
+                                    !compatible && "cursor-not-allowed opacity-40",
+                                    isPending && "cursor-default"
+                                )}
+                                style={{
+                                    background: isPending
+                                        ? `${hack.color}1f`
+                                        : compatible && hoveredId === hack.id ? `${hack.color}0d` : 'transparent',
+                                    borderLeft: isPending ? `2px solid ${hack.color}` : undefined,
+                                }}
+                                title={!compatible ? `Incompatible: requires ${formatAgentTypes(hack.agentTypes)}` : undefined}
+                            >
+                                {/* Hover left accent — only for compatible */}
+                                {compatible && hoveredId === hack.id && (
+                                    <motion.div
+                                        layoutId="qh-accent"
+                                        className="absolute left-0 top-0 bottom-0 w-[2px]"
+                                        style={{ background: hack.color }}
+                                    />
+                                )}
 
-                            <div className="flex items-center gap-2">
-                                <LucideIcon name={hack.icon} size={14} style={{ color: hack.color }} />
-                                <span className="text-[11px] font-bold tracking-wider" style={{ color: hoveredId === hack.id ? hack.color : `${hack.color}dd` }}>
-                                    {hack.name}
-                                </span>
-                                <span className="ml-auto flex items-center gap-1">
-                                    {(hack.steps ?? []).length > 1 && (
-                                        <span className="text-[8px] px-1 py-px border opacity-60"
-                                            style={{ borderColor: `${hack.color}40`, color: `${hack.color}aa` }}>
-                                            {hack.steps.length} STEPS
-                                        </span>
-                                    )}
-                                    {hack.variables && hack.variables.length > 0 && (
-                                        <span className="text-[8px] px-1 py-px border opacity-60"
-                                            style={{ borderColor: `${hack.color}40`, color: `${hack.color}aa` }}>
-                                            {hack.variables.length} VAR{hack.variables.length !== 1 ? 'S' : ''}
-                                        </span>
-                                    )}
-                                </span>
-                            </div>
-                            <div className="text-[8px] text-gray-400 mt-0.5 pl-[22px] leading-relaxed">
-                                {hack.description}
-                            </div>
-                        </button>
-                    ))}
+                                <div className="flex items-center gap-2">
+                                    <LucideIcon name={hack.icon} size={14} style={{ color: compatible ? hack.color : '#555' }} />
+                                    <span className="text-[11px] font-bold tracking-wider"
+                                        style={{ color: compatible && hoveredId === hack.id ? hack.color : compatible ? `${hack.color}dd` : '#555' }}>
+                                        {hack.name}
+                                    </span>
+                                    <span className="ml-auto flex items-center gap-1">
+                                        {/* Agent type restriction badge */}
+                                        {hack.agentTypes && hack.agentTypes.length > 0 && (
+                                            <span className={cn(
+                                                "text-[7px] px-1 py-px border tracking-wider",
+                                                !compatible
+                                                    ? "border-red-500/30 text-red-400/60"
+                                                    : "border-white/15 text-gray-500"
+                                            )}>
+                                                {hack.agentTypes.map(a => a.toUpperCase()).join('/')}
+                                            </span>
+                                        )}
+                                        {(hack.steps ?? []).length > 1 && (
+                                            <span className="text-[8px] px-1 py-px border opacity-60"
+                                                style={{ borderColor: `${hack.color}40`, color: `${hack.color}aa` }}>
+                                                {hack.steps.length} STEPS
+                                            </span>
+                                        )}
+                                        {hack.variables && hack.variables.length > 0 && (
+                                            <span className="text-[8px] px-1 py-px border opacity-60"
+                                                style={{ borderColor: `${hack.color}40`, color: `${hack.color}aa` }}>
+                                                {hack.variables.length} VAR{hack.variables.length !== 1 ? 'S' : ''}
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="text-[8px] text-gray-400 mt-0.5 pl-[22px] leading-relaxed">
+                                    {hack.description}
+                                </div>
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Bottom accent */}
+                <div className="h-[1px]" style={{ background: `linear-gradient(90deg, transparent, ${accentColor}15, transparent)` }} />
+            </div>
+        </motion.div>,
+        document.body
+    );
+};
+
+// ── Agent picker — secondary panel that opens to the right of the
+//    QuickHackPanel when the targeted node hosts more than one
+//    compatible agent (e.g. Apollo + Meterpreter on the same machine).
+//    Operator picks which agent the chosen hack should run against.
+
+/** Per-agent accent: Mythic agents collapse to a single cyan tone, MSF
+ *  sessions get red, anything unknown falls back to signal. Kept inline
+ *  so callers don't have to reach into a separate colour table. */
+function pickAgentAccent(cb: Callback): { fg: string; border: string; bg: string; label: string } {
+    const ptype = (cb.payload?.payloadtype?.name || '').toLowerCase();
+    const isMsf = isMsfCallback(cb);
+    if (isMsf) {
+        return {
+            fg: '#ff6b6b',
+            border: 'rgba(255,107,107,0.35)',
+            bg: 'rgba(255,107,107,0.06)',
+            label: (ptype || 'meterpreter').toUpperCase(),
+        };
+    }
+    return {
+        fg: '#22d3ee',
+        border: 'rgba(34,211,238,0.35)',
+        bg: 'rgba(34,211,238,0.06)',
+        label: (ptype || 'agent').toUpperCase(),
+    };
+}
+
+/** QuickHack agent picker — opens to the right of QuickHackPanel when
+ *  the node has more than one candidate callback for the chosen hack. */
+export const QuickHackAgentPicker = ({
+    hack,
+    candidates,
+    screenPos,
+    onSelectCallback,
+    onCancel,
+}: {
+    hack: QuickHackDef;
+    candidates: Callback[];
+    /** Where the QuickHackPanel is positioned. The picker offsets to its right. */
+    screenPos: { x: number; y: number };
+    onSelectCallback: (cb: Callback) => void;
+    onCancel: () => void;
+}) => {
+    const panelRef = useRef<HTMLDivElement>(null);
+    const [hoveredId, setHoveredId] = useState<number | null>(null);
+    const accentColor = hack.color;
+
+    // Close on outside click — but allow clicks back on the QuickHackPanel.
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (!panelRef.current) return;
+            const target = e.target as Node;
+            if (panelRef.current.contains(target)) return;
+            // Heuristic: if the click landed on something else inside the
+            // QuickHack portal stack (the left panel), keep us open. That
+            // panel is the only sibling we want to coexist with.
+            onCancel();
+        };
+        const id = setTimeout(() => document.addEventListener('mousedown', handler), 0);
+        return () => { clearTimeout(id); document.removeEventListener('mousedown', handler); };
+    }, [onCancel]);
+
+    // QuickHackPanel sits at clampedX with width 260; +40px connector. Stack
+    // the picker to its right with a small gap. If we'd overflow the right
+    // viewport edge, fall back to the left of the panel.
+    const panelLeft = Math.min(screenPos.x + 40, window.innerWidth - 280);
+    const panelTop = Math.max(screenPos.y - 60, 8);
+    const desiredLeft = panelLeft + 268;
+    const pickerWidth = 240;
+    const pickerLeft = desiredLeft + pickerWidth + 4 > window.innerWidth
+        ? Math.max(8, panelLeft - pickerWidth - 8)
+        : desiredLeft;
+
+    return createPortal(
+        <motion.div
+            ref={panelRef}
+            initial={{ opacity: 0, x: -8, scale: 0.97 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -8, scale: 0.97 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed z-[9999] font-mono"
+            style={{ left: pickerLeft, top: panelTop, width: pickerWidth }}
+        >
+            <div style={{
+                background: 'linear-gradient(135deg, rgba(0,0,0,0.97) 0%, rgba(10,8,14,0.98) 100%)',
+                border: `1px solid ${accentColor}35`,
+                boxShadow: `0 0 30px ${accentColor}15, 0 0 60px rgba(0,0,0,0.6)`,
+                clipPath: 'polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px))',
+            }}>
+                {/* Top accent line, matching QuickHackPanel */}
+                <div className="h-[1px]" style={{ background: `linear-gradient(90deg, ${accentColor}, ${accentColor}40, transparent)` }} />
+
+                {/* Header */}
+                <div className="px-3 py-2 flex items-center justify-between border-b border-white/5">
+                    <div className="flex items-center gap-2">
+                        <Users size={10} style={{ color: accentColor }} />
+                        <span className="text-[9px] uppercase tracking-[0.25em] font-bold" style={{ color: accentColor }}>
+                            Pick agent
+                        </span>
+                    </div>
+                    <button onClick={onCancel} className="text-signal hover:text-accent transition-colors">
+                        <X size={10} />
+                    </button>
+                </div>
+
+                {/* Hack context strip */}
+                <div className="px-3 py-1.5 flex items-center gap-2 border-b border-white/5 bg-white/[0.02]">
+                    <LucideIcon name={hack.icon} size={11} style={{ color: accentColor }} />
+                    <span className="text-[10px] font-bold tracking-wider" style={{ color: accentColor }}>
+                        {hack.name}
+                    </span>
+                    <span className="ml-auto text-[8px] text-signal tracking-[0.15em]">
+                        {candidates.length} CANDIDATES
+                    </span>
+                </div>
+
+                {/* Candidate list */}
+                <div className="py-1 max-h-[55vh] overflow-y-auto cyber-scrollbar">
+                    {candidates.map(cb => {
+                        const accent = pickAgentAccent(cb);
+                        // Canonical aliveness check — `active` is the
+                        // hidden-by-operator flag, not the dead flag.
+                        // For Mythic callbacks the truth is in
+                        // `last_checkin` vs `sleep_info`; for MSF
+                        // synthetic dead rows the factory pins
+                        // `last_checkin` to 1970 so the same check
+                        // returns false. `cb.dead` is also honoured
+                        // for the rare case MSF marks it before the
+                        // ledger writes the dead timestamp.
+                        const alive = !cb.dead && isCallbackAlive(cb);
+                        const hovered = hoveredId === cb.id;
+                        return (
+                            <button
+                                key={cb.id}
+                                onClick={() => onSelectCallback(cb)}
+                                onMouseEnter={() => setHoveredId(cb.id)}
+                                onMouseLeave={() => setHoveredId(null)}
+                                disabled={!alive}
+                                className={cn(
+                                    "w-full px-3 py-2 text-left transition-all duration-150 relative",
+                                    !alive && "opacity-40 cursor-not-allowed",
+                                )}
+                                style={{
+                                    background: alive && hovered ? `${accent.fg}10` : 'transparent',
+                                    borderLeft: hovered ? `2px solid ${accent.fg}` : '2px solid transparent',
+                                }}
+                                title={!alive ? 'Callback is dead' : undefined}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-px"
+                                          style={{ color: accent.fg, border: `1px solid ${accent.border}`, background: accent.bg }}>
+                                        {accent.label}
+                                    </span>
+                                    <span className="text-[11px] font-bold text-signal tabular-nums">
+                                        #{cb.display_id}
+                                    </span>
+                                    <span className="ml-auto flex items-center gap-1">
+                                        <span className={cn("w-1.5 h-1.5 rounded-full", alive ? "bg-accent animate-pulse" : "bg-red-500")} />
+                                        <span className="text-[8px] tracking-[0.2em] text-signal">
+                                            {alive ? 'ALIVE' : 'DEAD'}
+                                        </span>
+                                    </span>
+                                </div>
+                                <div className="text-[9px] text-signal mt-0.5 pl-[2px] leading-tight truncate">
+                                    {cb.user || '?'}@{cb.host || cb.ip || '?'}
+                                </div>
+                                {cb.description && (
+                                    <div className="text-[8px] text-signal/85 mt-0.5 pl-[2px] leading-tight truncate">
+                                        {cb.description}
+                                    </div>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
                 <div className="h-[1px]" style={{ background: `linear-gradient(90deg, transparent, ${accentColor}15, transparent)` }} />
             </div>
         </motion.div>,
@@ -226,6 +454,56 @@ export const QuickHackVarPicker = ({
 }) => {
     const isFilled = value.length > 0;
 
+    // Hybrid IP input: default mode is "click a node to pick its IP". The
+    // moment the operator types a printable char while the picker is armed,
+    // we flip into a free-text inline input pre-filled with that key — so a
+    // muscle-memory operator who reflexively typed `10.0.0.5` instead of
+    // hunting the node doesn't lose the keystroke. The picking mode itself
+    // is toggled off on transition so subsequent node clicks don't fight
+    // the text input below.
+    const [ipInputMode, setIpInputMode] = useState(false);
+    const ipInputRef = useRef<HTMLInputElement | null>(null);
+
+    // Listen for the first keystroke while in node-picking mode and flip
+    // into text-input mode. Cancel cleanly if the operator exits picking
+    // without typing.
+    useEffect(() => {
+        if (variable.type !== 'ip') return;
+        if (!isPickingNode || ipInputMode) return;
+        const isIpChar = (k: string) => /^[0-9a-fA-F.:]$/.test(k);
+        const onKey = (e: KeyboardEvent) => {
+            if (e.altKey || e.ctrlKey || e.metaKey) return;
+            // Ignore keys while the operator is already typing in another
+            // form field somewhere on the page.
+            const target = e.target as HTMLElement | null;
+            const tag = target?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+            if (!isIpChar(e.key) && e.key !== 'Backspace') return;
+            e.preventDefault();
+            const initial = e.key === 'Backspace' ? '' : e.key;
+            onSetValue(initial);
+            setIpInputMode(true);
+            // Toggle picking off — typing was the operator's choice and we
+            // don't want a stray node click to wipe the field they're
+            // actively editing.
+            onRequestNodePick();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [variable.type, isPickingNode, ipInputMode, onSetValue, onRequestNodePick]);
+
+    // Autofocus the input the moment it mounts so the next keystroke lands
+    // in the field with the seed char already in place.
+    useEffect(() => {
+        if (ipInputMode && ipInputRef.current) {
+            const el = ipInputRef.current;
+            el.focus();
+            // Cursor at end so the seed char isn't selected/replaced.
+            const len = el.value.length;
+            try { el.setSelectionRange(len, len); } catch { /* ignore */ }
+        }
+    }, [ipInputMode]);
+
     if (variable.type === 'ip') {
         return (
             <motion.div
@@ -234,24 +512,57 @@ export const QuickHackVarPicker = ({
                 transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
                 className="flex items-center gap-1"
             >
-                <button
-                    onClick={onRequestNodePick}
-                    className="flex items-center gap-1 px-1.5 py-1 border text-[8px] font-mono tracking-wider transition-all cursor-pointer"
-                    style={{
-                        borderColor: isPickingNode ? `${accentColor}80` : isFilled ? 'rgba(34,211,238,0.4)' : 'rgba(255,255,255,0.15)',
-                        background: isPickingNode ? `${accentColor}15` : isFilled ? 'rgba(34,211,238,0.08)' : 'rgba(0,0,0,0.7)',
-                        color: isFilled ? '#22d3ee' : isPickingNode ? accentColor : '#666',
-                        boxShadow: isPickingNode ? `0 0 8px ${accentColor}30` : 'none',
-                        animation: isPickingNode ? 'qh-flicker 1.5s ease-in-out infinite' : undefined,
-                    }}
-                    title={isPickingNode ? 'Click a node to select IP' : isFilled ? value : 'Click to pick target IP'}
-                >
-                    <Globe size={8} />
-                    {isFilled
-                        ? <span className="max-w-[80px] truncate">{value}</span>
-                        : <span>{isPickingNode ? 'PICK NODE' : 'IP'}</span>
-                    }
-                </button>
+                {ipInputMode ? (
+                    <input
+                        ref={ipInputRef}
+                        type="text"
+                        value={value}
+                        onChange={e => {
+                            const v = e.target.value.replace(/[^0-9a-fA-F.:]/g, '').slice(0, 45);
+                            onSetValue(v);
+                        }}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                                setIpInputMode(false);
+                                (e.target as HTMLInputElement).blur();
+                            } else if (e.key === 'Escape') {
+                                onSetValue('');
+                                setIpInputMode(false);
+                            }
+                        }}
+                        onBlur={() => setIpInputMode(false)}
+                        placeholder="IP"
+                        className="w-[112px] px-1.5 py-1 text-[9px] font-mono tracking-wider focus:outline-none transition-colors"
+                        style={{
+                            background: 'rgba(0,0,0,0.85)',
+                            border: '1px solid rgba(34,211,238,0.5)',
+                            color: '#22d3ee',
+                        }}
+                    />
+                ) : (
+                    <button
+                        onClick={onRequestNodePick}
+                        className="flex items-center gap-1 px-1.5 py-1 border text-[8px] font-mono tracking-wider transition-all cursor-pointer"
+                        style={{
+                            borderColor: isPickingNode ? `${accentColor}80` : isFilled ? 'rgba(34,211,238,0.4)' : 'rgba(255,255,255,0.15)',
+                            background: isPickingNode ? `${accentColor}15` : isFilled ? 'rgba(34,211,238,0.08)' : 'rgba(0,0,0,0.7)',
+                            color: isFilled ? '#22d3ee' : isPickingNode ? accentColor : '#666',
+                            boxShadow: isPickingNode ? `0 0 8px ${accentColor}30` : 'none',
+                            animation: isPickingNode ? 'qh-flicker 1.5s ease-in-out infinite' : undefined,
+                        }}
+                        title={
+                            isPickingNode
+                                ? 'Click a node to select its IP, or type to enter one manually'
+                                : isFilled ? value : 'Click to pick target IP'
+                        }
+                    >
+                        <Globe size={8} />
+                        {isFilled
+                            ? <span className="max-w-[80px] truncate">{value}</span>
+                            : <span>{isPickingNode ? 'PICK / TYPE' : 'IP'}</span>
+                        }
+                    </button>
+                )}
             </motion.div>
         );
     }
@@ -615,11 +926,16 @@ export const QuickHackSubscriptionMonitor = ({
             if (iv) { clearInterval(iv); intervalRef.current.delete(execution.execId); }
             const isError = task.status === 'error';
             playDoneQH();
+            // Extract the first error response text, fallback to generic message
+            const errorResponse = task.responses?.find((r: any) => r.is_error);
+            const errorMsg = isError
+                ? (errorResponse?.response || 'Task completed with errors')
+                : undefined;
             onUpdate(execution.execId, prev => ({
                 ...prev,
                 phase: isError ? 'error' : 'completed',
                 progress: 100,
-                errorMsg: isError ? 'Task completed with errors' : undefined,
+                errorMsg,
             }));
         }
     }, [taskData, execution.phase, execution.execId, intervalRef, onUpdate]);
@@ -649,11 +965,11 @@ export const QuickHackSubscriptionMonitor = ({
 /** Group that follows a node's live position each frame (for drag tracking). */
 export const NodeFollower = ({ nodeRef, fallback, yOffset, children }: {
     nodeRef: { current: TopoNode | null };
-    fallback: THREE.Vector3;
+    fallback: Vector3;
     yOffset: number;
     children: React.ReactNode;
 }) => {
-    const groupRef = useRef<THREE.Group>(null!);
+    const groupRef = useRef<Group>(null!);
     useFrame(() => {
         const pos = nodeRef.current?.position ?? fallback;
         groupRef.current.position.set(pos.x, pos.y + yOffset, pos.z);

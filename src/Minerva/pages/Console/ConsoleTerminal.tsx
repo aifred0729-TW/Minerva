@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
-import { useMutation, useSubscription, useReactiveVar } from "@apollo/client/react";
+import { useApolloClient, useMutation, useSubscription, useReactiveVar } from "@apollo/client/react";
 import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import type { Task } from '../../types/tasks';
 import type { CommandDefinition, CommandParameter } from '../../types/commands';
@@ -46,12 +46,57 @@ import { applyFilterToTask, isFilterActive, defaultFilterOptions, normalizeUnixP
 import { TaskBlock } from './TaskBlock';
 import type { FilterOptions, CallbackToken } from '../../types/console';
 import { UploadToAgentModal } from './FileBrowserPanel';
+import { useMsfSession } from './useMsfSession';
+import { msfRecordsToTasks } from './msfToMythicTask';
+import {
+    detectBareUploadName,
+    getMythicLibraryEntry,
+    refreshMythicLibraryIndex,
+    suggestMythicLibraryNames,
+    listMythicLibraryNames,
+    bestSingleLibraryMatch,
+} from '../../lib/mythicLibraryIndex';
+import { HelpPanel, type LoadedCmd as HelpLoadedCmd } from './HelpPanel';
+
+/** Static command catalog used for tab completion in MSF mode. */
+const MSF_BUILTIN_COMMANDS: Array<{ cmd: string; description: string; supports: 'meterpreter' | 'shell' | 'both' }> = [
+    { cmd: 'sysinfo',     description: 'Host fingerprint',              supports: 'meterpreter' },
+    { cmd: 'getuid',      description: 'Effective user',                supports: 'meterpreter' },
+    { cmd: 'getpid',      description: 'Current process id',            supports: 'meterpreter' },
+    { cmd: 'ps',          description: 'Process list',                  supports: 'meterpreter' },
+    { cmd: 'kill',        description: 'Kill <pid>',                    supports: 'meterpreter' },
+    { cmd: 'ls',          description: 'List directory',                supports: 'both' },
+    { cmd: 'pwd',         description: 'Working directory',             supports: 'both' },
+    { cmd: 'cd',          description: 'Change directory',              supports: 'both' },
+    { cmd: 'cat',         description: 'Print file',                    supports: 'both' },
+    { cmd: 'download',    description: 'Pull file to MSF loot',         supports: 'meterpreter' },
+    { cmd: 'upload',      description: 'Push file to host',             supports: 'meterpreter' },
+    { cmd: 'shell',       description: 'Drop to native shell',          supports: 'meterpreter' },
+    { cmd: 'background',  description: 'Return to msfconsole',          supports: 'meterpreter' },
+    { cmd: 'screenshot',  description: 'Capture desktop screenshot',    supports: 'meterpreter' },
+    { cmd: 'hashdump',    description: 'Dump SAM hashes',               supports: 'meterpreter' },
+    { cmd: 'route',       description: 'Routing table / pivot setup',   supports: 'meterpreter' },
+    { cmd: 'portfwd',     description: 'Port forwarding',               supports: 'meterpreter' },
+    { cmd: 'help',        description: 'Show built-in command help',    supports: 'both' },
+    { cmd: 'whoami',      description: 'Current user',                  supports: 'shell' },
+    { cmd: 'id',          description: 'Effective user id',             supports: 'shell' },
+    { cmd: 'uname',       description: 'Kernel info',                   supports: 'shell' },
+];
 
 const SCROLL_BOTTOM_THRESHOLD = 80;
 
 export const ConsoleTerminal = ({
     callbackId, callbackDbId, callbackUUID, payloadtypeName, payloadtypeId, callbackOs, operationId, callbackHost,
     callbackActive, callbackLastCheckin, callbackSleepInfo,
+    // ── MSF-mode props ────────────────────────────────────────────────────
+    // When `agentMode === 'msf'`, the terminal drives a Metasploit session
+    // via msfTaskStore / sessionRead / sessionWrite instead of Mythic's
+    // Apollo subscriptions + tasking mutation. All visual chrome stays the
+    // same; the only differences are the data source and the submit path.
+    agentMode = 'mythic',
+    msfSessionId,
+    msfSessionType,
+    msfConnectionLost = false,
 }: {
     callbackId: number;
     callbackDbId: number;
@@ -64,8 +109,14 @@ export const ConsoleTerminal = ({
     callbackActive: boolean;
     callbackLastCheckin: string | null;
     callbackSleepInfo: string | null;
+    agentMode?: 'mythic' | 'msf';
+    msfSessionId?: string;
+    msfSessionType?: string;
+    msfConnectionLost?: boolean;
 }) => {
+    const isMsfMode = agentMode === 'msf';
     const me = useReactiveVar(meState);
+    const apolloClient = useApolloClient();
     const isDead = !isCallbackAlive({ active: callbackActive, last_checkin: callbackLastCheckin ?? undefined, sleep_info: callbackSleepInfo ?? undefined });
     const [collapseAllEpoch, setCollapseAllEpoch] = useState(0);
     // #8 — Expand All Tasks
@@ -81,8 +132,41 @@ export const ConsoleTerminal = ({
     const [commandPayloadType, setCommandPayloadType] = useState('');
     const [commandInfo, setCommandInfo] = useState<unknown>({});
     const [openParametersDialog, setOpenParametersDialog] = useState(false);
+    // Parsed help overlay state — `help` and `help <cmd>` are intercepted in
+    // `handleSend` and never reach Mythic; they open this panel instead.
+    const [helpPanel, setHelpPanel] = useState<{ mode: 'index' | 'detail'; target?: HelpLoadedCmd } | null>(null);
     const loadedOptions = useRef<any[]>([]);
     const taskOptionsIndex = useRef(-1);
+
+    // ---- Local CLI input history (per-callback, localStorage-backed) ----
+    // Records literal typed lines so ↑/↓ recall exactly what the user typed,
+    // not Mythic's post-parse form (e.g. `shell …` instead of expanded `run -Executable … -Arguments …`).
+    const inputHistoryKey = `minerva.consoleInputHistory.${callbackId}`;
+    const [localInputHistory, setLocalInputHistory] = useState<string[]>(() => {
+        try {
+            const raw = localStorage.getItem(inputHistoryKey);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
+    });
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(inputHistoryKey);
+            const parsed = raw ? JSON.parse(raw) : [];
+            setLocalInputHistory(Array.isArray(parsed) ? parsed : []);
+        } catch { setLocalInputHistory([]); }
+    }, [inputHistoryKey]);
+    const pushInputHistory = useCallback((line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        setLocalInputHistory(prev => {
+            if (prev[prev.length - 1] === trimmed) return prev;
+            const next = [...prev, trimmed];
+            if (next.length > 500) next.splice(0, next.length - 500);
+            try { localStorage.setItem(inputHistoryKey, JSON.stringify(next)); } catch {}
+            return next;
+        });
+    }, [inputHistoryKey]);
 
     // ---- Filter state ----
     const [filterOptions, setFilterOptions] = useState<FilterOptions>(defaultFilterOptions);
@@ -114,7 +198,7 @@ export const ConsoleTerminal = ({
     const [callbackContext, setCallbackContext] = useState<Record<string, unknown>>({});
     const hideTaskingContext: boolean = useGetMythicSetting({setting_name: 'hideTaskingContext', default_value: operatorSettingDefaults.hideTaskingContext ?? false});
     const taskingContextFields: string[] = useGetMythicSetting({setting_name: 'taskingContextFields', default_value: operatorSettingDefaults.taskingContextFields ?? ['impersonation_context', 'cwd']});
-    const useDisplayParamsForCLIHistory: boolean = useGetMythicSetting({setting_name: 'useDisplayParamsForCLIHistory', default_value: operatorSettingDefaults.useDisplayParamsForCLIHistory ?? true});
+    const useDisplayParamsForCLIHistory: boolean = useGetMythicSetting({setting_name: 'useDisplayParamsForCLIHistory', default_value: operatorSettingDefaults.useDisplayParamsForCLIHistory ?? false});
 
     // ---- Command Disambiguation state ----
     const [disambiguationOptions, setDisambiguationOptions] = useState<any[]>([]);
@@ -129,6 +213,7 @@ export const ConsoleTerminal = ({
         variables: { callback_id: callbackDbId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
+        skip: isMsfMode,
         onData: ({ data: subData }: any) => {
             const ctx = subData?.data?.callback_stream?.[0];
             if (ctx) {
@@ -139,7 +224,7 @@ export const ConsoleTerminal = ({
         },
     });
 
-    const [createTask, { loading: tasking }] = useMutation<any>(CREATE_TASK_MUTATION, {
+    const [createTask, { loading: mythicTasking }] = useMutation<any>(CREATE_TASK_MUTATION, {
         onCompleted: (data: any) => {
             if (data?.createTask?.status === 'error') {
                 snackActions.error(data.createTask.error || 'Task creation failed');
@@ -150,15 +235,19 @@ export const ConsoleTerminal = ({
             snackActions.error('Failed to create task: ' + (err?.message || 'Unknown error'));
         }
     });
+    // In MSF mode we drive the busy indicator from local state.
+    const [msfTasking, setMsfTasking] = useState(false);
+    const tasking = isMsfMode ? msfTasking : mythicTasking;
 
     // Use task_stream subscription for real-time task + response updates.
     // The task timestamp is bumped by a DB trigger whenever a new response row is inserted,
     // so the stream naturally re-fires and delivers fresh inline responses.
     const [taskMap, setTaskMap] = useState<Map<number, any>>(new Map());
-    const { loading } = useSubscription<any>(STREAM_CALLBACK_TASKS, {
+    const { loading: taskStreamLoading } = useSubscription<any>(STREAM_CALLBACK_TASKS, {
         variables: { callback_display_id: callbackId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
+        skip: isMsfMode,
         onData: ({ data: streamData }: any) => {
             const incoming: Task[] = streamData?.data?.task_stream;
             if (!incoming?.length) return;
@@ -171,13 +260,29 @@ export const ConsoleTerminal = ({
         onError: (err) => { console.error('[STREAM_CALLBACK_TASKS] subscription error:', err); },
     });
 
+    // ── MSF task source ─────────────────────────────────────────────────────
+    // When in MSF mode we drive a parallel data path: msfTaskStore → adapter
+    // → Mythic-shaped Task array, then funnel through the same UI pipeline.
+    const msfSession = useMsfSession(
+        msfSessionId || '',
+        msfSessionType || 'meterpreter',
+        isMsfMode && !msfConnectionLost && !!msfSessionId,
+    );
+    const msfTasks = useMemo(
+        () => isMsfMode ? msfRecordsToTasks(msfSession.tasks) as Task[] : [],
+        [isMsfMode, msfSession.tasks],
+    );
+    const loading = isMsfMode ? false : taskStreamLoading;
+
     const tasks = useMemo(
         () => {
-            const all = [...taskMap.values()].sort((a, b) => a.id - b.id);
+            const all = isMsfMode
+                ? msfTasks
+                : [...taskMap.values()].sort((a, b) => a.id - b.id);
             if (!isFilterActive(filterOptions)) return all;
             return all.filter(t => applyFilterToTask(t, filterOptions, me.user?.username as string | undefined));
         },
-        [taskMap, filterOptions, me.user?.username]
+        [isMsfMode, msfTasks, taskMap, filterOptions, me.user?.username]
     );
 
     // Track whether the user is pinned to the bottom.
@@ -225,6 +330,7 @@ export const ConsoleTerminal = ({
         variables: { callback_id: callbackDbId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
+        skip: isMsfMode,
         onData: ({ data: subData }: any) => {
             if (!subData?.data?.loadedcommands) return;
             const cmds = subData.data.loadedcommands.map((c: any) => {
@@ -247,6 +353,7 @@ export const ConsoleTerminal = ({
         variables: { callback_id: callbackDbId },
         fetchPolicy: "network-only",
         shouldResubscribe: true,
+        skip: isMsfMode,
         onData: ({ data: subData }: any) => {
             const tokens: CallbackToken[] = (subData?.data?.callbacktoken || []).map((ct: any) => ct.token).filter(Boolean);
             setAvailableTokens(tokens);
@@ -255,14 +362,47 @@ export const ConsoleTerminal = ({
         onError: (err) => { console.error('[SUBSCRIPTION_CALLBACK_TOKENS] subscription error:', err); },
     });
 
-    // Load operators for filter panel
+    // Load operators for filter panel (Mythic only — MSF uses local operator name)
     useQuery<any>(GET_OPERATORS_IN_OPERATION, {
         variables: { operation_id: operationId },
-        skip: !operationId,
+        skip: !operationId || isMsfMode,
         onCompleted: (data: any) => {
             setOperatorUsernames((data?.operation_by_pk?.operators || []).map((op: any) => op.username));
         }
     });
+
+    // In MSF mode, seed loadedOptions with a static catalog so tab completion
+    // and the "cmds loaded" indicator behave the same as for Mythic.
+    useEffect(() => {
+        if (!isMsfMode) return;
+        const wantsMeterpreter = (msfSessionType || 'meterpreter') === 'meterpreter';
+        const compatible = MSF_BUILTIN_COMMANDS.filter(c =>
+            c.supports === 'both' ||
+            (wantsMeterpreter && c.supports === 'meterpreter') ||
+            (!wantsMeterpreter && c.supports === 'shell'),
+        );
+        loadedOptions.current = compatible.map(c => ({
+            cmd: c.cmd,
+            description: c.description,
+            commandparameters: [],
+            attributes: { supported_os: [] },
+        })) as any[];
+        // Operator name surfaces in the filter panel.
+        const opName = me.user?.username || msfSession.operator || 'operator';
+        setOperatorUsernames(prev => prev.includes(opName) ? prev : [...prev, opName]);
+    }, [isMsfMode, msfSessionType, me.user?.username, msfSession.operator]);
+
+    // Synthesise callbackContext from MSF session metadata so tasking-context
+    // badges still appear (host, user, cwd if known).
+    useEffect(() => {
+        if (!isMsfMode || !msfSession) return;
+        // We don't have a real-time `cwd` for MSF; the file-browser owns cwd
+        // and we surface it via msfFsCache by reading the same key here later.
+        setCallbackContext({
+            user: msfSession.operator,
+            host: callbackHost,
+        } as Record<string, unknown>);
+    }, [isMsfMode, callbackHost, msfSession.operator]);
 
     // Close token dropdown on outside click
     useEffect(() => {
@@ -273,6 +413,16 @@ export const ConsoleTerminal = ({
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [showTokenMenu]);
+
+    // Esc closes the help overlay
+    useEffect(() => {
+        if (!helpPanel) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setHelpPanel(null);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [helpPanel]);
 
     // ---- Parsing helpers — extracted to ./commandParser.ts ----
 
@@ -343,14 +493,41 @@ export const ConsoleTerminal = ({
 
         const originalParams = paramsStr;
 
-        // Check if a popup dialog is needed (file param missing or required params missing)
+        // Check if a popup dialog is needed (file param missing OR present
+        // but not a UUID — the previous version only opened the dialog when
+        // the File param was absent, which let `upload fscan.exe` send the
+        // literal name through to Apollo and trip the backend RPC).
         if (cmd.commandparameters.length > 0) {
             const fileParamExists = cmd.commandparameters.find((param: any) => {
                 if (param.parameter_type === "File" && cmdGroupName.includes(param.parameter_group_name)) {
-                    if (!(param.cli_name in parsedWithPositionalParameters || param.name in parsedWithPositionalParameters || param.display_name in parsedWithPositionalParameters)) return true;
-                    if (param.cli_name in parsedWithPositionalParameters && uuidValidate(parsedWithPositionalParameters[param.cli_name])) return false;
-                    if (param.name in parsedWithPositionalParameters && uuidValidate(parsedWithPositionalParameters[param.name])) return false;
-                    if (param.display_name in parsedWithPositionalParameters && uuidValidate(parsedWithPositionalParameters[param.display_name])) return false;
+                    const candidates = [param.cli_name, param.name, param.display_name];
+                    const presentKey = candidates.find(k => k && k in parsedWithPositionalParameters);
+                    if (!presentKey) return true; // not supplied at all
+                    return !uuidValidate(parsedWithPositionalParameters[presentKey]); // supplied but not a UUID
+                }
+                return false;
+            });
+            // ConnectionInfo params (e.g. Apollo's `link` / `link_webshell`)
+            // need a full `{host, c2_profile:{name, parameters}, callback_uuid}`
+            // object. Operators almost always type a shorter shape like
+            // `link {"host":"...","port":...}`, which then fails server-side
+            // with the cryptic "Required arg connection_info has no value"
+            // error because no key matched the ConnectionInfo cli_name.
+            // Pop the parameters dialog so Mythic's built-in connection picker
+            // assembles a valid connection_info — pre-filled with whatever
+            // host/port the operator already typed.
+            const connectionParamMalformed = cmd.commandparameters.find((param: any) => {
+                if (param.parameter_type === "ConnectionInfo" && cmdGroupName.includes(param.parameter_group_name)) {
+                    const candidates = [param.cli_name, param.name, param.display_name];
+                    const presentKey = candidates.find(k => k && k in parsedWithPositionalParameters);
+                    if (!presentKey) return true; // operator didn't even attempt the right key
+                    const v = parsedWithPositionalParameters[presentKey];
+                    // A valid ConnectionInfo is an object with at minimum a
+                    // c2_profile sub-object. Anything else (string, number,
+                    // bare `{host, port}` shape) is malformed.
+                    if (!v || typeof v !== 'object' || Array.isArray(v)) return true;
+                    if (!v.c2_profile || typeof v.c2_profile !== 'object') return true;
+                    return false;
                 }
                 return false;
             });
@@ -362,7 +539,15 @@ export const ConsoleTerminal = ({
                 );
                 if (missingParams.length > 0) missingRequiredParams = true;
             }
-            if (fileParamExists || missingRequiredParams) {
+            if (fileParamExists || connectionParamMalformed || missingRequiredParams) {
+                // For ConnectionInfo we surface a one-line snack so the
+                // operator understands *why* the dialog opened — they typed
+                // a valid-looking JSON and would otherwise blame the UI.
+                if (connectionParamMalformed && !fileParamExists && !missingRequiredParams) {
+                    snackActions.info(
+                        `${cmd.cmd} needs a full connection_info — opening picker (your host/port are pre-filled if recognised)`,
+                    );
+                }
                 setCommandInfo({ ...cmd, "parsedParameters": parsedWithPositionalParameters, groupName: cmdGroupName[0] || "Default" });
                 setOpenParametersDialog(true);
                 return;
@@ -403,7 +588,59 @@ export const ConsoleTerminal = ({
     const handleSend = (currentInput: string) => {
         if (!currentInput.trim() || tasking) return;
         const trimmed = currentInput.trim();
+        // Record literal typed line for ↑/↓ recall, even if it later fails parsing —
+        // user can fix typos without retyping the whole line.
+        pushInputHistory(trimmed);
+
+        // ── MSF submit path ─────────────────────────────────────────────────
+        // Free-form: no command catalog validation, no param dialog. The
+        // record is created on the spot via msfTaskStore + sessionWrite;
+        // the broker poller streams response chunks back into it.
+        if (isMsfMode) {
+            if (!msfSessionId || msfConnectionLost) {
+                snackActions.warning(msfConnectionLost ? 'MSF session disconnected' : 'No MSF session bound');
+                return;
+            }
+            setMsfTasking(true);
+            msfSession.runCommand(trimmed, { origin: 'console' })
+                .catch((e) => snackActions.error(e?.message || 'MSF send failed'))
+                .finally(() => {
+                    setMsfTasking(false);
+                    inputRef.current?.focus();
+                });
+            setInput('');
+            taskOptionsIndex.current = -1;
+            return;
+        }
+
         const cmdName = trimmed.split(" ")[0];
+        // ── `help` intercept ────────────────────────────────────────────
+        // `help` alone opens the parsed command index; `help <cmd>` opens
+        // that command's detail page. Both stay client-side — no task is
+        // created on the agent — so the operator gets a Minerva-styled,
+        // documentation-linked view instead of whatever flat text the
+        // agent's help_cmd would have produced.
+        if (cmdName === 'help') {
+            const argName = trimmed.split(/\s+/)[1];
+            if (argName) {
+                const target = loadedOptions.current.find(
+                    (c: LoadedCmd) => c.cmd?.toLowerCase() === argName.toLowerCase(),
+                );
+                if (target) {
+                    setHelpPanel({ mode: 'detail', target: target as HelpLoadedCmd });
+                } else {
+                    snackActions.warning(`No loaded command named '${argName}'`);
+                    setHelpPanel({ mode: 'index' });
+                }
+            } else {
+                setHelpPanel({ mode: 'index' });
+            }
+            setInput('');
+            setCommandPayloadType('');
+            taskOptionsIndex.current = -1;
+            inputRef.current?.focus();
+            return;
+        }
         const cmds = loadedOptions.current.filter((l: LoadedCmd) => l.cmd === cmdName);
         if (!cmds || cmds.length === 0) {
             snackActions.warning("Unknown (or not loaded) command: " + cmdName);
@@ -421,6 +658,123 @@ export const ConsoleTerminal = ({
                 pendingDisambiguationInput.current = trimmed;
                 setDisambiguationOptions(cmds);
                 setShowDisambiguation(true);
+                return;
+            }
+        }
+        // ── Mythic `upload <bare-name>` auto-resolve ─────────────────────
+        // `<bare-name>` may refer to either a Mythic uploaded file (Files
+        // page) or a built payload (Payloads page) — both live at
+        // `/mythic_files/<uuid>` on disk and both are tracked by the
+        // shared library index. The operator's intent when typing
+        // `upload fscan.exe` is "pick the matching file and upload it",
+        // never "open a dialog so I can hunt for it again", so we resolve
+        // here and submit straight through:
+        //
+        //   1. UUID typed verbatim    → rewrite directly, no lookup.
+        //   2. Bare name in index     → rewrite to `{File:<uuid>}` form.
+        //   3. Bare name NOT in index → force a network-only refetch (a
+        //                               payload built seconds ago hasn't
+        //                               hit the 10s poll yet) and retry.
+        //   4. Still not found        → error toast naming what we tried,
+        //                               NOT the param-picker dialog.
+        //
+        // Without this Apollo's `create_go_tasking` would either accept
+        // the literal string and crash on `SendMythicRPCFileSearch`
+        // ("reject_bytes is on" Python error), or — with the dialog gate
+        // — force the operator through an extra modal click for a name
+        // they already typed correctly.
+        if (cmd.cmd === 'upload' && detectBareUploadName(trimmed)) {
+            const fileParam = (cmd.commandparameters || []).find(
+                (p: CommandParameter) => p.parameter_type === 'File',
+            );
+            if (fileParam) {
+                const pathParam = (cmd.commandparameters || []).find(
+                    (p: CommandParameter) => p.parameter_type === 'String'
+                        && /path/i.test(p.cli_name || p.name || ''),
+                );
+                const bareName = detectBareUploadName(trimmed) as string;
+                const focusReset = () => {
+                    setInput('');
+                    setCommandPayloadType('');
+                    taskOptionsIndex.current = -1;
+                    inputRef.current?.focus();
+                };
+                /** Build `upload {<FileCliName>:"<uuid>", <PathCliName>:"<dest>"?}`. */
+                const buildRewrite = (uuid: string): string => {
+                    const re = /("[^"]*"|\S+)/g;
+                    const parts: string[] = [];
+                    let m: RegExpExecArray | null;
+                    while ((m = re.exec(trimmed.trim())) !== null) parts.push(m[1]);
+                    const stripQuotes = (s: string) =>
+                        s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
+                    const args: Record<string, string> = { [fileParam.cli_name]: uuid };
+                    if (parts.length >= 3 && pathParam) {
+                        let dest = parts.slice(2).join(' ');
+                        dest = stripQuotes(dest);
+                        if (dest.endsWith('/') || dest.endsWith('\\')) {
+                            const sep = dest.endsWith('\\') ? '\\' : '/';
+                            // bareName carries the original filename so a
+                            // trailing-separator destination becomes
+                            // `dest/<bare-name>`, matching the meterpreter
+                            // rewriter's folder semantics.
+                            dest = `${dest.slice(0, -1)}${sep}${bareName}`;
+                        }
+                        args[pathParam.cli_name] = dest;
+                    }
+                    return `upload ${JSON.stringify(args)}`;
+                };
+                const submitWithUuid = (uuid: string) => {
+                    processCommandAndCommandLine(cmd, buildRewrite(uuid));
+                    focusReset();
+                };
+                // Path 1: operator pasted a literal agent_file_id — trust it.
+                if (uuidValidate(bareName)) {
+                    submitWithUuid(bareName);
+                    return;
+                }
+                // Path 2: cached library hit (payload OR uploaded file).
+                const cached = getMythicLibraryEntry(bareName);
+                if (cached) {
+                    submitWithUuid(cached.uuid);
+                    return;
+                }
+                // Path 3, 4, 5: refetch → exact retry → unambiguous typo
+                // auto-fix → actionable error.
+                refreshMythicLibraryIndex(apolloClient).finally(() => {
+                    const fresh = getMythicLibraryEntry(bareName);
+                    if (fresh) {
+                        submitWithUuid(fresh.uuid);
+                        return;
+                    }
+                    // If the typed name is one obvious typo away from
+                    // exactly one library entry, silently substitute it
+                    // (e.g. `DMZ-zone.exe` → `DEV-zone.exe`). Re-typing
+                    // the right name after seeing "Did you mean …" was
+                    // pointless friction — the system has all the
+                    // information it needs to just do the right thing.
+                    const auto = bestSingleLibraryMatch(bareName);
+                    if (auto && auto.name.toLowerCase() !== bareName.toLowerCase()) {
+                        snackActions.info(`Upload: substituted '${bareName}' → '${auto.name}'`);
+                        submitWithUuid(auto.uuid);
+                        return;
+                    }
+                    // Ambiguous or no near-match: surface every close hit
+                    // so the operator can tell whether they typo'd, the
+                    // build saved under a different name, or the payload
+                    // lives in a different operation.
+                    const suggestions = suggestMythicLibraryNames(bareName, 5);
+                    const total = listMythicLibraryNames().length;
+                    let msg = `Upload: '${bareName}' not found in payloads or uploaded files`;
+                    if (suggestions.length > 0) {
+                        msg += `. Did you mean: ${suggestions.join(', ')}?`;
+                    } else if (total === 0) {
+                        msg += '. The library index is empty — check that you are in the right operation.';
+                    } else {
+                        msg += `. (${total} files indexed; check the exact name on the Payloads page.)`;
+                    }
+                    snackActions.error(msg);
+                    focusReset();
+                });
                 return;
             }
         }
@@ -547,6 +901,7 @@ export const ConsoleTerminal = ({
     };
 
     const getTabCompletionForParamValues = async (cmdName: string, paramCliName: string, partial: string, reverse: boolean) => {
+        if (isMsfMode) return; // No dynamic params for MSF
         const cmd = loadedOptions.current.find((c: CommandDefinition & { commandparameters?: CommandParameter[] }) => c.cmd === cmdName);
         if (!cmd) return;
         const param = cmd.commandparameters.find((p: CommandParameter) => p.cli_name === paramCliName);
@@ -715,8 +1070,8 @@ export const ConsoleTerminal = ({
             }
             return;
         }
-        // Shift+Enter — force popup dialog
-        if (e.key === 'Enter' && e.shiftKey) {
+        // Shift+Enter — force popup dialog (Mythic only; MSF treats it as a normal submit)
+        if (e.key === 'Enter' && e.shiftKey && !isMsfMode) {
             e.preventDefault();
             const trimmed = input.trim();
             if (!trimmed) return;
@@ -745,27 +1100,41 @@ export const ConsoleTerminal = ({
         }
         if (e.key === 'ArrowUp') {
             e.preventDefault();
-            if (tasksHistory.length === 0) return;
-            const newIndex = Math.min(taskOptionsIndex.current + 1, tasksHistory.length - 1);
-            taskOptionsIndex.current = newIndex;
-            const task = tasksHistory[newIndex];
-            const histParams_up = useDisplayParamsForCLIHistory
-                ? (task.display_params || task.original_params || '')
-                : (task.original_params || task.display_params || '');
-            const historyStr = ((task.command_name || '') + (histParams_up ? ' ' + histParams_up : '')).trim();
-            setInput(historyStr.trim());
+            // Prefer literal local history (what user typed) over tasksHistory (Mythic's parsed/expanded form).
+            if (localInputHistory.length > 0) {
+                const newIndex = Math.min(taskOptionsIndex.current + 1, localInputHistory.length - 1);
+                taskOptionsIndex.current = newIndex;
+                setInput(localInputHistory[localInputHistory.length - 1 - newIndex]);
+            } else if (tasksHistory.length > 0) {
+                const newIndex = Math.min(taskOptionsIndex.current + 1, tasksHistory.length - 1);
+                taskOptionsIndex.current = newIndex;
+                const task = tasksHistory[newIndex];
+                const histParams_up = useDisplayParamsForCLIHistory
+                    ? (task.display_params || task.original_params || '')
+                    : (task.original_params || task.display_params || '');
+                const trimmedParams = (histParams_up || '').trim();
+                const historyStr = ((task.command_name || '') + (trimmedParams ? ' ' + trimmedParams : '')).trim();
+                setInput(historyStr);
+            }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            if (tasksHistory.length === 0) return;
-            if (taskOptionsIndex.current <= 0) { taskOptionsIndex.current = -1; setInput(''); return; }
-            const newIndex = taskOptionsIndex.current - 1;
-            taskOptionsIndex.current = newIndex;
-            const task = tasksHistory[newIndex];
-            const histParams_dn = useDisplayParamsForCLIHistory
-                ? (task.display_params || task.original_params || '')
-                : (task.original_params || task.display_params || '');
-            const historyStr = ((task.command_name || '') + (histParams_dn ? ' ' + histParams_dn : '')).trim();
-            setInput(historyStr.trim());
+            if (localInputHistory.length > 0) {
+                if (taskOptionsIndex.current <= 0) { taskOptionsIndex.current = -1; setInput(''); return; }
+                const newIndex = taskOptionsIndex.current - 1;
+                taskOptionsIndex.current = newIndex;
+                setInput(localInputHistory[localInputHistory.length - 1 - newIndex]);
+            } else if (tasksHistory.length > 0) {
+                if (taskOptionsIndex.current <= 0) { taskOptionsIndex.current = -1; setInput(''); return; }
+                const newIndex = taskOptionsIndex.current - 1;
+                taskOptionsIndex.current = newIndex;
+                const task = tasksHistory[newIndex];
+                const histParams_dn = useDisplayParamsForCLIHistory
+                    ? (task.display_params || task.original_params || '')
+                    : (task.original_params || task.display_params || '');
+                const trimmedParams = (histParams_dn || '').trim();
+                const historyStr = ((task.command_name || '') + (trimmedParams ? ' ' + trimmedParams : '')).trim();
+                setInput(historyStr);
+            }
         } else {
             if (taskOptionsIndex.current !== -1) taskOptionsIndex.current = -1;
             // Reset tab completion when typing anything else
@@ -1152,7 +1521,25 @@ export const ConsoleTerminal = ({
                         )}
                     </div>
                 )}
-                <span className="text-signal animate-pulse font-bold text-base">$</span>
+                {/* Prompt — flips to a shell-style indicator when an MSF
+                    meterpreter session has dropped into raw `shell` mode.
+                    The "Exit Shell" button next to it sends `exit\n` so the
+                    operator can pop back to the meterpreter prompt without
+                    knowing the channel's escape sequence. */}
+                {isMsfMode && msfSession.shellMode ? (
+                    <>
+                        <button
+                            onClick={() => msfSession.exitShell()}
+                            className="text-amber-400 hover:text-red-500 border border-amber-400/40 rounded-sm px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-[0.2em] transition-colors"
+                            title="Exit the target shell — returns to meterpreter prompt"
+                        >
+                            EXIT SHELL
+                        </button>
+                        <span className="text-amber-400 animate-pulse font-bold text-base ml-1" title="Interactive shell mode — input is forwarded raw">$</span>
+                    </>
+                ) : (
+                    <span className="text-signal animate-pulse font-bold text-base">$</span>
+                )}
                 <input
                     ref={inputRef} type="text" value={input}
                     onChange={(e) => {
@@ -1165,7 +1552,12 @@ export const ConsoleTerminal = ({
                     onKeyDown={onKeyDown}
                     disabled={tasking}
                     className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-600 font-mono text-sm disabled:opacity-50"
-                    placeholder={tasking ? "Transmitting..." : selectedToken ? `[${selectedToken.user}] Enter command...` : "Enter command... (Tab=autocomplete, Ctrl+R=search)"}
+                    placeholder={
+                        tasking ? "Transmitting..." :
+                        (isMsfMode && msfSession.shellMode) ? "Interactive shell — input is forwarded raw (`exit` to return)" :
+                        selectedToken ? `[${selectedToken.user}] Enter command...` :
+                        "Enter command... (Tab=autocomplete, Ctrl+R=search)"
+                    }
                     autoFocus
                     autoComplete="off"
                     spellCheck={false}
@@ -1189,7 +1581,7 @@ export const ConsoleTerminal = ({
             </div>
 
             {/* ── Command Disambiguation Dialog ─────────────── */}
-            {showDisambiguation && disambiguationOptions.length > 0 && (
+            {!isMsfMode && showDisambiguation && disambiguationOptions.length > 0 && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]" onClick={() => setShowDisambiguation(false)}>
                     <div className="bg-[#0a0f0a] border border-signal/40 p-5 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(34,197,94,0.15)]"
                          onClick={e => e.stopPropagation()}
@@ -1220,7 +1612,7 @@ export const ConsoleTerminal = ({
                 </div>
             )}
 
-            {openParametersDialog && (
+            {!isMsfMode && openParametersDialog && (
                 <MythicDialog fullWidth={true} maxWidth="lg" open={openParametersDialog}
                     onClose={() => setOpenParametersDialog(false)}
                     innerDialog={
@@ -1235,13 +1627,22 @@ export const ConsoleTerminal = ({
                     }
                 />
             )}
-            {uploadTarget !== null && (
+            {!isMsfMode && uploadTarget !== null && (
                 <UploadToAgentModal
                     targetPath={uploadTarget}
                     callbackId={callbackId}
                     onClose={() => setUploadTarget(null)}
                 />
             )}
+            <HelpPanel
+                open={!isMsfMode && helpPanel !== null}
+                mode={helpPanel?.mode ?? 'index'}
+                target={helpPanel?.target}
+                commands={loadedOptions.current as HelpLoadedCmd[]}
+                onClose={() => setHelpPanel(null)}
+                onOpenDetail={cmd => setHelpPanel({ mode: 'detail', target: cmd })}
+                onOpenIndex={() => setHelpPanel({ mode: 'index' })}
+            />
             </div>
         </OutputCallbackContext.Provider>
     );

@@ -238,6 +238,10 @@ subscription GetLoadedCommandsSubscription($callback_id: Int!) {
       cmd
       id
       attributes
+      description
+      help_cmd
+      author
+      version
       payloadtype {
         name
         id
@@ -249,6 +253,8 @@ subscription GetLoadedCommandsSubscription($callback_id: Int!) {
         dynamic_query_function
         required
         name
+        description
+        default_value
         ui_position
         parameter_group_name
         cli_name

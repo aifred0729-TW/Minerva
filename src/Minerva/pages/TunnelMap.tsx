@@ -533,7 +533,7 @@ const Legend = () => (
 
 // ─── Main TunnelMap page ───────────────────────────────────────────────────────
 export default function TunnelMap() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const navigate = useNavigate();
     const [ports, setPorts] = useState<CallbackPort[]>([]);
     const [showStopped, setShowStopped] = useState(false);

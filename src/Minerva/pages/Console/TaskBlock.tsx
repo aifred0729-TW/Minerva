@@ -53,12 +53,14 @@ import { useGetMythicSetting } from '../../components/MythicSavedUserSetting';
 import {
     MythicTable, TerminalPanel, ProcessPanel,
     FilesPanel, DownloadPanel, ScreenshotPanel,
+    NetSharesPanel, NetDcListPanel,
 } from '../../components/OutputRenderer';
 import { parseIP, normalizeUnixPath, filterBrowserScriptOutput } from './utils';
 import { ContextMenu } from './ContextMenu';
 import { TaskCommentModal, TaskParamsModal, TaskStdoutStderrModal } from './modals';
 import { MimikatzBlock } from './MimikatzBlock';
 import { InteractiveTaskBlock, TaskCredentialsPanel } from './InteractiveTaskBlock';
+import { CollapsibleOutput } from './CollapsibleOutput';
 
 const BrowserScriptTabs = ({ tabs, showMediaSetting, setExpandedScreenshot, navigate }: {
     tabs: MythicBrowserScriptData[];
@@ -206,8 +208,10 @@ export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot
                         </div>
                         <div className="font-mono text-xs text-white font-bold mb-1 flex items-start gap-1.5">
                             <span className="text-signal/70 shrink-0">↳</span>
-                            <span className="text-yellow-200/90">{sub.command_name}</span>
-                            <span className="text-gray-400">{sub.display_params}</span>
+                            <span className="break-all">
+                                <span className="text-yellow-200/90">{sub.command_name}</span>
+                                {sub.display_params ? <span className="text-gray-400">{' ' + sub.display_params.replace(/^\s+/, '')}</span> : null}
+                            </span>
                         </div>
                         <div className={cn('text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1.5', subStatusColor)}>
                             {subStatus}
@@ -217,7 +221,9 @@ export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot
                         </div>
                         {responses.length > 0 && (
                             <div className="font-mono text-xs text-gray-300 whitespace-pre-wrap break-words bg-black/30 p-2 rounded border border-white/5 text-[11px]">
-                                {responses.map((r: TaskResponse) => b64DecodeUnicode(r.response || '')).join('')}
+                                {responses.map((r: TaskResponse) => b64DecodeUnicode(r.response || '')).join('').split('\n').map((line, i) => (
+                                    <div key={i}>{line || <br />}</div>
+                                ))}
                             </div>
                         )}
                         <SubTaskBlock parentTaskId={sub.id} depth={depth + 1} callbackHost={callbackHost} scrollRoot={scrollRoot} />
@@ -239,6 +245,13 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
     expandAllEpoch?: number;
     defaultCollapsed?: boolean;
 }) => {
+    // ── Metasploit-session task flag ───────────────────────────────────────
+    // Synthetic tasks coming from msfTaskStore carry `is_msf_task: true`
+    // (see msfToMythicTask.ts). When set, every Apollo subscription /
+    // mutation / lazy-query inside this block is short-circuited and the
+    // matching UI controls fall back to no-op state. The visual chrome
+    // (header, output, search, copy, …) stays identical.
+    const isMsf = (task as Task & { is_msf_task?: boolean }).is_msf_task === true;
     const navigate = useNavigate();
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
     const [showSearch, setShowSearch] = useState(false);
@@ -293,9 +306,14 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
             setTotalSearchCount(d.response_aggregate?.aggregate?.count || 0);
         },
     });
-    // Trigger server-side search when searchText changes (debounced)
+    // Trigger server-side search when searchText changes (debounced).
+    // MSF tasks do search entirely client-side via the in-memory response.
     useEffect(() => {
         if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        if (isMsf) {
+            setPaginatedResults(null);
+            return;
+        }
         if (!searchText.trim()) {
             setPaginatedResults(null);
             setCurrentPage(1);
@@ -314,7 +332,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         }, SEARCH_DEBOUNCE_MS);
         return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchText, showAllOutput, task.id, responseStreamLimit]);
+    }, [searchText, showAllOutput, task.id, responseStreamLimit, isMsf]);
     const handlePageChange = (page: number) => {
         const limit = effectiveStreamLimit || 50;
         const searchParam = searchText.trim() ? `%${searchText}%` : '%%';
@@ -338,6 +356,7 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
     useSubscription<any>(STREAM_TASK_RESPONSES, {
         variables: { task_id: task.id },
         fetchPolicy: 'network-only',
+        skip: isMsf,
         onData: ({ data: d }: any) => {
             const incoming: TaskResponse[] = (d?.data?.response_stream as TaskResponse[]) || [];
             if (incoming.length === 0) return;
@@ -355,6 +374,12 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         },
         onError: (err) => { console.error('[STREAM_TASK_RESPONSES] subscription error:', err); },
     });
+    // For MSF tasks the broker mutates `task.responses` directly each poll —
+    // keep our local mirror in sync so the output area re-renders.
+    useEffect(() => {
+        if (!isMsf) return;
+        setLiveResponses(task.responses || []);
+    }, [isMsf, task.responses]);
     // ── BrowserScript ──
     const [browserScriptFn, setBrowserScriptFn] = useState<Function | null>(null);
     const [browserScriptData, setBrowserScriptData] = useState<any | null>(null);
@@ -374,9 +399,10 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         onError: () => { setBrowserScriptFn(null); },
     });
     useEffect(() => {
+        if (isMsf) return; // MSF has no Mythic browserscript machinery
         if (commandId) fetchBrowserScript({ variables: { command_id: commandId } });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [commandId]);
+    }, [commandId, isMsf]);
     // Run browserScript on new responses — OldReactUI calling convention: script(task, rawResponseArray)
     useEffect(() => {
         if (!browserScriptFn || liveResponses.length === 0) { setBrowserScriptData(null); return; }
@@ -475,9 +501,15 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
     });
 
     const copyParams = () => {
-        const cmd = task.command_name || '';
-        const params = task.original_params || task.display_params || '';
-        navigator.clipboard.writeText(cmd + (params ? ' ' + params : ''))
+        const cmd = (task.command_name || '').trim();
+        let params = (task.original_params || task.display_params || '').trim();
+        // Defensive: if params starts with the command_name (e.g. agent stored full line),
+        // strip it so we don't end up with "run run Rubeus.exe ..."
+        if (cmd && params && (params === cmd || params.startsWith(cmd + ' '))) {
+            params = params.slice(cmd.length).trimStart();
+        }
+        const text = params ? `${cmd} ${params}` : cmd;
+        navigator.clipboard.writeText(text)
             .then(() => snackActions.success('Copied to clipboard'))
             .catch(() => snackActions.error('Failed to copy'));
     };
@@ -670,17 +702,19 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                     {collapsed && (
                         <span className="ml-2 flex items-center gap-1.5 text-[11px] font-mono opacity-80">
                             <span className={cn("font-bold", statusColor)}>▸</span>
-                            <span className="text-yellow-200 font-bold">{task.command_name}</span>
-                            {task.display_params && (
-                                <span className="text-gray-400 truncate max-w-[260px]">{task.display_params}</span>
-                            )}
+                            <span className="truncate max-w-[260px]">
+                                <span className="text-yellow-200 font-bold">{task.command_name}</span>
+                                {task.display_params && (
+                                    <span className="text-gray-400">{' ' + task.display_params.replace(/^\s+/, '')}</span>
+                                )}
+                            </span>
                         </span>
                     )}
                 </div>
                 {/* Task action toolbar (dim until hover) */}
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    {/* Kill running task */}
-                    {!task.completed && task.status_timestamp_processing && !status.includes('error') && (
+                    {/* Kill running task — Mythic only (MSF uses session kill / kill <pid> in terminal) */}
+                    {!isMsf && !task.completed && task.status_timestamp_processing && !status.includes('error') && (
                         killConfirmOpen ? (
                             <div className="flex items-center gap-1">
                                 <span className="text-[10px] font-mono text-red-400">Kill?</span>
@@ -700,15 +734,15 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                             </button>
                         )
                     )}
-                    {/* Reissue task (error: container) */}
-                    {status.includes('error: container') && (
+                    {/* Reissue task (error: container) — Mythic only */}
+                    {!isMsf && status.includes('error: container') && (
                         <button title="Resubmit Task" onClick={() => reissueTask({ variables: { task_id: task.id } })}
                             className="p-1 rounded hover:bg-yellow-500/20 text-yellow-400 transition-colors">
                             <RotateCcw size={12} />
                         </button>
                     )}
-                    {/* Reissue task handler (error: task) */}
-                    {status.includes('error: task') && !status.includes('error: container') && (
+                    {/* Reissue task handler (error: task) — Mythic only */}
+                    {!isMsf && status.includes('error: task') && !status.includes('error: container') && (
                         <button title="Resubmit Task Handler" onClick={() => reissueTaskHandler({ variables: { task_id: task.id } })}
                             className="p-1 rounded hover:bg-yellow-500/20 text-yellow-400 transition-colors">
                             <RotateCcw size={12} />
@@ -735,26 +769,26 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <ClipboardCopy size={12} />
                     </button>
-                    {/* Edit comment */}
-                    <button title="Edit Comment"
+                    {/* Edit comment — Mythic only */}
+                    {!isMsf && <button title="Edit Comment"
                         onClick={() => setPanelContent(<TaskCommentModal taskId={task.id} onClose={closePanel} />)}
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <MessageSquare size={12} />
-                    </button>
-                    {/* View parameters + timestamps */}
-                    <button title="View Parameters & Timestamps"
+                    </button>}
+                    {/* View parameters + timestamps — Mythic only */}
+                    {!isMsf && <button title="View Parameters & Timestamps"
                         onClick={() => setPanelContent(<TaskParamsModal taskId={task.id} onClose={closePanel} />)}
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <SlidersHorizontal size={12} />
-                    </button>
-                    {/* View stdout/stderr */}
-                    <button title="View Stdout/Stderr"
+                    </button>}
+                    {/* View stdout/stderr — Mythic only */}
+                    {!isMsf && <button title="View Stdout/Stderr"
                         onClick={() => setPanelContent(<TaskStdoutStderrModal taskId={task.id} onClose={closePanel} />)}
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <Bug size={12} />
-                    </button>
+                    </button>}
                     {/* Toggle BrowserScript rendering (only when script available) */}
-                    {browserScriptFn && (
+                    {!isMsf && browserScriptFn && (
                         <button title={viewBrowserScript ? "Show Raw Output" : "Show BrowserScript Output"}
                             onClick={() => setViewBrowserScript(v => !v)}
                             className={cn('p-1 rounded transition-colors text-[10px] font-mono font-bold',
@@ -762,8 +796,8 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                             BS
                         </button>
                     )}
-                    {/* Token info (when task has a token) */}
-                    {task.token && (
+                    {/* Token info (when task has a token) — Mythic only */}
+                    {!isMsf && task.token && (
                         <button title="View Token Information"
                             onClick={() => setTokenDialogOpen(true)}
                             className="p-1 rounded text-yellow-600/70 hover:text-yellow-400 hover:bg-yellow-500/20 transition-colors">
@@ -776,18 +810,18 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                         className={cn("p-1 rounded transition-colors", showAllOutput ? "text-orange-400 bg-orange-400/15" : "text-gray-500 hover:text-white hover:bg-white/10")}>
                         <LayoutList size={12} />
                     </button>
-                    {/* Edit Tags */}
-                    <button title="Edit Tags"
+                    {/* Edit Tags — Mythic only */}
+                    {!isMsf && <button title="Edit Tags"
                         onClick={() => setEditTagsOpen(true)}
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <Tag size={12} />
-                    </button>
-                    {/* Trigger Eventing */}
-                    <button title="Trigger Event from this Task"
+                    </button>}
+                    {/* Trigger Eventing — Mythic only */}
+                    {!isMsf && <button title="Trigger Event from this Task"
                         onClick={() => setEventingOpen(true)}
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <PlayCircle size={12} />
-                    </button>
+                    </button>}
                     {/* Screenshot output as PNG */}
                     <button title="Download Screenshot of Output"
                         onClick={async () => {
@@ -802,17 +836,26 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <Image size={12} />
                     </button>
-                    {/* Download all output as .txt */}
-                    <button title="Download All Output" onClick={() => fetchAllResponses({ variables: { task_id: task.id } })}
+                    {/* Download all output as .txt — Mythic uses GraphQL, MSF dumps liveResponses client-side */}
+                    <button title="Download All Output"
+                        onClick={() => {
+                            if (isMsf) {
+                                const text = liveResponses.map((r: TaskResponse) => b64DecodeUnicode(r.response || '')).join('');
+                                const blob = new Blob([text], { type: 'text/plain' });
+                                downloadBlob(blob, `msf_task_${task.display_id}_output.txt`);
+                                return;
+                            }
+                            fetchAllResponses({ variables: { task_id: task.id } });
+                        }}
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors">
                         <FileDown size={12} />
                     </button>
-                    {/* Open task in new window */}
-                    <a href={`/new/task/${task.display_id}`} target="_blank" rel="noreferrer"
+                    {/* Open task in new window — Mythic only (no equivalent page for MSF) */}
+                    {!isMsf && <a href={`/new/task/${task.display_id}`} target="_blank" rel="noreferrer"
                         title="Open Task in New Window"
                         className="p-1 rounded text-gray-500 hover:text-white hover:bg-white/10 transition-colors flex items-center">
                         <ExternalLink size={12} />
-                    </a>
+                    </a>}
                 </div>
             </div>
             {/* Collapsible body */}
@@ -846,8 +889,8 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
             <div className="font-mono text-sm text-white font-bold mb-3 flex items-start gap-2">
                 <span className="text-signal mt-0.5">$</span>
                 <div className="break-all">
-                    <span className="text-yellow-200">{task.command_name}</span> 
-                    <span className="ml-2 text-gray-300">{task.display_params}</span>
+                    <span className="text-yellow-200">{task.command_name}</span>
+                    {task.display_params ? <span className="text-gray-300">{' ' + task.display_params.replace(/^\s+/, '')}</span> : null}
                 </div>
             </div>
             <div className={cn("text-[11px] uppercase tracking-wider font-bold mb-2 flex items-center gap-2", statusColor)}>
@@ -1043,16 +1086,39 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                         : (effectiveLimit === 0 || showAllOutput ? liveResponses : liveResponses.slice(-effectiveLimit));
                     const directoryMap = new Map<string, { directory: string; host: string; files: Map<string, any> }>();
                     const otherResponses: { id: number; content: string; parsed: unknown; isError: boolean }[] = [];
+                    // ── Mimikatz detection ──
+                    // Strip ANSI so console-mode mimikatz (Win10 VT) and
+                    // raw shell-mode pipes both match the same patterns.
+                    // The detector accepts any of:
+                    //   • bare prompt `mimikatz(commandline) #`
+                    //   • Mythic execute-assembly preamble + the word "mimikatz"
+                    //   • a banner line (`mimikatz 2.`, `Benjamin DELPY`)
+                    //   • LSASS dump signatures (`Authentication Id :`, `* NTLM`)
+                    // Any of these are enough to trigger MimikatzBlock rendering.
+                    const stripAnsi = (s: string): string =>
+                        // eslint-disable-next-line no-control-regex
+                        s.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+                    const detectMimikatz = (text: string): boolean => {
+                        const t = stripAnsi(text);
+                        if (t.includes('mimikatz(commandline) #')) return true;
+                        if (t.includes('mimikatz') && t.includes('[*] Calling PE entry point')) return true;
+                        if (/\bmimikatz\s+2\./i.test(t)) return true;
+                        if (t.includes('Benjamin DELPY')) return true;
+                        // LSASS dump signature — operator may have only landed
+                        // on the response chunk *after* the prompt was printed.
+                        if (/\bAuthentication\s+Id\s*:/.test(t)) return true;
+                        if (/\*\s+NTLM\s+:/.test(t)) return true;
+                        return false;
+                    };
                     const isStructuredParsed = (parsed: unknown, text: string): boolean => {
                         if (Array.isArray(parsed) && parsed.length > 0) {
-                            if (parsed[0]?.AdapterName !== undefined) return true;
-                            if (parsed[0]?.local_port !== undefined && parsed[0]?.protocol !== undefined) return true;
-                            if (parsed[0]?.process_id !== undefined) return true;
+                            if ((parsed[0] as any)?.AdapterName !== undefined) return true;
+                            if ((parsed[0] as any)?.local_port !== undefined && (parsed[0] as any)?.protocol !== undefined) return true;
+                            if ((parsed[0] as any)?.process_id !== undefined) return true;
+                            if ((parsed[0] as any)?.share_name !== undefined && (parsed[0] as any)?.computer_name !== undefined) return true;
+                            if ((parsed[0] as any)?.computer_name !== undefined && (parsed[0] as any)?.forest !== undefined) return true;
                         }
-                        if (!parsed && (
-                            text.includes('mimikatz(commandline) #') ||
-                            (text.includes('mimikatz') && text.includes('[*] Calling PE entry point'))
-                        )) return true;
+                        if (!parsed && detectMimikatz(text)) return true;
                         return false;
                     };
                     responsesToRender.forEach(
@@ -1192,6 +1258,23 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                             ))}
                             {otherResponses.map((r) => {
                                 const { id, content, parsed, isError } = r;
+                                // ── net_shares — Apollo's share-enumeration output ──
+                                // Catch this before the AdapterName/netstat branches so
+                                // it goes straight to the structured panel instead of
+                                // falling all the way through to the JSON/text fallback.
+                                if (Array.isArray(parsed) && parsed.length > 0
+                                    && (parsed[0] as any)?.share_name !== undefined
+                                    && (parsed[0] as any)?.computer_name !== undefined) {
+                                    return <NetSharesPanel key={id} rows={parsed as any[]}/>;
+                                }
+                                // ── net_dclist — Apollo's DC enumeration output ──
+                                // Detect by the (computer_name + forest) signature so it
+                                // doesn't collide with net_shares which also has computer_name.
+                                if (Array.isArray(parsed) && parsed.length > 0
+                                    && (parsed[0] as any)?.computer_name !== undefined
+                                    && (parsed[0] as any)?.forest !== undefined) {
+                                    return <NetDcListPanel key={id} rows={parsed as any[]}/>;
+                                }
                                 if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.AdapterName !== undefined) {
                                     // Windows ifconfig / network adapter output
                                     return (
@@ -1368,16 +1451,31 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                                     );
                                 }
                                 // ── Mimikatz output ──────────────────────────────────────
-                                const isMimikatz = !parsed && (
-                                    content.includes('mimikatz(commandline) #') ||
-                                    (content.includes('mimikatz') && content.includes('[*] Calling PE entry point'))
-                                );
-                                if (isMimikatz) {
-                                    return <MimikatzBlock key={id} content={content} taskId={task.id} taskDisplayId={task.display_id} callbackHost={callbackHost || ''} />;
+                                // Re-uses the broadened detector defined above so
+                                // shell-mode meterpreter runs (where the prompt may
+                                // not appear in *this* response chunk) still get
+                                // parsed. `taskCommand` is what MimikatzBlock uses
+                                // to synthesise a section header for shell-mode
+                                // captures that lack the leading prompt.
+                                if (!parsed && detectMimikatz(content)) {
+                                    return <MimikatzBlock
+                                        key={id}
+                                        content={content}
+                                        taskId={task.id}
+                                        taskDisplayId={task.display_id}
+                                        callbackHost={callbackHost || ''}
+                                        taskCommand={task.command_name}
+                                    />;
                                 }
                                 // Plain text fallback — hide when structured output is present (ls/ifconfig/etc)
                                 if (hasBuiltinStructuredOutput) return null;
-                                return <div key={id} className={cn("mb-1", isError ? "text-red-400 border-l-2 border-red-500/50 pl-2" : "")}>{content}</div>;
+                                // Long outputs are folded behind a "show more" button so a
+                                // `hashdump` / wide `ps` / verbose log doesn't blow up the
+                                // scrollback. Each line stays on its own block-level div
+                                // inside CollapsibleOutput so triple-click selects one row.
+                                return (
+                                    <CollapsibleOutput key={id} text={content} isError={isError} />
+                                );
                             })}
                         </>
                     );
@@ -1449,8 +1547,8 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
                     <TaskCredentialsPanel credentials={task.credentials} />
                 </div>
             )}
-            {/* Sub-tasks */}
-            <SubTaskBlock parentTaskId={task.id} callbackHost={callbackHost} scrollRoot={scrollRoot} />
+            {/* Sub-tasks — Mythic only (MSF tasks are flat). */}
+            {!isMsf && <SubTaskBlock parentTaskId={task.id} callbackHost={callbackHost} scrollRoot={scrollRoot} />}
             </motion.div>
             )}
             </AnimatePresence>

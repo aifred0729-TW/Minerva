@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useMutation, useSubscription } from "@apollo/client/react";
+import { useMutation, useSubscription, useQuery } from "@apollo/client/react";
 import { useLazyQueryCompat as useLazyQuery } from "../lib/useQueryCompat";
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Bell, 
-    Search, 
-    CheckCircle, 
-    XCircle, 
-    AlertTriangle, 
-    Info, 
+import {
+    Bell,
+    Search,
+    CheckCircle,
+    XCircle,
+    AlertTriangle,
+    Info,
     RefreshCw,
     ChevronDown,
     CheckCheck,
@@ -19,10 +19,12 @@ import {
     Users,
     Terminal,
     Server,
-    Filter
+    Filter,
+    Megaphone
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAppStore } from '../store';
+import { useShallow } from 'zustand/shallow';
 import { snackActions } from '../lib/snackbar';
 import { meState } from '../lib/state';
 import { useReactiveVar } from "@apollo/client/react";
@@ -35,7 +37,10 @@ import {
     UPDATE_TO_WARNING,
     RESOLVE_ALL_VIEWABLE,
     RESOLVE_ALL_ERRORS,
+    GET_MY_OPERATION_ROLE,
 } from '../lib/api';
+import { BroadcastComposerModal } from '../components/BroadcastComposerModal';
+import { MinervaWarning, LEVEL_TONE, parseBroadcastMessage } from '../components/broadcastTheme';
 
 // ============================================
 // Types
@@ -53,6 +58,87 @@ interface EventLog {
 }
 
 type LevelFilter = 'all' | 'warning_unresolved' | 'warning_resolved' | 'info' | 'debug' | 'api' | 'auth' | 'agent';
+
+// ============================================
+// Minerva Broadcast Event Row
+//   Renders an operationeventlog entry whose source === 'minerva_broadcast'
+//   using the same visual language as the top-of-screen broadcast bar.
+// ============================================
+const MinervaBroadcastEventRow = ({ event, viewUtc }: { event: EventLog; viewUtc: boolean }) => {
+    const decoded = parseBroadcastMessage(event.message);
+    if (!decoded) return null;
+    const tone = LEVEL_TONE[decoded.level];
+    const Icon = tone.icon;
+    return (
+        <motion.div
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            className={cn(
+                'relative mb-2 border bg-black/85 overflow-hidden',
+                tone.border,
+            )}
+            style={{ boxShadow: `0 0 0 1px rgba(0,0,0,0.55), 0 4px 26px -8px ${tone.glow}` }}
+        >
+            {/* Scanlines */}
+            <div
+                className="pointer-events-none absolute inset-0 opacity-[0.04]"
+                style={{ backgroundImage: 'repeating-linear-gradient(0deg,rgba(255,255,255,0.6) 0,rgba(255,255,255,0.6) 1px,transparent 1px,transparent 4px)' }}
+            />
+            {/* Corner brackets */}
+            <span className={cn('pointer-events-none absolute top-0 left-0 h-px w-5', tone.fg.replace('text-', 'bg-'))} />
+            <span className={cn('pointer-events-none absolute top-0 left-0 w-px h-5', tone.fg.replace('text-', 'bg-'))} />
+            <span className={cn('pointer-events-none absolute top-0 right-0 h-px w-5', tone.fg.replace('text-', 'bg-'))} />
+            <span className={cn('pointer-events-none absolute top-0 right-0 w-px h-5', tone.fg.replace('text-', 'bg-'))} />
+            <span className={cn('pointer-events-none absolute bottom-0 left-0 h-px w-5', tone.fg.replace('text-', 'bg-'))} />
+            <span className={cn('pointer-events-none absolute bottom-0 left-0 w-px h-5', tone.fg.replace('text-', 'bg-'))} />
+            <span className={cn('pointer-events-none absolute bottom-0 right-0 h-px w-5', tone.fg.replace('text-', 'bg-'))} />
+            <span className={cn('pointer-events-none absolute bottom-0 right-0 w-px h-5', tone.fg.replace('text-', 'bg-'))} />
+
+            <div className="relative flex items-stretch">
+                {/* Triangle column */}
+                <div className={cn('relative flex-shrink-0 grid place-items-center border-r px-5', tone.border)}>
+                    <span className={cn('absolute inset-3 border animate-ping opacity-15 rounded-sm', tone.border)} />
+                    <MinervaWarning size={36} className={cn('relative z-10', tone.fg)} />
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 min-w-0 p-4">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        <span className={cn('inline-flex items-center gap-1 text-[10px] font-mono font-bold tracking-[0.22em] border px-2 py-0.5', tone.fg, tone.border)}>
+                            <Icon size={10} /> {tone.label}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-300 uppercase tracking-widest flex items-center gap-1">
+                            <Megaphone size={10} /> BROADCAST
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-mono">#{event.id}</span>
+                        {event.count > 1 && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-signal/10 text-signal rounded">×{event.count}</span>
+                        )}
+                    </div>
+
+                    <div className={cn('text-lg font-mono font-bold tracking-widest leading-tight uppercase truncate', tone.fg)}>
+                        {decoded.title}
+                    </div>
+
+                    {decoded.body && (
+                        <div className="mt-1.5 text-sm text-gray-100 font-mono leading-snug whitespace-pre-wrap break-words">
+                            {decoded.body}
+                        </div>
+                    )}
+
+                    <div className="mt-3 flex items-center gap-3 flex-wrap text-[11px] font-mono text-gray-300">
+                        <span className="flex items-center gap-1">
+                            <Users size={11} className="text-gray-300" />
+                            {decoded.from || event.operator?.username || 'unknown'}
+                        </span>
+                        <span className="text-gray-500">·</span>
+                        <span className="tabular-nums">{toLocalTime(event.timestamp, viewUtc)}</span>
+                    </div>
+                </div>
+            </div>
+        </motion.div>
+    );
+};
 
 // ============================================
 // Event Item Component
@@ -216,7 +302,7 @@ const EventItem = ({
 // Main Page Component
 // ============================================
 export default function EventFeed() {
-    const { isSidebarCollapsed, alertCount } = useAppStore();
+    const { isSidebarCollapsed, alertCount } = useAppStore(useShallow(s => ({ isSidebarCollapsed: s.isSidebarCollapsed, alertCount: s.alertCount })));
     const me = useReactiveVar(meState);
     const viewUtc = (me?.user?.view_utc_time as boolean) || false;
     
@@ -224,9 +310,23 @@ export default function EventFeed() {
     const [searchQuery, setSearchQuery] = useState('');
     const [levelFilter, setLevelFilter] = useState<LevelFilter>(alertCount > 0 ? 'warning_unresolved' : 'info');
     const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const [showBroadcast, setShowBroadcast] = useState(false);
     const [fromNow] = useState(new Date().toISOString());
     const DEFAULT_PAGE_LIMIT = 100;
     const [pageData, setPageData] = useState({ totalCount: 0, limit: DEFAULT_PAGE_LIMIT, offset: 0 });
+
+    // ── Broadcast permission check (admin or lead in current op) ──────
+    const isAdmin = !!me?.user?.admin;
+    const currentUserId: number = (me?.user?.user_id as number) ?? (me?.user?.id as number) ?? 0;
+    const currentOpId: number = (me?.user?.current_operation_id as number) ?? 0;
+    const currentOpName: string | undefined = me?.user?.current_operation as string | undefined;
+    const { data: roleData } = useQuery<any>(GET_MY_OPERATION_ROLE, {
+        variables: { user_id: currentUserId, op_id: currentOpId },
+        skip: !currentUserId || !currentOpId || isAdmin,
+        fetchPolicy: 'cache-and-network',
+    });
+    const isLeadInCurrent = !!roleData?.operatoroperation?.some((oo: any) => oo.view_mode === 'lead');
+    const canBroadcast = isAdmin || isLeadInCurrent;
 
     const levelOptions: { value: LevelFilter; label: string; icon: React.ReactNode }[] = [
         { value: 'all', label: 'All Levels', icon: <Filter size={14} /> },
@@ -415,6 +515,16 @@ export default function EventFeed() {
                     </div>
                     
                     <div className="flex items-center gap-2">
+                        {canBroadcast && (
+                            <button
+                                onClick={() => setShowBroadcast(true)}
+                                title={isLeadInCurrent ? 'Broadcast as lead' : 'Broadcast as admin'}
+                                className="flex items-center gap-2 px-4 py-2 border border-yellow-400/50 text-yellow-300 hover:text-yellow-200 hover:border-yellow-300/80 hover:bg-yellow-400/10 font-mono text-sm uppercase tracking-widest transition-colors group"
+                            >
+                                <Megaphone size={15} className="group-hover:scale-110 transition-transform" />
+                                Broadcast
+                            </button>
+                        )}
                         <button
                             onClick={handleResolveViewable}
                             className="flex items-center gap-2 px-4 py-2 border border-signal/30 text-signal hover:bg-signal/10 transition-colors text-sm"
@@ -528,18 +638,37 @@ export default function EventFeed() {
                     ) : (
                         <AnimatePresence mode="popLayout">
                             {events.map(event => (
-                                <EventItem
-                                    key={event.id}
-                                    event={event}
-                                    onResolve={handleResolve}
-                                    onMakeWarning={handleMakeWarning}
-                                    viewUtc={viewUtc}
-                                />
+                                parseBroadcastMessage(event.message) !== null ? (
+                                    <MinervaBroadcastEventRow
+                                        key={event.id}
+                                        event={event}
+                                        viewUtc={viewUtc}
+                                    />
+                                ) : (
+                                    <EventItem
+                                        key={event.id}
+                                        event={event}
+                                        onResolve={handleResolve}
+                                        onMakeWarning={handleMakeWarning}
+                                        viewUtc={viewUtc}
+                                    />
+                                )
                             ))}
                         </AnimatePresence>
                     )}
                 </div>
             </motion.div>
+
+            <AnimatePresence>
+                {showBroadcast && (
+                    <BroadcastComposerModal
+                        key="broadcast"
+                        onClose={() => setShowBroadcast(false)}
+                        operationName={currentOpName}
+                        senderUsername={(me?.user?.username as string | undefined)}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }

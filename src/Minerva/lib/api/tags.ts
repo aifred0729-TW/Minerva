@@ -45,11 +45,12 @@ query getOperationTags {
 }
 `;
 
+// Mythic's backend exposes the Hasura auto-generated mutations
+// (insert_tagtype_one / update_tagtype_by_pk) — there is no
+// custom `createTagtype` / `updateTagtype` action.
 export const CREATE_TAGTYPE = gql`
 mutation createTagtype($name: String!, $description: String!, $color: String!) {
-  createTagtype(name: $name, description: $description, color: $color) {
-    status
-    error
+  insert_tagtype_one(object: {name: $name, description: $description, color: $color}) {
     id
     name
     description
@@ -60,9 +61,7 @@ mutation createTagtype($name: String!, $description: String!, $color: String!) {
 
 export const UPDATE_TAGTYPE = gql`
 mutation updateTagtype($id: Int!, $name: String!, $description: String!, $color: String!) {
-  updateTagtype(id: $id, name: $name, description: $description, color: $color) {
-    status
-    error
+  update_tagtype_by_pk(pk_columns: {id: $id}, _set: {name: $name, description: $description, color: $color}) {
     id
     name
     description
@@ -96,6 +95,25 @@ mutation importMultipleTagtypes($tagtypes: String!) {
     importTagtypes(tagtypes: $tagtypes) {
         status
         error
+    }
+}
+`;
+
+// ─── Credential Tag Management (Minerva inline tag manager) ────
+export const CREATE_CREDENTIAL_TAG = gql`
+mutation createCredentialTag($credential_id: Int!, $tagtype_id: Int!, $source: String!, $url: String!, $data: jsonb!) {
+    createTag(credential_id: $credential_id, tagtype_id: $tagtype_id, source: $source, url: $url, data: $data) {
+        id
+        status
+        error
+    }
+}
+`;
+
+export const DELETE_TAG = gql`
+mutation deleteTag($tag_id: Int!) {
+    delete_tag_by_pk(id: $tag_id) {
+        id
     }
 }
 `;

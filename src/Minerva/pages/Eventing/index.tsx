@@ -28,7 +28,7 @@ import { EventGroupCard } from './EventGroupCard';
 import { InstancesSection } from './InstancesSection';
 
 export default function Eventing() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [mainTab, setMainTab] = useState<'workflows' | 'instances'>('workflows');
 
     const [eventGroups, setEventGroups] = useState<EventGroup[]>([]);

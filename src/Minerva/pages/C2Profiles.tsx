@@ -247,7 +247,7 @@ function StatusLane({ group, profiles, processingId, onToggle, onDelete, onOpenM
 
 /* ── Main Page ─────────────────────────────────────── */
 export default function C2Profiles() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const { data, loading } = useSubscription<any>(SUB_C2_PROFILES);
 
     const [modalProfile, setModalProfile] = useState<unknown>(null);

@@ -80,6 +80,23 @@ export const GET_EVENT_FEED_WITH_RESOLVED = gql`
     }
 `;
 
+export const CREATE_OPERATION_EVENT_LOG = gql`
+    mutation CreateOperationEventLog($level: String!, $message: String!, $source: String, $warning: Boolean) {
+        createOperationEventLog(level: $level, message: $message, source: $source, warning: $warning) {
+            status
+            error
+        }
+    }
+`;
+
+export const GET_MY_OPERATION_ROLE = gql`
+    query GetMyOperationRole($user_id: Int!, $op_id: Int!) {
+        operatoroperation(where: {operator_id: {_eq: $user_id}, operation_id: {_eq: $op_id}}) {
+            view_mode
+        }
+    }
+`;
+
 export const SUBSCRIBE_EVENTS = gql`
     subscription SubscribeEventFeed($fromNow: timestamp!) {
         operationeventlog_stream(

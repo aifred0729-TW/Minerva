@@ -77,6 +77,30 @@ function unpack(buf: Uint8Array): unknown {
         return new TextDecoder().decode(slice);
     }
 
+    // `bin` is officially the binary type. MSF-RPC uses it for Ruby
+    // bytestrings — which covers both ASCII text fields AND raw payload
+    // bytes. UTF-8 decoding those bytes destroys binary content: any byte
+    // > 0x7F that doesn't form a valid UTF-8 sequence is replaced with
+    // U+FFFD, which then collapses to `0xFD` once the caller does
+    // `charCodeAt(i) & 0xff`. That's exactly what was corrupting the
+    // generated payloads (every non-ASCII byte became 0xFD). Instead,
+    // decode each byte as a single Latin-1 code unit so the byte value is
+    // preserved verbatim; ASCII text still reads correctly and binary
+    // survives intact for the payload-extraction code path.
+    function readBin(l: number): string {
+        let s = '';
+        const end = off + l;
+        // Chunk to avoid blowing the JS arg limit on huge payloads.
+        const CHUNK = 0x4000;
+        while (off + CHUNK < end) {
+            s += String.fromCharCode(...buf.subarray(off, off + CHUNK));
+            off += CHUNK;
+        }
+        s += String.fromCharCode(...buf.subarray(off, end));
+        off = end;
+        return s;
+    }
+
     function read(): unknown {
         const b = readU8();
         if (b <= 0x7f) return b;
@@ -87,10 +111,10 @@ function unpack(buf: Uint8Array): unknown {
         if (b === 0xc0) return null;
         if (b === 0xc2) return false;
         if (b === 0xc3) return true;
-        // bin 8/16/32 — MSF-RPC encodes strings as bin; decode to str
-        if (b === 0xc4) { const l = readU8(); return readStr(l); }
-        if (b === 0xc5) { const l = readU16(); return readStr(l); }
-        if (b === 0xc6) { const l = readU32(); return readStr(l); }
+        // bin 8/16/32 — byte-preserving decode (see readBin comment)
+        if (b === 0xc4) { const l = readU8(); return readBin(l); }
+        if (b === 0xc5) { const l = readU16(); return readBin(l); }
+        if (b === 0xc6) { const l = readU32(); return readBin(l); }
         // uint
         if (b === 0xcc) return readU8();
         if (b === 0xcd) return readU16();
@@ -117,16 +141,43 @@ function unpack(buf: Uint8Array): unknown {
 
 // ── RPC Transport ───────────────────────────────────────────────────────────
 
+/**
+ * Per-call timeout. With no bound, a hung msfrpcd (network blip, daemon
+ * stalled on a console, nginx 504, etc.) leaves a fetch pending until the
+ * browser's default timeout — which is many minutes. Worse, the polling
+ * tick fires a fresh call every 8s on top of it, so within a minute the
+ * tab has accumulated ~8 hung connections. Browsers cap concurrent
+ * requests per origin at ~6, so GraphQL queries and static asset loads
+ * queue behind the hung MSF traffic and the whole UI feels frozen.
+ *
+ * 12s is generous for the heaviest MSF call we make (module.exploits
+ * lists ~2k entries and round-trips in under 1s on localhost) while
+ * still freeing the connection slot promptly when the daemon is sick.
+ */
+const RPC_TIMEOUT_MS = 12_000;
+
 async function rpcCall(method: string, ...args: unknown[]): Promise<Record<string, unknown>> {
     const body = pack([method, ...args]);
-    const resp = await fetch(rpcUrl(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'binary/message-pack' },
-        body: body as BodyInit,
-    });
-    if (!resp.ok) throw new Error(`RPC HTTP ${resp.status}`);
-    const raw = new Uint8Array(await resp.arrayBuffer());
-    return unpack(raw) as Record<string, unknown>;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    try {
+        const resp = await fetch(rpcUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'binary/message-pack' },
+            body: body as BodyInit,
+            signal: controller.signal,
+        });
+        if (!resp.ok) throw new Error(`RPC HTTP ${resp.status}`);
+        const raw = new Uint8Array(await resp.arrayBuffer());
+        return unpack(raw) as Record<string, unknown>;
+    } catch (e: any) {
+        if (e?.name === 'AbortError') {
+            throw new Error(`RPC ${method} timed out after ${RPC_TIMEOUT_MS}ms`);
+        }
+        throw e;
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -222,6 +273,83 @@ async function authed(method: string, ...args: unknown[]): Promise<Record<string
 export async function getCoreVersion(): Promise<MsfVersion> {
     const res = await authed('core.version');
     return { version: String(res.version || ''), ruby: String(res.ruby || ''), api: String(res.api || '') };
+}
+
+/**
+ * Cheap connectivity probe — calls `core.version` (one small RPC) and
+ * returns true on success, false on any error. Use this for "is the
+ * MSF-RPC daemon reachable right now" UI indicators that need to react
+ * within seconds. The full `getFullStatus` call enumerates seven module
+ * categories (thousands of names each) and is too heavy to use on a
+ * fast cadence.
+ */
+export async function pingMsfRpc(): Promise<boolean> {
+    try {
+        await authed('core.version');
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Workspace name Minerva uses for each Mythic operation. The translation
+ * is deterministic so a refresh recovers the same scope. The format
+ * stays MSF-safe (alphanumeric + dashes only) to avoid quoting issues
+ * when shelled through msfconsole.
+ */
+export function workspaceForOperation(operationId: number | string): string {
+    const n = Number(operationId);
+    if (!Number.isFinite(n) || n <= 0) return 'default';
+    return `mythic-op-${n}`;
+}
+
+/**
+ * Filter MSF session map down to only sessions whose `workspace` field
+ * matches the given operation's expected MSF workspace name. Used by
+ * dashboard panels that read `session.list` directly (vs the ledger-
+ * backed `useMsfSyntheticCallbacks`, which does the same filter inside
+ * its own hook). Sessions with an empty workspace are hidden — they
+ * predate the bootstrap's workspace tagging and would otherwise leak
+ * into every op's view.
+ */
+export function filterSessionsByOperation(
+    sessions: Record<string, MsfSession>,
+    operationId: number | string,
+): Record<string, MsfSession> {
+    if (!operationId || operationId === 0 || operationId === '0') return {};
+    const expected = workspaceForOperation(operationId);
+    const out: Record<string, MsfSession> = {};
+    for (const [id, s] of Object.entries(sessions)) {
+        if (s?.workspace?.trim() === expected) out[id] = s;
+    }
+    return out;
+}
+
+/**
+ * Ensure a workspace exists and is currently active on the MSF RPC
+ * daemon. msfrpcd doesn't expose a typed RPC for `workspace -a`, so
+ * we drive it through a one-shot console.
+ *
+ * Idempotent: `workspace -a <name>` is a no-op when the workspace
+ * already exists. `workspace <name>` makes it current.
+ */
+export async function ensureMsfWorkspace(name: string): Promise<void> {
+    if (!name) return;
+    const c = await consoleCreate();
+    try {
+        // Drain any banner emitted on console boot before issuing commands.
+        await consoleRead(c.id);
+        await consoleWrite(c.id, `workspace -a ${name}`);
+        // Tiny delay so the add completes before the switch.
+        await new Promise(r => setTimeout(r, 150));
+        await consoleRead(c.id);
+        await consoleWrite(c.id, `workspace ${name}`);
+        await new Promise(r => setTimeout(r, 150));
+        await consoleRead(c.id);
+    } finally {
+        try { await consoleDestroy(c.id); } catch { /* ignore */ }
+    }
 }
 
 export async function getModuleStats(): Promise<MsfModuleStats> {
@@ -383,6 +511,51 @@ export async function executeModule(type: string, name: string, options: Record<
     };
 }
 
+/* ── Payload Generation ──────────────────────────────────────────────────────
+ * For payload-type modules, `module.execute` returns the GENERATED bytes (no
+ * job/session is started). The RPC server gives us `payload` as a binary
+ * string; we wrap it as a Uint8Array so callers can blob/download/upload it
+ * uniformly. Includes `payload_format` ('raw' by default — operator picks one
+ * via the Format option, e.g. exe/dll/elf/macho/python/c).
+ */
+export interface MsfGeneratedPayload {
+    bytes: Uint8Array;
+    size: number;
+    format?: string;
+    encoder?: string;
+    error?: string;
+    error_message?: string;
+}
+
+export async function generatePayload(name: string, options: Record<string, string>): Promise<MsfGeneratedPayload> {
+    const res = await authed('module.execute', 'payload', name, options);
+    if (res.error) {
+        return {
+            bytes: new Uint8Array(),
+            size: 0,
+            error: String(res.error_class || 'Error'),
+            error_message: String(res.error_message || res.error_string || 'Unknown error'),
+        };
+    }
+    // MSF-RPC's MessagePack decoder hands us `payload` as a string-of-bytes.
+    // Re-encode each char-code into a byte; can't use TextEncoder because the
+    // contents are binary, not UTF-8.
+    const raw = res.payload;
+    let bytes = new Uint8Array(0);
+    if (typeof raw === 'string') {
+        bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i) & 0xff;
+    } else if (raw instanceof Uint8Array) {
+        bytes = raw;
+    }
+    return {
+        bytes,
+        size: bytes.length,
+        format: typeof res.payload_format === 'string' ? res.payload_format : undefined,
+        encoder: typeof options.Encoder === 'string' ? options.Encoder : undefined,
+    };
+}
+
 // ── Console API ────────────────────────────────────────────────────────────
 
 export interface MsfConsole {
@@ -433,4 +606,66 @@ export async function consoleList(): Promise<MsfConsole[]> {
 export async function getJobInfo(jobId: string): Promise<Record<string, unknown>> {
     const res = await authed('job.info', jobId);
     return res;
+}
+
+// ── Session Interaction API ────────────────────────────────────────────────
+// Shell sessions use `session.shell_read` / `session.shell_write`.
+// Meterpreter sessions use `session.meterpreter_read` and
+// `session.meterpreter_run_single` for sending commands (write is also OK
+// but run_single is more reliable for single-line commands).
+
+export interface MsfSessionRead {
+    seq: string;
+    data: string;
+}
+
+export async function sessionShellRead(sessionId: string, readPointer?: string): Promise<MsfSessionRead> {
+    const args: unknown[] = [sessionId];
+    if (readPointer !== undefined) args.push(readPointer);
+    const res = await authed('session.shell_read', ...args);
+    return { seq: String(res.seq || '0'), data: String(res.data || '') };
+}
+
+export async function sessionShellWrite(sessionId: string, data: string): Promise<number> {
+    const res = await authed('session.shell_write', sessionId, data);
+    return Number(res.write_count || 0);
+}
+
+export async function sessionMeterpreterRead(sessionId: string): Promise<string> {
+    const res = await authed('session.meterpreter_read', sessionId);
+    return String(res.data || '');
+}
+
+export async function sessionMeterpreterWrite(sessionId: string, data: string): Promise<boolean> {
+    const res = await authed('session.meterpreter_write', sessionId, data);
+    return res.result === 'success';
+}
+
+export async function sessionMeterpreterRunSingle(sessionId: string, command: string): Promise<boolean> {
+    const res = await authed('session.meterpreter_run_single', sessionId, command);
+    return res.result === 'success';
+}
+
+/**
+ * Type-aware session read.
+ * Returns appended output since the last read.
+ */
+export async function sessionRead(sessionId: string, type: string): Promise<string> {
+    if (type === 'meterpreter') {
+        return sessionMeterpreterRead(sessionId);
+    }
+    const r = await sessionShellRead(sessionId);
+    return r.data;
+}
+
+/**
+ * Type-aware session write.
+ * Appends a newline automatically for shell; meterpreter handles it itself.
+ */
+export async function sessionWrite(sessionId: string, type: string, command: string): Promise<void> {
+    if (type === 'meterpreter') {
+        await sessionMeterpreterRunSingle(sessionId, command);
+        return;
+    }
+    await sessionShellWrite(sessionId, command.endsWith('\n') ? command : command + '\n');
 }

@@ -19,7 +19,6 @@ export interface Credential {
             id: number;
             host: string;
             display_id: number;
-            mythictree_groups: string[];
         };
     };
     tags?: Array<{

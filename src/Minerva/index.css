@@ -100,67 +100,90 @@
   background: #666;
 }
 
-/* Cyberpunk 2077 Advanced Minimal Scrollbar - Applied Globally */
+/* ── Cyberpunk Minimal Scrollbar ────────────────────────────────────────────
+   Hidden by default so the UI reads as a clean monolith; the rail and thumb
+   only fade in once the cursor enters the scrollable container. The track
+   keeps its 4px gutter so revealing the bar never shifts the layout. */
 *::-webkit-scrollbar {
   width: 4px;
   height: 4px;
+  background: transparent;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 1px solid transparent;
+  transition: border-color 220ms ease;
 }
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(0, 255, 255, 0.4) 0%, rgba(0, 255, 255, 0.2) 100%);
+  background: transparent;
   border: none;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(0, 255, 255, 0.7) 0%, rgba(0, 255, 255, 0.4) 100%);
-  box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
-}
-*::-webkit-scrollbar-thumb:active {
-  background: linear-gradient(180deg, rgba(0, 255, 255, 0.9) 0%, rgba(0, 255, 255, 0.6) 100%);
-  box-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
+  transition: background 220ms ease, box-shadow 220ms ease;
 }
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-/* Firefox global scrollbar */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 255, 255, 0.4) transparent;
+/* Reveal on hover: the thumb materialises with the signature cyan gradient
+   only while the cursor is somewhere inside the scrollable element. */
+*:hover::-webkit-scrollbar-track {
+  border-left-color: rgba(255, 255, 255, 0.05);
 }
-
-/* cyber-scrollbar class for explicit use */
-.cyber-scrollbar::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-.cyber-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
-}
-.cyber-scrollbar::-webkit-scrollbar-thumb {
+*:hover::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(0, 255, 255, 0.4) 0%, rgba(0, 255, 255, 0.2) 100%);
-  border: none;
-  position: relative;
 }
-.cyber-scrollbar::-webkit-scrollbar-thumb:hover {
+*:hover::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(0, 255, 255, 0.7) 0%, rgba(0, 255, 255, 0.4) 100%);
   box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
 }
-.cyber-scrollbar::-webkit-scrollbar-thumb:active {
+*:hover::-webkit-scrollbar-thumb:active {
   background: linear-gradient(180deg, rgba(0, 255, 255, 0.9) 0%, rgba(0, 255, 255, 0.6) 100%);
   box-shadow: 0 0 15px rgba(0, 255, 255, 0.7);
 }
-.cyber-scrollbar::-webkit-scrollbar-corner {
-  background: transparent;
+
+/* Firefox: cannot transition scrollbar-color, but can swap it on hover */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: rgba(0, 255, 255, 0.4) transparent;
 }
 
-/* Firefox scrollbar support */
-.cyber-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 255, 255, 0.4) transparent;
+/* Legacy alias: any code still tagging .cyber-scrollbar inherits the global
+   reveal-on-hover behaviour. The class itself is now a no-op marker. */
+.cyber-scrollbar { /* intentionally empty — global rules apply */ }
+
+/* ── Sidebar nav: a different beast ─────────────────────────────────────────
+   Inside the navigation rail we don't want any scrollbar visible at all,
+   even on hover — a vertical bar against the row of icons reads as visual
+   noise. Hide it completely and rely on a top/bottom fade mask to hint
+   that the list overflows. */
+.sidebar-nav {
+  scrollbar-width: none;             /* Firefox */
+  -ms-overflow-style: none;          /* IE/legacy Edge */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent 100%
+  );
+          mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent 100%
+  );
+}
+.sidebar-nav::-webkit-scrollbar,
+.sidebar-nav:hover::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+.sidebar-nav:hover {
+  scrollbar-color: transparent transparent;
 }
 
 /* Glitch Animation */
@@ -517,18 +540,27 @@
 .minerva-light .cyber-toast-message { color: rgba(30, 30, 50, 0.92) !important; }
 .minerva-light .cyber-toast-label { color: rgba(var(--ct-rgb), 0.85) !important; }
 
-/* ── Scrollbar light mode ── */
+/* ── Scrollbar light mode ── (matches dark-mode hover-reveal behaviour) */
 .minerva-light *::-webkit-scrollbar-track {
   background: transparent;
-  border-left: 1px solid rgba(0, 0, 0, 0.05);
+  border-left: 1px solid transparent;
 }
 .minerva-light *::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.minerva-light *:hover::-webkit-scrollbar-track {
+  border-left-color: rgba(0, 0, 0, 0.05);
+}
+.minerva-light *:hover::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(100, 100, 120, 0.4) 0%, rgba(100, 100, 120, 0.2) 100%);
 }
-.minerva-light *::-webkit-scrollbar-thumb:hover {
+.minerva-light *:hover::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, rgba(80, 80, 100, 0.6) 0%, rgba(80, 80, 100, 0.35) 100%);
   box-shadow: none;
 }
 .minerva-light * {
+  scrollbar-color: transparent transparent;
+}
+.minerva-light *:hover {
   scrollbar-color: rgba(100, 100, 120, 0.4) transparent;
 }

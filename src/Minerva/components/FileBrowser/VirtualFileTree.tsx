@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { List } from 'react-window';
-import { AutoSizer } from 'react-virtualized-auto-sizer';
+import { FixedSizeList as List } from 'react-window';
+import AutoSizer from 'react-virtualized-auto-sizer';
 import {
     Folder, FolderOpen, ChevronRight, ChevronDown,
     File as FileIcon, CheckCircle2, AlertCircle,
@@ -133,20 +133,21 @@ export const VirtualFileTree = ({
     }
 
     return (
-        <AutoSizer renderProp={({ height, width }) => {
-            if (!height || !width) return null;
-            return (
-                <div style={{ height, width }}>
+        <AutoSizer>
+            {({ height, width }) => {
+                if (!height || !width) return null;
+                return (
                     <List
-                        rowCount={flatRows.length}
-                        rowHeight={ROW_HEIGHT}
+                        height={height}
+                        width={width}
+                        itemCount={flatRows.length}
+                        itemSize={ROW_HEIGHT}
                         overscanCount={20}
-                        rowComponent={Row as any}
-                        rowProps={{}}
-                        style={{ height, width, overflow: 'auto' }}
-                    />
-                </div>
-            );
-        }} />
+                    >
+                        {Row as any}
+                    </List>
+                );
+            }}
+        </AutoSizer>
     );
 };

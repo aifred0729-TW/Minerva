@@ -202,6 +202,50 @@ export const CreateNewCallbackDialog: React.FC<{
 // ============================================
 // Import Payload Config Dialog
 // ============================================
+/**
+ * Normalize a payload-config JSON string that was exported from Mythic.
+ * The DB stores Array/Dictionary/ChooseMultiple values as plain text (JSON-encoded
+ * strings), so the export contains e.g. "value":"[\"http\",...]" instead of
+ * "value":["http",...].  The backend expects actual JSON arrays/objects for
+ * those types, so we unwrap any value whose JSON-parse result is an array or
+ * non-null object before submitting.
+ */
+function normalizePayloadConfig(configStr: string): string {
+    try {
+        const cfg = JSON.parse(configStr);
+        if (!cfg || typeof cfg !== 'object') return configStr;
+
+        const unwrap = (v: any): any => {
+            if (typeof v !== 'string' || v === '') return v;
+            try {
+                const parsed = JSON.parse(v);
+                // Convert arrays and objects; leave strings/numbers/booleans alone
+                if (typeof parsed === 'object' && parsed !== null) return parsed;
+            } catch { /* not valid JSON — keep as string */ }
+            return v;
+        };
+
+        if (Array.isArray(cfg.build_parameters)) {
+            cfg.build_parameters = cfg.build_parameters.map((bp: any) =>
+                bp && bp.name ? { ...bp, value: unwrap(bp.value) } : bp
+            );
+        }
+
+        if (Array.isArray(cfg.c2_profiles)) {
+            cfg.c2_profiles = cfg.c2_profiles.map((c2: any) => {
+                if (!c2.c2_profile_parameters || typeof c2.c2_profile_parameters !== 'object') return c2;
+                const norm: Record<string, any> = {};
+                for (const [k, v] of Object.entries(c2.c2_profile_parameters)) norm[k] = unwrap(v);
+                return { ...c2, c2_profile_parameters: norm };
+            });
+        }
+
+        return JSON.stringify(cfg);
+    } catch {
+        return configStr;  // return original on any parse failure
+    }
+}
+
 export const ImportPayloadConfigDialog: React.FC<{
     open: boolean;
     onClose: () => void;
@@ -253,7 +297,7 @@ export const ImportPayloadConfigDialog: React.FC<{
                     <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
                     <button
                         disabled={!fileContents}
-                        onClick={() => importPayload({ variables: { payload: fileContents } })}
+                        onClick={() => importPayload({ variables: { payload: normalizePayloadConfig(fileContents) } })}
                         className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                         Submit
@@ -323,7 +367,7 @@ export const RebuildWithEditsDialog: React.FC<{
                     <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
                     <button
                         disabled={!config || loading}
-                        onClick={() => { importPayload({ variables: { payload: config } }); onClose(); }}
+                        onClick={() => { importPayload({ variables: { payload: normalizePayloadConfig(config) } }); onClose(); }}
                         className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                         <Play size={14} /> Create
@@ -349,30 +393,33 @@ export const PayloadDetailColumn: React.FC<{ payloadId: number; isCombat?: boole
     const p = data.payload[0];
     const fname = p.filemetum ? b64DecodeUnicode(p.filemetum.filename_text) : 'N/A';
     return (
-        <div className="text-xs font-mono space-y-3 overflow-y-auto cyber-scrollbar h-full p-2">
+        <div className="text-xs font-mono space-y-3 overflow-y-auto cyber-scrollbar h-full p-2 min-w-0">
             <div className="space-y-1">
                 <div className="text-signal/60 uppercase tracking-wider text-[10px]">File</div>
-                <div className="text-white">{fname}</div>
-                <div className="text-gray-500">{p.filemetum?.md5 && `MD5: ${p.filemetum.md5}`}</div>
+                <div className="text-white break-all">{fname}</div>
+                <div className="text-gray-500 break-all">{p.filemetum?.md5 && `MD5: ${p.filemetum.md5}`}</div>
             </div>
             {p.buildparameterinstances?.length > 0 && (
-                <div>
+                <div className="min-w-0">
                     <div className="text-signal/60 uppercase tracking-wider text-[10px] mb-1">Build Parameters</div>
                     {p.buildparameterinstances.map((bp: any) => (
-                        <div key={bp.id} className="flex justify-between text-gray-300 py-0.5 border-b border-ghost/10">
-                            <span className="text-ghost">{bp.buildparameter.name}</span>
-                            <div className="max-w-[60%] text-right"><ParseParamValue value={bp.value} parameterType={bp.buildparameter.parameter_type} /></div>
+                        // 2-col grid: label column auto-sized & truncatable; value column takes
+                        // the rest and breaks on long unbreakable tokens. Prevents either
+                        // column from pushing the row out of the (potentially narrow) compare pane.
+                        <div key={bp.id} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-x-2 items-start text-gray-300 py-0.5 border-b border-ghost/10">
+                            <span className="text-ghost truncate" title={bp.buildparameter.name}>{bp.buildparameter.name}</span>
+                            <div className="min-w-0 text-right break-all"><ParseParamValue value={bp.value} parameterType={bp.buildparameter.parameter_type} /></div>
                         </div>
                     ))}
                 </div>
             )}
             {p.c2profileparametersinstances?.length > 0 && (
-                <div>
+                <div className="min-w-0">
                     <div className="text-signal/60 uppercase tracking-wider text-[10px] mb-1">C2 Parameters</div>
                     {p.c2profileparametersinstances.map((c2: any, idx: number) => (
-                        <div key={idx} className="flex justify-between text-gray-300 py-0.5 border-b border-ghost/10">
-                            <span className="text-ghost">{c2.c2profile.name}/{c2.c2profileparameter.name}</span>
-                            <div className="max-w-[60%] text-right"><ParseParamValue value={c2.value} parameterType={c2.c2profileparameter.parameter_type} /></div>
+                        <div key={idx} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-x-2 items-start text-gray-300 py-0.5 border-b border-ghost/10">
+                            <span className="text-ghost truncate" title={`${c2.c2profile.name}/${c2.c2profileparameter.name}`}>{c2.c2profile.name}/{c2.c2profileparameter.name}</span>
+                            <div className="min-w-0 text-right break-all"><ParseParamValue value={c2.value} parameterType={c2.c2profileparameter.parameter_type} /></div>
                         </div>
                     ))}
                 </div>
@@ -382,7 +429,7 @@ export const PayloadDetailColumn: React.FC<{ payloadId: number; isCombat?: boole
                     <div className="text-signal/60 uppercase tracking-wider text-[10px] mb-1">Commands ({p.payloadcommands.length})</div>
                     <div className="flex flex-wrap gap-1">
                         {p.payloadcommands.map((pc: any) => (
-                            <span key={pc.id} className="px-1.5 py-0.5 bg-signal/10 text-signal border border-signal/20 rounded text-[10px]">{pc.command.cmd}</span>
+                            <span key={pc.id} className="px-1.5 py-0.5 bg-signal/10 text-signal border border-signal/20 rounded text-[10px] break-all">{pc.command.cmd}</span>
                         ))}
                     </div>
                 </div>
@@ -930,26 +977,27 @@ export const PayloadDialog: React.FC<{
     if (!open) return null;
     
     return createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <motion.div 
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-void border border-signal/30 rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden"
+                className="bg-void border border-signal/30 rounded-lg shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col"
             >
-                <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between">
-                    <h3 className="font-mono font-bold text-signal tracking-widest">{title}</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors">
+                <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between gap-3 shrink-0">
+                    {/* min-w-0 + truncate keeps long titles from pushing the close button off-screen */}
+                    <h3 className="font-mono font-bold text-signal tracking-widest min-w-0 truncate">{title}</h3>
+                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors shrink-0">
                         <X size={20} />
                     </button>
                 </div>
-                <div className="p-4 overflow-y-auto max-h-[60vh] cyber-scrollbar">
+                <div className="p-4 overflow-y-auto cyber-scrollbar flex-1 min-w-0">
                     {loading ? (
                         <div className="flex items-center justify-center py-8">
                             <Loader2 className="animate-spin text-signal" size={32} />
                         </div>
                     ) : error ? (
-                        <div className="text-red-400 font-mono p-4 bg-red-400/10 border border-red-400/30 rounded">
+                        <div className="text-red-400 font-mono p-4 bg-red-400/10 border border-red-400/30 rounded break-all">
                             {error}
                         </div>
                     ) : editable ? (
@@ -959,7 +1007,10 @@ export const PayloadDialog: React.FC<{
                             className="w-full h-48 bg-black/50 border border-ghost/30 text-signal p-3 font-mono text-sm focus:border-signal outline-none rounded"
                         />
                     ) : (
-                        <pre className="text-sm text-gray-300 font-mono whitespace-pre-wrap bg-black/50 p-4 rounded border border-ghost/20 overflow-x-auto">
+                        // whitespace-pre-wrap preserves indentation/newlines; break-all forces
+                        // long unbreakable tokens (URLs, base64, hashes) to wrap rather than
+                        // creating horizontal scroll that bleeds out of the dialog.
+                        <pre className="text-sm text-gray-300 font-mono whitespace-pre-wrap break-all bg-black/50 p-4 rounded border border-ghost/20">
                             {content || 'No content available.'}
                         </pre>
                     )}

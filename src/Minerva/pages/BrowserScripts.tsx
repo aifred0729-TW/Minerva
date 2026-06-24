@@ -308,7 +308,7 @@ const ScriptRow: React.FC<{
 };
 
 export default function BrowserScripts() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const me = useReactiveVar(meState);
 
     const [scripts, setScripts] = useState<BrowserScript[]>([]);

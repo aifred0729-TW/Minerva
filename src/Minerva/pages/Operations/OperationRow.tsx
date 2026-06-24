@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { ROLE_COLORS } from './modals';
+import { parseSchedule, tDelta } from '../../lib/operationSchedule';
+import { Clock } from 'lucide-react';
 import type { Operation } from '../../types/operations';
 
 export function OperationRow({ op, isCurrent, onMakeCurrent, onEdit, onMembers, onToggleDelete }: {
@@ -43,12 +45,28 @@ export function OperationRow({ op, isCurrent, onMakeCurrent, onEdit, onMembers, 
                         )}
                     </div>
 
-                    {op.banner_text && (
-                        <div className="inline-block px-2 py-0.5 text-xs font-mono text-white rounded mb-2"
-                            style={{ backgroundColor: op.banner_color || '#be2a2a' }}>
-                            {op.banner_text}
-                        </div>
-                    )}
+                    {(() => {
+                        const sched = parseSchedule(op.banner_text);
+                        const td = tDelta(sched.startMs);
+                        return (
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                                {sched.displayText && (
+                                    <div className="inline-block px-2 py-0.5 text-xs font-mono text-white rounded"
+                                        style={{ backgroundColor: op.banner_color || '#be2a2a' }}>
+                                        {sched.displayText}
+                                    </div>
+                                )}
+                                {td && (
+                                    <div className={cn(
+                                        "inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono border rounded tabular-nums",
+                                        td.sign < 0 ? "border-yellow-400/60 text-yellow-300 bg-yellow-400/10" : "border-signal/60 text-signal bg-signal/10"
+                                    )}>
+                                        <Clock size={11} /> {td.formatted}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
 
                     <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
                         <span className="flex items-center gap-1">

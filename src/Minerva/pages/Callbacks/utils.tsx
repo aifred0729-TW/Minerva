@@ -1,41 +1,93 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useReactiveVar } from "@apollo/client/react";
-import { Skull, Monitor } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { Skull, Monitor, Link2 } from 'lucide-react';
+import { cn, getCallbackDeadThresholdSecs } from '../../lib/utils';
 import { meState } from '../../lib/state';
 import { secondsToRelative } from '../../lib/time';
 
 export const loadingSound = process.env.PUBLIC_URL + '/audio/loading.m4a';
 
-const CHECKIN_WARNING_SECS = 60;
 const CHECKIN_STATUS_REFRESH_MS = 1_000;
-const CHECKIN_DANGER_SECS = 300;
 
-export const LastCheckinCell = ({ lastCheckin, agentType, dead }: { lastCheckin: string; agentType?: string; dead?: boolean }) => {
+export const LastCheckinCell = ({
+    lastCheckin, agentType, dead, sleepInfo,
+    isP2P, initCallback, lastTaskProcessedAt, orphanTcpP2P,
+}: {
+    lastCheckin: string;
+    agentType?: string;
+    dead?: boolean;
+    sleepInfo?: string;
+    /** True when this callback's primary route is P2P (e.g. TCP). When
+     *  set, the display switches to "time since last real response"
+     *  semantics — see comment below. */
+    isP2P?: boolean;
+    /** Timestamp of when the callback was first established. Used as
+     *  the baseline for P2P agents that haven't been tasked yet. */
+    initCallback?: string;
+    /** Most-recent task `status_timestamp_processed`. P2P agents use
+     *  this instead of `last_checkin`; HTTP agents ignore it. */
+    lastTaskProcessedAt?: string;
+    /** TCP P2P callback with no active peer link → dead regardless of
+     *  elapsed time, since no traffic can reach it. */
+    orphanTcpP2P?: boolean;
+}) => {
     const me = useReactiveVar(meState);
     const serverSkewMs = (me?.user?.server_skew) || 0;
 
-    const calculateTimeAgo = React.useCallback(() => {
-        if (!lastCheckin) return { text: "NEVER", color: "text-gray-500", title: '' };
+    // ── P2P semantics ────────────────────────────────────────────────
+    // For a TCP P2P (or any pure-P2P) callback, the parent agent's
+    // beacons constantly relay the child's checkin token even when the
+    // child itself is idle, so Mythic's `last_checkin` keeps resetting
+    // to "now" — operator sees "0s ago" forever. The truer signal is
+    // when the operator gave the child a command AND the child sent a
+    // response back: that's what bumps `status_timestamp_processed` on
+    // the most-recent task. We display "time since that moment", and
+    // fall back to `init_callback` if the child has never been tasked.
+    //
+    // For non-P2P agents, behaviour is unchanged — `last_checkin` is
+    // accurate because it reflects the agent's own beacons.
+    const effectiveCheckin = isP2P
+        ? (lastTaskProcessedAt || initCallback || lastCheckin)
+        : lastCheckin;
+
+    // Dynamic thresholds driven by the agent's own sleep interval so a 10-min
+    // beacon isn't flagged dead 5 min after its last check-in. For P2P
+    // callbacks the operator wants the timer to grow indefinitely, so
+    // we use a much longer baseline that won't flip the cell to amber/red
+    // until there's been hours of silence with no operator interaction.
+    const dangerSecs = useMemo(
+        () => isP2P ? 24 * 60 * 60 : getCallbackDeadThresholdSecs(sleepInfo),
+        [isP2P, sleepInfo],
+    );
+    const warningSecs = useMemo(
+        () => isP2P ? 4 * 60 * 60 : Math.max(60, Math.floor(dangerSecs * 0.6)),
+        [isP2P, dangerSecs],
+    );
+
+    const calculateStatus = React.useCallback(() => {
+        if (!effectiveCheckin) return { text: 'NEVER', color: 'text-gray-500', title: '', diffSecs: Infinity };
         try {
-            const timeStr = lastCheckin.endsWith('Z') ? lastCheckin : `${lastCheckin}Z`;
-            const last = new Date(timeStr).getTime();
-            const now = new Date().getTime() - serverSkewMs;
-            const diff = Math.floor((now - last) / 1000);
-            let color = "text-green-500";
-            if (diff > CHECKIN_WARNING_SECS) color = "text-yellow-500";
-            if (diff > CHECKIN_DANGER_SECS) color = "text-red-500";
-            const timeText = secondsToRelative(diff);
-            const title = new Date(timeStr).toLocaleString();
-            return { text: timeText, color, title };
-        } catch { return { text: "ERROR", color: "text-red-500", title: '' }; }
-    }, [lastCheckin, serverSkewMs]);
-    const [status, setStatus] = useState(calculateTimeAgo());
+            const timeStr = effectiveCheckin.endsWith('Z') ? effectiveCheckin : `${effectiveCheckin}Z`;
+            // `server_skew = serverNow - clientNow` (see lib/auth.ts), so we
+            // ADD skew to clientNow to get the server's wall-clock view of
+            // "now". Subtracting flips the sign and, whenever the server
+            // clock is at all ahead of the client's, makes the diff negative
+            // → `secondsToRelative` clamps it to "0s ago" — which is why
+            // dead callbacks were appearing as if they'd just checked in.
+            const diff = Math.floor((new Date().getTime() + serverSkewMs - new Date(timeStr).getTime()) / 1000);
+            let color = 'text-green-500';
+            if (diff > warningSecs) color = 'text-yellow-500';
+            if (diff > dangerSecs)  color = 'text-red-500';
+            return { text: secondsToRelative(diff), color, title: new Date(timeStr).toLocaleString(), diffSecs: diff };
+        } catch { return { text: 'ERROR', color: 'text-red-500', title: '', diffSecs: Infinity }; }
+    }, [effectiveCheckin, serverSkewMs, warningSecs, dangerSecs]);
+
+    const [status, setStatus] = useState(calculateStatus);
     React.useEffect(() => {
-        setStatus(calculateTimeAgo());
-        const interval = setInterval(() => setStatus(calculateTimeAgo()), CHECKIN_STATUS_REFRESH_MS);
-        return () => clearInterval(interval);
-    }, [calculateTimeAgo]);
+        setStatus(calculateStatus());
+        const iv = setInterval(() => setStatus(calculateStatus()), CHECKIN_STATUS_REFRESH_MS);
+        return () => clearInterval(iv);
+    }, [calculateStatus]);
 
     // Non-agent payloads (e.g. service workers) show blank
     if (agentType && agentType !== 'agent') return <span className="text-gray-600">—</span>;
@@ -44,15 +96,76 @@ export const LastCheckinCell = ({ lastCheckin, agentType, dead }: { lastCheckin:
     if (lastCheckin && (lastCheckin.startsWith('1970') || lastCheckin === '1970-01-01T00:00:00')) {
         return (
             <span className="flex items-center gap-1 text-blue-400 font-mono text-xs">
-                {dead && <Skull size={10} className="text-red-500 shrink-0" />}
+                {dead && <Skull size={10} className="text-red-500 shrink-0" title="Dead" />}
                 STREAMING
             </span>
         );
     }
 
+    // TCP P2P callback with no active peer link → unreachable.
+    // Time-based grace doesn't apply: without a parent connected, traffic
+    // can never reach this node. Render as hard-dead immediately.
+    if (orphanTcpP2P) {
+        return (
+            <span
+                className="flex items-center gap-1.5 font-mono text-xs text-red-500"
+                title="TCP P2P · no peer linked — unreachable"
+            >
+                <Skull size={10} className="text-red-500 shrink-0" />
+                <span className="tracking-[0.18em] text-[10px] uppercase opacity-80">LINK</span>
+                <span className="tabular-nums">DEAD</span>
+            </span>
+        );
+    }
+
+    // P2P-routed callback — distinct visual state.
+    //
+    // Semantics differ from a beacon-driven agent: there's no
+    // self-driven check-in, only a parent agent relaying traffic.
+    // The number we show is "time since last operator-driven response"
+    // (see effectiveCheckin / dangerSecs above). Render as:
+    //   [Link2 icon] LINK · <Xm idle>
+    // with its own colour ramp on top of `text-signal`:
+    //   - text-signal       → active link, no recent silence
+    //   - text-amber-400    → warningSecs (4h) elapsed without commands
+    //   - text-red-500      → dangerSecs (24h) elapsed; treat as stale
+    // The chain glyph + "LINK" prefix makes it unmistakable to the
+    // operator that this row is a relayed P2P session, not an HTTP
+    // beacon — they're reading two different timers.
+    if (isP2P) {
+        const p2pTone =
+            !!dead ? 'text-red-500' :
+            status.diffSecs > dangerSecs ? 'text-red-500' :
+            status.diffSecs > warningSecs ? 'text-amber-400' :
+            'text-signal';
+        const hasInteraction = !!lastTaskProcessedAt;
+        const idleText = hasInteraction
+            ? `${status.text.replace(' ago', '')} idle`
+            : status.text.replace(' ago', '') + ' linked';
+        return (
+            <span
+                className={cn(p2pTone, 'flex items-center gap-1.5 font-mono text-xs')}
+                title={
+                    hasInteraction
+                        ? `P2P relay · last response ${status.title}`
+                        : `P2P relay · linked at ${status.title} · no commands sent yet`
+                }
+            >
+                {!!dead && <Skull size={10} className="text-red-500 shrink-0" title="Dead" />}
+                <Link2 size={11} className="shrink-0 opacity-90" strokeWidth={2} />
+                <span className="tracking-[0.18em] text-[10px] uppercase opacity-80">LINK</span>
+                <span className="tabular-nums">{idleText}</span>
+            </span>
+        );
+    }
+
+    // Red skull: server confirmed dead OR client silence exceeds the dynamic threshold
+    const clientDead = status.diffSecs > dangerSecs;
+    const showRedSkull = !!dead || clientDead;
+
     return (
-        <span className={cn(status.color, "flex items-center gap-1")} title={status.title}>
-            {dead && <Skull size={10} className="text-red-500 shrink-0" />}
+        <span className={cn(status.color, 'flex items-center gap-1')} title={status.title}>
+            {showRedSkull && <Skull size={10} className="text-red-500 shrink-0" title={dead ? 'Dead' : 'Not responding'} />}
             {status.text}
         </span>
     );

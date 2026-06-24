@@ -50,6 +50,7 @@ query GetMinervaDashboard($operator_id: Int!) {
     id
     name
     complete
+    banner_text
     operatoroperations {
       operator {
         username

@@ -70,6 +70,21 @@ const uploadFile = async (file: File, comment: string): Promise<string | null> =
     }
 };
 
+/**
+ * Ensure a value is a proper JS array for Array/ChooseMultiple/TypedArray/FileMultiple
+ * parameter types.  The DB stores these as JSON-text strings; any such strings are
+ * parsed here so the Mythic backend receives []interface{} (not a Go string).
+ */
+function toArray(v: any): any[] {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string' && v !== '') {
+        try { const p = JSON.parse(v); if (Array.isArray(p)) return p; } catch { /* fall through */ }
+    }
+    return [];
+}
+
+const ARRAY_PARAM_TYPES = new Set(["Array", "ChooseMultiple", "TypedArray", "FileMultiple"]);
+
 const processParamValue = async (param: any, contextStr: string) => {
     let val = param.value;
     if (val === undefined || val === null) val = param.default_value;
@@ -136,7 +151,7 @@ const processParamValue = async (param: any, contextStr: string) => {
             if (typeof val === 'object' && val !== null) return JSON.stringify(val);
             return String(val);
         case "Array": case "ChooseMultiple": case "TypedArray": case "FileMultiple":
-            return Array.isArray(val) ? val : [];
+            return toArray(val);
         case "MapArray":
             // MapArray must be a JS object (key -> array) for Go to receive as map[string]interface{}
             if (typeof val === 'object' && val !== null && !Array.isArray(val)) return val;
@@ -155,6 +170,14 @@ const processParamValue = async (param: any, contextStr: string) => {
             }
             return {};
         default:
+            // Guard: if somehow an Array/ChooseMultiple/TypedArray value escaped as a
+            // string (e.g. param was added without parameter_type set), parse it back.
+            if (typeof val === 'string' && val !== '' && param.parameter_type === undefined) {
+                try {
+                    const parsed = JSON.parse(val);
+                    if (Array.isArray(parsed) || (typeof parsed === 'object' && parsed !== null)) return parsed;
+                } catch { /* return as-is */ }
+            }
             return val;
     }
 };
@@ -261,18 +284,9 @@ export function Step5Build({ config }: Step5Props) {
             for (const p of config.buildParameters) {
                 if (!shouldHide(p, config.buildParameters, config.os)) {
                     let processedValue = await processParamValue(p, "build");
-                    // Final safety net: ensure Array/ChooseMultiple/TypedArray/FileMultiple
-                    // are always proper JS arrays (never strings) before JSON.stringify
-                    if (["Array", "ChooseMultiple", "TypedArray", "FileMultiple"].includes(p.parameter_type)) {
-                        if (!Array.isArray(processedValue)) {
-                            if (typeof processedValue === 'string' && processedValue !== '') {
-                                try {
-                                    const parsed = JSON.parse(processedValue);
-                                    processedValue = Array.isArray(parsed) ? parsed : [];
-                                } catch (e) { processedValue = []; }
-                            } else { processedValue = []; }
-                        }
-                    }
+                    // Unconditionally normalise array-type params — never let a
+                    // JSON-string reach the backend for Array/ChooseMultiple/etc.
+                    if (ARRAY_PARAM_TYPES.has(p.parameter_type)) processedValue = toArray(processedValue);
                     buildParameters.push({ name: p.name, value: processedValue });
                 }
             }
@@ -283,16 +297,7 @@ export function Step5Build({ config }: Step5Props) {
                 const params: any = {};
                 for (const param of visibleParams) {
                     let processedValue = await processParamValue(param, `c2 (${p.name})`);
-                    if (["Array", "ChooseMultiple", "TypedArray", "FileMultiple"].includes(param.parameter_type)) {
-                        if (!Array.isArray(processedValue)) {
-                            if (typeof processedValue === 'string' && processedValue !== '') {
-                                try {
-                                    const parsed = JSON.parse(processedValue);
-                                    processedValue = Array.isArray(parsed) ? parsed : [];
-                                } catch (e) { processedValue = []; }
-                            } else { processedValue = []; }
-                        }
-                    }
+                    if (ARRAY_PARAM_TYPES.has(param.parameter_type)) processedValue = toArray(processedValue);
                     params[param.name] = processedValue;
                 }
                 c2Profiles.push({ c2_profile: p.name, c2_profile_parameters: params });

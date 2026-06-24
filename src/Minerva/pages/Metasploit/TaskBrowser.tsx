@@ -1,21 +1,23 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import {
     Search, ChevronRight, ChevronDown, Terminal, Trash2,
     AlertTriangle, CheckCircle, Loader2, Clock, Bug,
     Shield, Layers, Package, Hash, Cpu, Target, X, Filter,
-    Code, Eye, Info, Zap, Minus
+    Code, Eye, Info, Zap, Minus, Crosshair, ArrowUpRight,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { MSF_DISPLAY_ID_OFFSET } from '../Callbacks/msfSyntheticCallbacks';
 import { timeAgo } from '../../lib/time';
 import {
     getExecutions, deleteExecution, clearAllExecutions,
-    searchExecutions, type MsfExecutionRecord, type ExecutionStatus
+    searchExecutions, reconcileRunningExecutions,
+    type MsfExecutionRecord, type ExecutionStatus,
 } from './executionHistory';
-import {
-    parseMsfOutput, groupParams, stripAnsi,
-    type MsfLogLine, type LogLevel, type ParsedOutput, type ParamGroup
-} from './outputParser';
+import { getSessions as getMsfSessions, getJobs as getMsfJobs } from './msfrpc';
+import { parseMsfOutput, groupParams, stripAnsi } from './outputParser';
+import { LogLineRow, ParsedParamsPanel } from './ParsedOutputView';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -71,108 +73,13 @@ function typeBadge(type: string) {
     );
 }
 
-// ── Log Level Styles ────────────────────────────────────────────────────────
-
-const LOG_LEVEL_STYLES: Record<LogLevel, { color: string; icon: React.ReactNode; bg: string }> = {
-    success: { color: 'text-green-400', icon: <CheckCircle size={11} />, bg: 'bg-green-500/8' },
-    error: { color: 'text-red-400', icon: <Minus size={11} />, bg: 'bg-red-500/8' },
-    warning: { color: 'text-amber-400', icon: <AlertTriangle size={11} />, bg: 'bg-amber-500/8' },
-    info: { color: 'text-cyan-400', icon: <Info size={11} />, bg: 'bg-cyan-500/5' },
-    debug: { color: 'text-gray-500', icon: <Code size={11} />, bg: '' },
-    plain: { color: 'text-gray-400', icon: null, bg: '' },
-};
-
-// ── Parsed Log Line ─────────────────────────────────────────────────────────
-
-function LogLineRow({ line }: { line: MsfLogLine }) {
-    const style = LOG_LEVEL_STYLES[line.level];
-    return (
-        <div className={cn("flex items-start gap-2 px-3 py-1 font-mono text-xs", style.bg)}>
-            {style.icon && <span className={cn("mt-0.5 shrink-0", style.color)}>{style.icon}</span>}
-            {line.timestamp && (
-                <span className="text-cyan-400/70 shrink-0 text-[10px]">{line.timestamp}</span>
-            )}
-            <span className={cn("break-all", style.color)}>{line.message}</span>
-        </div>
-    );
-}
-
-// ── Parsed Params Panel ─────────────────────────────────────────────────────
-
-function ParsedParamsPanel({ groups }: { groups: ParamGroup[] }) {
-    if (groups.length === 0) return null;
-
-    // Separate "Module Options" (user-set params) from namespaced defaults
-    const mainGroup = groups.find(g => g.label === 'Module Options');
-    const nsGroups = groups.filter(g => g.label !== 'Module Options');
-
-    return (
-        <div className="space-y-2">
-            {/* Main module options — always visible */}
-            {mainGroup && mainGroup.params.length > 0 && (
-                <div className="border border-ghost/20 bg-black/30 p-3">
-                    <div className="text-[9px] font-mono text-signal/60 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                        <Zap size={10} /> Module Config
-                    </div>
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
-                        {mainGroup.params.map(p => (
-                            <div key={p.key} className="flex items-baseline gap-2 text-[11px] font-mono py-0.5">
-                                <span className="text-gray-500 shrink-0">{p.key}</span>
-                                <span className="text-gray-700">→</span>
-                                <span className={cn(
-                                    "truncate",
-                                    p.value === 'true' ? 'text-green-400' :
-                                        p.value === 'false' ? 'text-red-400/60' :
-                                            'text-signal'
-                                )}>{p.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Namespaced groups — collapsed by default */}
-            {nsGroups.length > 0 && (
-                <details className="group">
-                    <summary className="flex items-center gap-2 cursor-pointer text-[10px] font-mono text-gray-600 hover:text-gray-400 transition-colors">
-                        <ChevronRight size={10} className="group-open:rotate-90 transition-transform" />
-                        ADVANCED DEFAULTS ({nsGroups.reduce((s, g) => s + g.params.length, 0)} params across {nsGroups.length} namespaces)
-                    </summary>
-                    <div className="mt-2 space-y-2 max-h-[250px] overflow-y-auto cyber-scrollbar">
-                        {nsGroups.map(g => (
-                            <div key={g.label} className="border border-ghost/15 bg-black/20 p-2">
-                                <div className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1.5">{g.label}::</div>
-                                <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-0.5">
-                                    {g.params.map(p => {
-                                        const shortKey = p.key.includes('::') ? p.key.split('::').slice(1).join('::') : p.key;
-                                        return (
-                                            <div key={p.key} className="flex items-baseline gap-1.5 text-[10px] font-mono py-0.5">
-                                                <span className="text-gray-600 shrink-0">{shortKey}</span>
-                                                <span className={cn(
-                                                    "truncate",
-                                                    p.value === 'true' ? 'text-green-400/70' :
-                                                        p.value === 'false' ? 'text-gray-600' :
-                                                            'text-gray-400'
-                                                )}>{p.value}</span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </details>
-            )}
-        </div>
-    );
-}
-
 // ── Row Component ───────────────────────────────────────────────────────────
 
-function TaskRow({ record, onDelete, onRefresh }: {
+function TaskRow({ record, onDelete, onRefresh, sessionAlive }: {
     record: MsfExecutionRecord;
     onDelete: (id: string) => void;
     onRefresh: () => void;
+    sessionAlive: boolean;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [viewMode, setViewMode] = useState<'parsed' | 'raw'>('parsed');
@@ -246,6 +153,26 @@ function TaskRow({ record, onDelete, onRefresh }: {
                 {/* Status */}
                 <div className="shrink-0 w-20">{statusBadge(record.status)}</div>
 
+                {/* Linked MSF session — INTERACT shortcut */}
+                {record.sessionId && (
+                    <Link
+                        to={`/console/${MSF_DISPLAY_ID_OFFSET + (parseInt(record.sessionId, 10) || 0)}`}
+                        onClick={e => e.stopPropagation()}
+                        title={sessionAlive
+                            ? `Open MSF session ${record.sessionId} in the unified console`
+                            : `Session ${record.sessionId} is no longer active`}
+                        className={cn(
+                            'shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono border transition-colors',
+                            sessionAlive
+                                ? 'border-signal/40 text-signal hover:bg-signal/15'
+                                : 'border-ghost/30 text-gray-500 hover:text-gray-300'
+                        )}
+                    >
+                        <Crosshair size={10} /> MSF-{record.sessionId}
+                        {sessionAlive && <ArrowUpRight size={10} />}
+                    </Link>
+                )}
+
                 {/* Delete */}
                 <button
                     onClick={e => { e.stopPropagation(); onDelete(record.id); }}
@@ -283,11 +210,30 @@ function TaskRow({ record, onDelete, onRefresh }: {
                                 </div>
                                 <div className="border border-ghost/20 bg-black/30 px-3 py-2">
                                     <div className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-0.5">
-                                        {record.proxy ? 'PROXY' : 'COMPLETED'}
+                                        {record.sessionId ? 'SESSION' : (record.proxy ? 'PROXY' : 'COMPLETED')}
                                     </div>
-                                    <div className="text-[11px] font-mono text-purple-400">
-                                        {record.proxy || (record.completedAt ? formatTime(record.completedAt) : '-')}
-                                    </div>
+                                    {record.sessionId ? (
+                                        <Link
+                                            to={`/console/${MSF_DISPLAY_ID_OFFSET + (parseInt(record.sessionId, 10) || 0)}`}
+                                            className={cn(
+                                                'inline-flex items-center gap-1 text-[11px] font-mono transition-colors',
+                                                sessionAlive
+                                                    ? 'text-signal hover:text-white'
+                                                    : 'text-gray-500'
+                                            )}
+                                            title={sessionAlive ? 'Open in unified console' : 'Session has ended'}
+                                        >
+                                            <Crosshair size={10} /> MSF-{record.sessionId}
+                                            {record.sessionType && (
+                                                <span className="text-[9px] text-gray-500 ml-1">[{record.sessionType.toUpperCase()}]</span>
+                                            )}
+                                            {sessionAlive && <ArrowUpRight size={10} />}
+                                        </Link>
+                                    ) : (
+                                        <div className="text-[11px] font-mono text-purple-400">
+                                            {record.proxy || (record.completedAt ? formatTime(record.completedAt) : '-')}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -427,8 +373,45 @@ export default function TaskBrowser() {
     const [filterStatus, setFilterStatus] = useState<ExecutionStatus | null>(null);
     const [page, setPage] = useState(0);
     const [confirmClear, setConfirmClear] = useState(false);
+    const [liveSessionIds, setLiveSessionIds] = useState<Set<string>>(new Set());
+    const reconcileTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const reload = () => setRecords(getExecutions());
+
+    // ── Reconcile stuck 'running' records ─────────────────────────────────
+    // Background launches that finish after the operator leaves the Launch
+    // tab can be stranded in the 'running' state. We fix them by re-parsing
+    // their captured output and by checking which MSF jobs/sessions are
+    // still live. This also surfaces the linked session id so the INTERACT
+    // link can deep-link into the unified Callbacks console.
+    useEffect(() => {
+        let cancelled = false;
+        const tick = async () => {
+            try {
+                const [sess, jobs] = await Promise.all([getMsfSessions(), getMsfJobs()]);
+                if (cancelled) return;
+                const sessIds = Object.keys(sess);
+                const jobIds = Object.keys(jobs);
+                setLiveSessionIds(new Set(sessIds));
+                const changed = reconcileRunningExecutions({
+                    liveSessionIds: sessIds,
+                    liveJobIds: jobIds,
+                });
+                if (changed > 0) reload();
+            } catch {
+                // MSF-RPC unreachable — still reconcile from output + staleness.
+                if (cancelled) return;
+                const changed = reconcileRunningExecutions({});
+                if (changed > 0) reload();
+            }
+        };
+        tick();
+        reconcileTimerRef.current = setInterval(tick, 6_000);
+        return () => {
+            cancelled = true;
+            if (reconcileTimerRef.current) clearInterval(reconcileTimerRef.current);
+        };
+    }, []);
 
     const filtered = useMemo(() => {
         return searchExecutions({
@@ -584,6 +567,7 @@ export default function TaskBrowser() {
                                 record={record}
                                 onDelete={handleDelete}
                                 onRefresh={reload}
+                                sessionAlive={!!record.sessionId && liveSessionIds.has(record.sessionId)}
                             />
                         </motion.div>
                     ))}

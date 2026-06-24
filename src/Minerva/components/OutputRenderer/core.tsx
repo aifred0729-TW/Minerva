@@ -35,7 +35,7 @@ import 'ace-builds/src-noconflict/mode-apache_conf';
 import 'ace-builds/src-noconflict/mode-plain_text';
 import 'ace-builds/src-noconflict/theme-monokai';
 import { TaskFromUIButton } from '../TaskFromUIButton';
-import { b64DecodeUnicode } from '../../lib/utils';
+import { b64DecodeUnicode, fixMojibake } from '../../lib/utils';
 import '@xyflow/react/dist/style.css';
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
@@ -65,9 +65,12 @@ export const b64Decode = b64DecodeUnicode;
 export type { MythicCell, MythicTableRow, MythicTableDef, MythicScreenshot, MythicDownload, MythicBrowserScriptData, DecodedResponse } from '../../types/output';
 // DecodedResponse is imported at top of file
 
-/** Decode raw GraphQL response rows into DecodedResponse[] */
+/** Decode raw GraphQL response rows into DecodedResponse[]. Pass each
+ *  payload through the mojibake recovery so agent stdout from a tool
+ *  whose UTF-8 was mis-decoded with the operator's OS code page renders
+ *  as the original characters instead of `æ®î¦·æ`-style gibberish. */
 export const decodeResponses = (raw: any[]): DecodedResponse[] =>
-    raw.map(r => ({ ...r, text: b64Decode(r.response ?? '') }));
+    raw.map(r => ({ ...r, text: fixMojibake(b64Decode(r.response ?? '')) }));
 
 // ─── Shared design tokens ─────────────────────────────────────────────────────
 

@@ -1,46 +1,64 @@
 import React, { useState, useEffect } from 'react';
 import {
-    GripVertical, ArrowUp, ArrowDown, X, RotateCcw,
+    ArrowUp, ArrowDown, X, RotateCcw,
 } from 'lucide-react';
-import { cn } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
 import { useGetMythicSetting, useSetMythicSetting } from '../../components/MythicSavedUserSetting';
+import { DraggableList } from '../../components/DraggableList';
 
 const ALL_SIDEBAR_ITEMS = [
-    { key: 'dashboard',       label: 'DASHBOARD',    primary: true },
-    { key: 'events',          label: 'EVENTS',       primary: true },
-    { key: 'callbacks',       label: 'CALLBACKS',    primary: true },
-    { key: 'console',         label: 'CONSOLE',      primary: true },
-    { key: 'task',            label: 'TASKS',        primary: true },
-    { key: 'payloads',        label: 'PAYLOADS',     primary: true },
-    { key: 'credentials',     label: 'CREDENTIALS',  primary: true },
-    { key: 'files',           label: 'FILES',        primary: true },
-    { key: 'c2-profiles',     label: 'C2 PROFILES',  primary: true },
-    { key: 'tunnels',         label: 'TUNNELS',      primary: true },
-    { key: 'quickhacks',      label: 'QUICKHACK',    primary: true },
-    { key: 'users',           label: 'USERS',        primary: true },
-    { key: 'search',          label: 'SEARCH',       primary: true },
-    { key: 'metasploit',      label: 'METASPLOIT',   primary: true },
-    { key: 'settings',        label: 'SETTINGS',     primary: true },
-    { key: 'opsec',           label: 'OPSEC',        primary: false },
-    { key: 'operations',      label: 'OPERATIONS',   primary: false },
-    { key: 'artifacts',       label: 'ARTIFACTS',    primary: false },
-    { key: 'mitre',           label: 'MITRE',        primary: false },
-    { key: 'reporting',       label: 'REPORTING',    primary: false },
-    { key: 'tags',            label: 'TAGS',         primary: false },
-    { key: 'browser-scripts', label: 'SCRIPTS',      primary: false },
-    { key: 'eventing',        label: 'EVENTING',     primary: false },
-    { key: 'payload-types',   label: 'PKG TYPES',    primary: false },
-    { key: 'jupyter',         label: 'JUPYTER',      primary: false },
-    { key: 'graphql',         label: 'GRAPHQL',      primary: false },
+    { key: 'dashboard',       label: 'DASHBOARD'    },
+    { key: 'events',          label: 'EVENTS'       },
+    { key: 'callbacks',       label: 'CALLBACKS'    },
+    { key: 'console',         label: 'CONSOLE'      },
+    { key: 'task',            label: 'TASKS'        },
+    { key: 'payloads',        label: 'PAYLOADS'     },
+    { key: 'credentials',     label: 'CREDENTIALS'  },
+    { key: 'files',           label: 'FILES'        },
+    { key: 'c2-profiles',     label: 'C2 PROFILES'  },
+    { key: 'tunnels',         label: 'TUNNELS'      },
+    { key: 'quickhacks',      label: 'QUICKHACK'    },
+    { key: 'users',           label: 'USERS'        },
+    { key: 'search',          label: 'SEARCH'       },
+    { key: 'topology',        label: '3D TOPOLOGY'  },
+    { key: 'metasploit',      label: 'METASPLOIT'   },
+    { key: 'settings',        label: 'SETTINGS'     },
+    { key: 'opsec',           label: 'OPSEC'        },
+    { key: 'operations',      label: 'OPERATIONS'   },
+    { key: 'artifacts',       label: 'ARTIFACTS'    },
+    { key: 'mitre',           label: 'MITRE'        },
+    { key: 'reporting',       label: 'REPORTING'    },
+    { key: 'tags',            label: 'TAGS'         },
+    { key: 'browser-scripts', label: 'SCRIPTS'      },
+    { key: 'eventing',        label: 'EVENTING'     },
+    { key: 'payload-types',   label: 'PKG TYPES'    },
+    { key: 'jupyter',         label: 'JUPYTER'      },
+    { key: 'graphql',         label: 'GRAPHQL'      },
 ];
 export const DEFAULT_SIDEBAR_SHORTCUTS = ALL_SIDEBAR_ITEMS.map(i => i.key);
+
+// Mirror Sidebar.tsx's resolution: drop unknown keys (legacy MythicReactUI defaults like
+// "ActiveCallbacks","Payloads",… stored from older installs) and append any current items
+// not already in the saved order. Result is exactly what the Sidebar will render.
+const normalizeSidebarItems = (raw: unknown): string[] => {
+    const validKeys = ALL_SIDEBAR_ITEMS.map(i => i.key);
+    const validSet = new Set(validKeys);
+    const filtered = Array.isArray(raw)
+        ? raw.filter((k): k is string => typeof k === 'string' && validSet.has(k))
+        : [];
+    const seen = new Set(filtered);
+    const result = [...filtered];
+    for (const k of validKeys) {
+        if (!seen.has(k)) result.push(k);
+    }
+    return result;
+};
 
 export const SidebarShortcutsSection = () => {
     const sideShortcuts = useGetMythicSetting({setting_name:'sideShortcuts', default_value: DEFAULT_SIDEBAR_SHORTCUTS});
     const [setSetting] = useSetMythicSetting();
-    const [items, setItems] = useState<string[]>(() => Array.isArray(sideShortcuts) ? sideShortcuts : DEFAULT_SIDEBAR_SHORTCUTS);
-    useEffect(() => { if (Array.isArray(sideShortcuts)) setItems(sideShortcuts); }, [sideShortcuts]);
+    const [items, setItems] = useState<string[]>(() => normalizeSidebarItems(sideShortcuts));
+    useEffect(() => { setItems(normalizeSidebarItems(sideShortcuts)); }, [sideShortcuts]);
 
     const enabled = new Set(items);
     const toggle = (key: string) => {
@@ -66,22 +84,26 @@ export const SidebarShortcutsSection = () => {
             </div>
             <p className="text-xs text-gray-500">Drag items to reorder. Click to toggle visibility. Changes apply after saving.</p>
 
-            <div className="space-y-1">
-                {items.map((key, idx) => {
-                    const def = ALL_SIDEBAR_ITEMS.find(i=>i.key===key);
+            <DraggableList
+                droppableId="sidebar-shortcuts"
+                items={items}
+                keyExtractor={(k) => k}
+                onReorder={setItems}
+                className="space-y-1"
+                itemClassName="bg-black/40 border border-white/10 px-3 py-2 hover:border-white/20"
+                renderItem={(key, idx) => {
+                    const def = ALL_SIDEBAR_ITEMS.find(i => i.key === key);
                     if (!def) return null;
                     return (
-                        <div key={key} className="flex items-center gap-2 bg-black/40 border border-white/10 px-3 py-2 hover:border-white/20 transition-colors">
-                            <GripVertical size={14} className="text-gray-600 shrink-0"/>
+                        <div className="flex items-center gap-2">
                             <span className="flex-1 text-xs font-mono text-white">{def.label}</span>
-                            <span className={cn('text-[9px] font-mono px-1.5 py-0.5 rounded',def.primary?'text-signal bg-signal/10':'text-purple-400 bg-purple-500/10')}>{def.primary?'PRIMARY':'SECONDARY'}</span>
-                            <button onClick={()=>moveUp(idx)} className="p-0.5 text-gray-500 hover:text-white transition-colors disabled:opacity-20" disabled={idx===0}><ArrowUp size={12}/></button>
-                            <button onClick={()=>moveDown(idx)} className="p-0.5 text-gray-500 hover:text-white transition-colors disabled:opacity-20" disabled={idx===items.length-1}><ArrowDown size={12}/></button>
-                            <button onClick={()=>toggle(key)} className="p-0.5 text-red-400 hover:text-red-300 transition-colors"><X size={12}/></button>
+                            <button onClick={() => moveUp(idx)} className="p-0.5 text-gray-500 hover:text-white transition-colors disabled:opacity-20" disabled={idx === 0}><ArrowUp size={12} /></button>
+                            <button onClick={() => moveDown(idx)} className="p-0.5 text-gray-500 hover:text-white transition-colors disabled:opacity-20" disabled={idx === items.length - 1}><ArrowDown size={12} /></button>
+                            <button onClick={() => toggle(key)} className="p-0.5 text-red-400 hover:text-red-300 transition-colors"><X size={12} /></button>
                         </div>
                     );
-                })}
-            </div>
+                }}
+            />
 
             {disabledItems.length > 0 && (
                 <>

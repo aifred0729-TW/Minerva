@@ -4,7 +4,8 @@ import { persist } from 'zustand/middleware';
 type AppState = 'LOGIN' | 'HANDSHAKE' | 'DASHBOARD' | 'LOGOUT_ANIMATION';
 
 interface ConsoleTab {
-    id: number;        // callback display_id
+    /** Tab id — number for Mythic callbacks (display_id), or `msf-<sessionId>` for Metasploit sessions. */
+    id: number | string;
     host: string;
     user: string;
     payloadType: string;
@@ -27,8 +28,17 @@ interface AppStore {
   // ── Console Tabs ──────────────────────────────────────────────
   consoleTabs: ConsoleTab[];
   openConsoleTab: (tab: ConsoleTab) => void;
-  closeConsoleTab: (id: number) => void;
-  updateConsoleTabMeta: (id: number, partial: Partial<Omit<ConsoleTab, 'id'>>) => void;
+  closeConsoleTab: (id: number | string) => void;
+  updateConsoleTabMeta: (id: number | string, partial: Partial<Omit<ConsoleTab, 'id'>>) => void;
+  // ── 3D Topology: operator-picked session per host node ────────
+  // Persisted across navigation AND page reloads so the operator's choice
+  // of "which callback to interact with on this host" survives switching
+  // to Callbacks / Payloads / etc. and coming back, and survives a hard
+  // refresh. Keyed by TopoNode.id, value is the picked callback's
+  // display_id.
+  topologySessionPicks: Record<string, number>;
+  setTopologySessionPick: (nodeId: string, displayId: number) => void;
+  clearTopologySessionPick: (nodeId: string) => void;
   // ── Audio / Music settings ────────────────────────────────────
   musicEnabled: boolean;
   musicVolume: number;      // 0–1
@@ -37,6 +47,8 @@ interface AppStore {
   musicPlaying: boolean;    // user intent: true = play, false = pause
   sfxEnabled: boolean;
   sfxVolume: number;        // 0–1
+  /** Per-sound enable map. Missing key or `true` = play, `false` = skip. */
+  sfxIndividualEnabled: Record<string, boolean>;
   // Notification preferences
   hideLoginNotifications: boolean;
   setHideLoginNotifications: (v: boolean) => void;
@@ -48,6 +60,7 @@ interface AppStore {
   setMusicPlaying: (v: boolean) => void;
   setSfxEnabled: (v: boolean) => void;
   setSfxVolume: (v: number) => void;
+  setSfxSoundEnabled: (key: string, enabled: boolean) => void;
 }
 
 export const useAppStore = create<AppStore>()(
@@ -58,6 +71,7 @@ export const useAppStore = create<AppStore>()(
       isSidebarCollapsed: true, // Default to collapsed
       alertCount: 0,
       consoleTabs: [],
+      topologySessionPicks: {},
       // Audio defaults
       musicEnabled: true,
       musicVolume: 0.3,
@@ -66,6 +80,7 @@ export const useAppStore = create<AppStore>()(
       musicPlaying: true,
       sfxEnabled: true,
       sfxVolume: 0.5,
+      sfxIndividualEnabled: {},
       hideLoginNotifications: false,
 
       setAppState: (state) => set({ appState: state }),
@@ -115,17 +130,33 @@ export const useAppStore = create<AppStore>()(
       setMusicPlaying: (v) => set({ musicPlaying: v }),
       setSfxEnabled: (v) => set({ sfxEnabled: v }),
       setSfxVolume: (v) => set({ sfxVolume: v }),
+      setSfxSoundEnabled: (key, enabled) => set((state) => ({
+        sfxIndividualEnabled: { ...state.sfxIndividualEnabled, [key]: enabled },
+      })),
       setHideLoginNotifications: (v) => set({ hideLoginNotifications: v }),
 
       updateConsoleTabMeta: (id, partial) => set((state) => ({
         consoleTabs: state.consoleTabs.map(t => t.id === id ? { ...t, ...partial } : t),
       })),
+
+      setTopologySessionPick: (nodeId, displayId) => set((state) => (
+        state.topologySessionPicks[nodeId] === displayId
+          ? state
+          : { topologySessionPicks: { ...state.topologySessionPicks, [nodeId]: displayId } }
+      )),
+      clearTopologySessionPick: (nodeId) => set((state) => {
+        if (!(nodeId in state.topologySessionPicks)) return state;
+        const { [nodeId]: _omit, ...rest } = state.topologySessionPicks;
+        void _omit;
+        return { topologySessionPicks: rest };
+      }),
     }),
     {
       name: 'minerva-app-store',
       partialize: (state) => ({
         isSidebarCollapsed: state.isSidebarCollapsed,
         consoleTabs: state.consoleTabs,
+        topologySessionPicks: state.topologySessionPicks,
         musicEnabled: state.musicEnabled,
         musicVolume: state.musicVolume,
         musicTrackId: state.musicTrackId,
@@ -133,6 +164,7 @@ export const useAppStore = create<AppStore>()(
         musicPlaying: state.musicPlaying,
         sfxEnabled: state.sfxEnabled,
         sfxVolume: state.sfxVolume,
+        sfxIndividualEnabled: state.sfxIndividualEnabled,
         hideLoginNotifications: state.hideLoginNotifications,
       }),
     }

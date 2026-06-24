@@ -8,7 +8,7 @@ import {
     getStraightPath,
 } from '@xyflow/react';
 import { motion } from 'framer-motion';
-import { Globe, Skull } from 'lucide-react';
+import { Skull } from 'lucide-react';
 import type { CallbackPort } from '../../types/tunnels';
 import { fmtBytes } from './tunnels.utils';
 
@@ -31,6 +31,42 @@ export const TN_LABEL: Record<string, string> = {
     rpfwd_out:   'LOCAL FWD',
 };
 
+// Cyberpunk-flavoured palette used to give each /24 segment its own colour.
+// Order is chosen so adjacent indices contrast strongly.
+const SEGMENT_PALETTE = [
+    '#f59e0b', // amber
+    '#06b6d4', // cyan
+    '#ec4899', // pink
+    '#84cc16', // lime
+    '#a78bfa', // violet
+    '#f97316', // orange
+    '#22d3ee', // sky
+    '#fb7185', // rose
+];
+
+// Deterministic hash → palette colour. Same /24 always renders in the same hue.
+export function segmentColor(subnet: string): string {
+    let h = 0;
+    for (let i = 0; i < subnet.length; i++) h = ((h << 5) - h + subnet.charCodeAt(i)) | 0;
+    return SEGMENT_PALETTE[Math.abs(h) % SEGMENT_PALETTE.length];
+}
+
+// Background pattern variants — cycled per zone for extra visual differentiation.
+const segmentPattern = (variant: number, color: string): string => {
+    const c = `${color}10`;
+    switch (variant % 4) {
+        case 0: // diagonal hatch
+            return `repeating-linear-gradient(45deg, transparent 0, transparent 13px, ${c} 13px, ${c} 14px)`;
+        case 1: // dot grid
+            return `radial-gradient(circle at 1px 1px, ${c} 1px, transparent 1.5px)`;
+        case 2: // vertical lines
+            return `repeating-linear-gradient(90deg, transparent 0, transparent 11px, ${c} 11px, ${c} 12px)`;
+        default: // crosshatch
+            return `repeating-linear-gradient(45deg, transparent 0, transparent 16px, ${c} 16px, ${c} 17px), repeating-linear-gradient(-45deg, transparent 0, transparent 16px, ${c} 16px, ${c} 17px)`;
+    }
+};
+const segmentPatternSize = (variant: number): string => (variant % 4 === 1 ? '16px 16px' : 'auto');
+
 // ── invisible centered handles — edges always connect to node center ──
 const CENTER: React.CSSProperties = {
     left: '50%', top: '50%', bottom: 'auto', right: 'auto',
@@ -52,6 +88,9 @@ const TnHandles = () => (
 interface TnZoneNodeData {
     zoneIndex?: number; w: number; h: number; color: string;
     label: string; segment?: string;
+    hostCount?: number;
+    patternVariant?: number;
+    kind?: 'operator' | 'c2' | 'endpoint';
     [key: string]: unknown;
 }
 interface TnMythicNodeData { activePorts: number; [key: string]: unknown; }
@@ -59,6 +98,10 @@ interface TnAgentNodeData {
     display_id: number; host: string; ip: string;
     user?: string; active: boolean; idx?: number;
     tunnels?: Array<{ type: string; port: number }>;
+    /** Other /24 subnets this host can reach (excluding its primary zone). */
+    interfaces?: Array<{ subnet: string; color: string }>;
+    /** Colour of the primary segment this agent was placed in. */
+    primaryColor?: string;
     [key: string]: unknown;
 }
 interface TnPortNodeData {
@@ -67,78 +110,126 @@ interface TnPortNodeData {
     [key: string]: unknown;
 }
 
-/** Zone background strip — minimal CP2077 info panel */
-const TnZoneNode = ({ data }: { data: TnZoneNodeData }) => (
-    <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.2, delay: 0.08 + (data.zoneIndex ?? 0) * 0.04 }}
-        style={{ position: 'relative', width: data.w, height: data.h, pointerEvents: 'none' }}
-    >
-        {/* background fill */}
-        <div style={{ position: 'absolute', inset: 0, background: `${data.color}0b` }} />
+/** Zone background strip — CP2077 info panel with per-segment colour & texture */
+const TnZoneNode = ({ data }: { data: TnZoneNodeData }) => {
+    const zi = data.zoneIndex ?? 0;
+    const variant = data.patternVariant ?? zi;
+    const isEndpoint = data.kind === 'endpoint';
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2, delay: 0.08 + zi * 0.04 }}
+            style={{ position: 'relative', width: data.w, height: data.h, pointerEvents: 'none' }}
+        >
+            {/* base fill */}
+            <div style={{ position: 'absolute', inset: 0, background: `${data.color}0b` }} />
 
-        {/* top edge */}
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: `${data.color}cc` }} />
-        {/* bottom edge */}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, background: `${data.color}55` }} />
-
-        {/* left accent bar */}
-        <div style={{
-            position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
-            background: data.color,
-            boxShadow: `0 0 10px ${data.color}cc, 0 0 24px ${data.color}55`,
-        }} />
-
-        {/* top-right corner bracket */}
-        <div style={{
-            position: 'absolute', top: 0, right: 0, width: 18, height: 18,
-            borderTop: `1px solid ${data.color}80`,
-            borderRight: `1px solid ${data.color}80`,
-        }} />
-        {/* bottom-left corner bracket */}
-        <div style={{
-            position: 'absolute', bottom: 0, left: 3, width: 14, height: 14,
-            borderBottom: `1px solid ${data.color}50`,
-            borderLeft: `1px solid ${data.color}50`,
-        }} />
-
-        <TnHandles />
-
-        {/* zone index dot + label — top-left */}
-        <div style={{
-            position: 'absolute', top: 10, left: 16,
-            display: 'flex', alignItems: 'center', gap: 7,
-        }}>
+            {/* pattern texture — gives each segment its own visual fingerprint */}
             <div style={{
-                width: 4, height: 4, background: data.color,
-                boxShadow: `0 0 6px ${data.color}`,
-                flexShrink: 0,
+                position: 'absolute', inset: 0,
+                backgroundImage: segmentPattern(variant, data.color),
+                backgroundSize: segmentPatternSize(variant),
+                opacity: 0.9,
             }} />
-            <span style={{
-                fontFamily: 'monospace', fontSize: 9, fontWeight: 800,
-                color: `${data.color}dd`, letterSpacing: '0.3em',
-                textTransform: 'uppercase',
-                textShadow: `0 0 10px ${data.color}80`,
-            }}>{data.label}</span>
-        </div>
 
-        {/* segment — bottom-right */}
-        {data.segment && (
+            {/* top edge */}
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: `${data.color}cc` }} />
+            {/* bottom edge */}
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, background: `${data.color}55` }} />
+
+            {/* left accent bar with pulse */}
             <div style={{
-                position: 'absolute', bottom: 9, right: 16,
-                display: 'flex', alignItems: 'center', gap: 5,
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+                background: data.color,
+                boxShadow: `0 0 10px ${data.color}cc, 0 0 24px ${data.color}55`,
+            }} />
+
+            {/* top-right corner bracket */}
+            <div style={{
+                position: 'absolute', top: 0, right: 0, width: 22, height: 22,
+                borderTop: `1px solid ${data.color}aa`,
+                borderRight: `1px solid ${data.color}aa`,
+            }} />
+            {/* bottom-left corner bracket */}
+            <div style={{
+                position: 'absolute', bottom: 0, left: 3, width: 18, height: 18,
+                borderBottom: `1px solid ${data.color}66`,
+                borderLeft: `1px solid ${data.color}66`,
+            }} />
+
+            <TnHandles />
+
+            {/* HEADER — top-left: tier badge, label, host count */}
+            <div style={{
+                position: 'absolute', top: 8, left: 14,
+                display: 'flex', alignItems: 'center', gap: 8,
             }}>
-                <div style={{ width: 16, height: 1, background: `${data.color}60` }} />
-                <span style={{
-                    fontFamily: 'monospace', fontSize: 8, fontWeight: 600,
-                    color: `${data.color}99`, letterSpacing: '0.12em',
-                    textTransform: 'uppercase',
-                }}>{data.segment}</span>
+                {/* tier badge */}
+                {isEndpoint && (
+                    <div style={{
+                        background: `${data.color}22`,
+                        border: `1px solid ${data.color}90`,
+                        padding: '2px 7px',
+                        fontFamily: 'monospace', fontSize: 9, fontWeight: 900,
+                        color: data.color,
+                        letterSpacing: '0.2em',
+                        boxShadow: `0 0 8px ${data.color}40, inset 0 0 8px ${data.color}15`,
+                    }}>
+                        SEG-{zi}
+                    </div>
+                )}
+
+                {/* category label */}
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                    <div style={{
+                        width: 4, height: 4, background: data.color,
+                        boxShadow: `0 0 6px ${data.color}`,
+                        flexShrink: 0,
+                    }} />
+                    <span style={{
+                        fontFamily: 'monospace', fontSize: 9, fontWeight: 800,
+                        color: `${data.color}dd`, letterSpacing: '0.3em',
+                        textTransform: 'uppercase',
+                        textShadow: `0 0 10px ${data.color}80`,
+                    }}>{data.label}</span>
+                </div>
+
+                {/* host count */}
+                {isEndpoint && data.hostCount !== undefined && (
+                    <span style={{
+                        fontFamily: 'monospace', fontSize: 9, fontWeight: 700,
+                        color: '#ffffff70', letterSpacing: '0.18em',
+                    }}>
+                        · {data.hostCount} HOST{data.hostCount !== 1 ? 'S' : ''}
+                    </span>
+                )}
             </div>
-        )}
-    </motion.div>
-);
+
+            {/* SUBNET CIDR — top-right: prominent identifier */}
+            {data.segment && (
+                <div style={{
+                    position: 'absolute', top: 7, right: 28,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                    <span style={{
+                        fontFamily: 'monospace', fontSize: 8, fontWeight: 700,
+                        color: `${data.color}88`, letterSpacing: '0.2em',
+                        textTransform: 'uppercase',
+                    }}>{isEndpoint ? 'CIDR' : 'NET'}</span>
+                    <div style={{ width: 10, height: 1, background: `${data.color}55` }} />
+                    <span style={{
+                        fontFamily: 'monospace', fontSize: 11, fontWeight: 800,
+                        color: `${data.color}ee`, letterSpacing: '0.05em',
+                        textShadow: `0 0 8px ${data.color}50`,
+                    }}>{data.segment}</span>
+                </div>
+            )}
+        </motion.div>
+    );
+};
 
 /** MYTHIC — CP2077 minimal cyberpunk C2 node */
 const TnMythicNode = ({ data }: { data: TnMythicNodeData }) => (
@@ -239,7 +330,7 @@ const TnAgentNode = ({ data }: { data: TnAgentNodeData }) => {
             ) : (
                 /* — ACTIVE node — */
                 <div style={{
-                    width: 116, fontFamily: 'monospace',
+                    width: 124, fontFamily: 'monospace',
                     background: '#020c04',
                     border: `1px solid ${c}`,
                     boxShadow: `0 0 10px ${c}30`,
@@ -249,13 +340,34 @@ const TnAgentNode = ({ data }: { data: TnAgentNodeData }) => {
                     <div style={{ position: 'absolute', top: -1, right: -1, width: 0, height: 0,
                         borderStyle: 'solid', borderWidth: '0 10px 10px 0',
                         borderColor: `transparent ${c} transparent transparent` }} />
+                    {/* primary segment colour stripe — keys this agent to its zone */}
+                    {data.primaryColor && (
+                        <div style={{
+                            position: 'absolute', left: -1, top: -1, bottom: -1, width: 2,
+                            background: data.primaryColor,
+                            boxShadow: `0 0 6px ${data.primaryColor}cc`,
+                        }} />
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                         <div style={{ width: 3, height: 14, background: c, flexShrink: 0, boxShadow: `0 0 5px ${c}` }} />
                         <span style={{ fontSize: 11, fontWeight: 900, color: c, letterSpacing: '0.15em' }}>
                             C-{data.display_id}
                         </span>
-                        <div style={{ marginLeft: 'auto', width: 5, height: 5, background: c,
-                            boxShadow: `0 0 6px ${c}`, animation: 'pulse 1.8s ease-in-out infinite' }} />
+                        {/* PIVOT badge if this host bridges multiple subnets */}
+                        {(data.interfaces?.length ?? 0) > 0 && (
+                            <span style={{
+                                marginLeft: 'auto', fontSize: 7, fontWeight: 900,
+                                color: '#fbbf24',
+                                border: '1px solid #fbbf2480',
+                                background: '#fbbf2415',
+                                padding: '0 3px',
+                                letterSpacing: '0.15em',
+                            }} title="Pivot — host has interfaces in additional subnets">PIV</span>
+                        )}
+                        {(data.interfaces?.length ?? 0) === 0 && (
+                            <div style={{ marginLeft: 'auto', width: 5, height: 5, background: c,
+                                boxShadow: `0 0 6px ${c}`, animation: 'pulse 1.8s ease-in-out infinite' }} />
+                        )}
                     </div>
                     <div style={{ height: 1, background: `linear-gradient(90deg, ${c}60, transparent)`, marginBottom: 4 }} />
                     <div style={{ fontSize: 9, color: '#ffffffcc', fontWeight: 600,
@@ -267,6 +379,21 @@ const TnAgentNode = ({ data }: { data: TnAgentNodeData }) => {
                         <div style={{ fontSize: 8, color: '#ffffff50', marginTop: 2,
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {data.user}
+                        </div>
+                    )}
+                    {/* Reachable subnets — small chip per non-primary interface */}
+                    {(data.interfaces?.length ?? 0) > 0 && (
+                        <div style={{ display: 'flex', gap: 2, marginTop: 4, flexWrap: 'wrap' }}>
+                            {data.interfaces!.map((iface, i) => (
+                                <span key={i} style={{
+                                    color: iface.color,
+                                    border: `1px solid ${iface.color}70`,
+                                    background: `${iface.color}10`,
+                                    fontSize: 7, fontWeight: 700,
+                                    padding: '0 3px',
+                                    letterSpacing: '0.04em',
+                                }} title={`Reachable subnet: ${iface.subnet}`}>{iface.subnet.split('.').slice(0, 3).join('.')}</span>
+                            ))}
                         </div>
                     )}
                     {(data.tunnels?.length ?? 0) > 0 && (
@@ -392,16 +519,10 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
     const edges: Edge[] = [];
     const MX  = 320;    // mythic center-x
     const MY  = 240;    // mythic y
-    const AY  = 420;    // agent row y
+    const AY  = 420;    // first endpoint zone agent-row y
     const PY  = 60;     // port-source row y
     const HS  = 180;    // horizontal spacing
     const NHW = 74;     // half mythic node-width (148/2)
-
-    // Dynamic zone width: sized to fit nodes + padding, centered on MX
-    const cbCount = [...new Set(ports.map(p => p.callback.display_id))].length;
-    const contentSpread = Math.max(cbCount - 1, 0) * HS;
-    const ZW  = Math.max(contentSpread + 500, 600);  // enough padding on each side
-    const ZX  = MX - ZW / 2;
 
     // Derive network segments from callback IPs
     const parseAllIps = (raw: string): string[] => {
@@ -419,59 +540,90 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
         return parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}.0/24` : ip;
     };
 
-    // Collect all IPv4 addresses per callback (keyed by display_id)
+    // Per-callback IPv4 list + per-callback /24 subnet list (deduped, sorted)
     const cbIPv4Map = new Map<number, string[]>();
+    const cbSubnetsMap = new Map<number, string[]>();
     ports.forEach(p => {
-        const allIps = parseAllIps(p.callback.ip);
-        const ipv4s = allIps.filter(isIPv4);
-        if (!cbIPv4Map.has(p.callback.display_id)) {
-            cbIPv4Map.set(p.callback.display_id, ipv4s);
-        }
+        const cbId = p.callback.display_id;
+        if (cbIPv4Map.has(cbId)) return;
+        const ipv4s = parseAllIps(p.callback.ip).filter(isIPv4);
+        cbIPv4Map.set(cbId, ipv4s);
+        cbSubnetsMap.set(cbId, [...new Set(ipv4s.map(toSubnet))].sort());
     });
 
-    // Group callbacks by their /24 subnets
-    const subnetToCbIds = new Map<string, Set<number>>();
-    cbIPv4Map.forEach((ipv4s, cbId) => {
-        const subnets = [...new Set(ipv4s.map(toSubnet))];
-        if (subnets.length === 0) subnets.push('UNKNOWN');
-        subnets.forEach(sn => {
-            if (!subnetToCbIds.has(sn)) subnetToCbIds.set(sn, new Set());
-            subnetToCbIds.get(sn)!.add(cbId);
-        });
+    // Pick a primary /24 per callback (lowest subnet by sort) and group by it.
+    // Only primary subnets become endpoint zones — secondary subnets are shown as
+    // pivot interface chips on the agent itself, so we never render an empty zone.
+    const cbPrimarySubnet = new Map<number, string>();
+    cbSubnetsMap.forEach((subs, cbId) => {
+        cbPrimarySubnet.set(cbId, subs[0] || 'UNKNOWN');
     });
-    const endpointSubnets = [...subnetToCbIds.keys()].filter(s => s !== 'UNKNOWN').sort();
+    const cbIds = [...new Set(ports.map(p => p.callback.display_id))];
+    const subnetToPlacedCbs = new Map<string, number[]>();
+    cbIds.forEach(cbId => {
+        const sub = cbPrimarySubnet.get(cbId) || 'UNKNOWN';
+        if (!subnetToPlacedCbs.has(sub)) subnetToPlacedCbs.set(sub, []);
+        subnetToPlacedCbs.get(sub)!.push(cbId);
+    });
+    const placedSubnets = [...subnetToPlacedCbs.keys()].sort((a, b) => {
+        if (a === 'UNKNOWN') return 1;
+        if (b === 'UNKNOWN') return -1;
+        return a.localeCompare(b);
+    });
 
-    // Zone background strips
-    const ZONE_H = 165;
-    const ZONE_GAP = 10;
+    // Dynamic zone width: sized to fit the widest endpoint row + operator/c2 zones
+    const widestRow = Math.max(
+        cbIds.length,
+        ...placedSubnets.map(s => subnetToPlacedCbs.get(s)?.length ?? 0),
+    );
+    const contentSpread = Math.max(widestRow - 1, 0) * HS;
+    const ZW  = Math.max(contentSpread + 500, 600);
+    const ZX  = MX - ZW / 2;
 
-    const epZones: { id: string; y: number; h: number; color: string; label: string; segment: string }[] = [];
-    if (endpointSubnets.length <= 1) {
-        epZones.push({
-            id: 'z-agent', y: AY - 32, h: ZONE_H, color: '#f59e0b',
-            label: 'ENDPOINTS', segment: endpointSubnets[0] || 'TARGET NETWORK',
-        });
-    } else {
-        endpointSubnets.forEach((sn, si) => {
-            epZones.push({
-                id: `z-agent-${si}`, y: AY - 32 + si * (ZONE_H + ZONE_GAP), h: ZONE_H,
-                color: '#f59e0b', label: `ENDPOINTS #${si + 1}`, segment: sn,
-            });
-        });
-    }
+    // Zone heights — endpoint zone is taller than before to fit interface chips
+    const ZONE_H = 175;
+    const ZONE_GAP = 12;
 
-    const zones = [
-        { id: 'z-port',   y: PY  - 32, h: 135, color: '#60a5fa', label: 'OPERATOR SIDE',  segment: 'LOCAL NETWORK' },
-        { id: 'z-mythic', y: MY  - 32, h: 155, color: '#22c55e', label: 'C2 SERVER',       segment: 'C2 INFRASTRUCTURE' },
-        ...epZones,
+    // Operator + C2 zones (always shown, fixed colours).
+    const fixedZones = [
+        { id: 'z-port',   y: PY - 32, h: 135, color: '#60a5fa', label: 'OPERATOR SIDE', segment: 'LOCAL NETWORK',     kind: 'operator' as const },
+        { id: 'z-mythic', y: MY - 32, h: 155, color: '#22c55e', label: 'C2 SERVER',     segment: 'C2 INFRASTRUCTURE', kind: 'c2'       as const },
     ];
-    zones.forEach((z, zi) => nodes.push({
+    fixedZones.forEach((z, zi) => nodes.push({
         id: z.id, type: 'zone',
         position: { x: ZX, y: z.y },
-        data: { w: ZW, h: z.h, color: z.color, label: z.label, segment: z.segment, zoneIndex: zi },
+        data: {
+            w: ZW, h: z.h, color: z.color, label: z.label, segment: z.segment,
+            zoneIndex: zi, kind: z.kind, patternVariant: zi,
+        },
         selectable: false, draggable: false,
         style: { zIndex: -1 },
     }));
+
+    // Endpoint zones — one per *primary* subnet (no empty zones), each with a
+    // hash-derived colour + pattern variant.
+    const subnetColors = new Map<string, string>();
+    placedSubnets.forEach((sn, si) => {
+        const color = sn === 'UNKNOWN' ? '#6b7280' : segmentColor(sn);
+        subnetColors.set(sn, color);
+        const hostCount = subnetToPlacedCbs.get(sn)?.length ?? 0;
+        const isUnknown = sn === 'UNKNOWN';
+        nodes.push({
+            id: `z-agent-${si}`, type: 'zone',
+            position: { x: ZX, y: AY - 32 + si * (ZONE_H + ZONE_GAP) },
+            data: {
+                w: ZW, h: ZONE_H, color,
+                label: isUnknown ? 'ENDPOINTS' : 'ENDPOINTS',
+                segment: isUnknown ? 'UNKNOWN NETWORK' : sn,
+                zoneIndex: si + 1,        // SEG-1, SEG-2, ...
+                hostCount,
+                kind: 'endpoint',
+                patternVariant: si,        // cycle texture per zone
+            },
+            selectable: false, draggable: false,
+            style: { zIndex: -1 },
+        });
+    });
 
     const activePorts = ports.filter(p => !p.deleted);
     nodes.push({
@@ -480,24 +632,38 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
         data: { activePorts: activePorts.length },
     });
 
-    const cbIds = [...new Set(ports.map(p => p.callback.display_id))];
+    // Place agents inside their primary subnet zone
     const cbPlacedX = new Map<number, number>();
+    placedSubnets.forEach((sn, si) => {
+        const zoneCbIds = subnetToPlacedCbs.get(sn) || [];
+        const zoneY = AY + si * (ZONE_H + ZONE_GAP);
+        const zoneCX = (i: number) => MX - ((zoneCbIds.length - 1) / 2) * HS + i * HS;
+        const primaryColor = subnetColors.get(sn) || '#6b7280';
 
-    if (endpointSubnets.length <= 1) {
-        const agCX = (i: number) => MX - ((cbIds.length - 1) / 2) * HS + i * HS;
-        cbIds.forEach((cbId, i) => {
+        zoneCbIds.forEach((cbId, i) => {
             const rep = ports.find(p => p.callback.display_id === cbId)!;
             const cb  = rep.callback;
-            const cx  = agCX(i);
+            const cx  = zoneCX(i);
             cbPlacedX.set(cbId, cx);
+
+            // Other subnets this host can reach (= pivot interfaces)
+            const allSubs = cbSubnetsMap.get(cbId) || [];
+            const otherSubs = allSubs.filter(s => s !== sn);
+            const interfaces = otherSubs.map(s => ({
+                subnet: s,
+                color: segmentColor(s),
+            }));
+
             nodes.push({
                 id: `a-${cbId}`, type: 'agent',
-                position: { x: cx - NHW, y: AY },
+                position: { x: cx - NHW, y: zoneY },
                 data: {
                     display_id: cb.display_id, host: cb.host,
                     ip: parseAllIps(cb.ip).filter(isIPv4).join(', ') || cb.ip,
                     user: cb.user, domain: cb.domain, active: cb.active,
                     idx: i,
+                    primaryColor,
+                    interfaces,
                     tunnels: ports.filter(p => p.callback.display_id === cbId && !p.deleted)
                         .map(p => ({ type: p.port_type, port: p.local_port })),
                 },
@@ -507,38 +673,7 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
                 data: { active: cb.active, color: cb.active ? '#22c55e' : '#374151' },
             });
         });
-    } else {
-        const placed = new Set<number>();
-        endpointSubnets.forEach((sn, si) => {
-            const zoneCbIds = cbIds.filter(id => subnetToCbIds.get(sn)?.has(id));
-            const zoneY = AY + si * (ZONE_H + ZONE_GAP);
-            const zoneCX = (i: number) => MX - ((zoneCbIds.length - 1) / 2) * HS + i * HS;
-            zoneCbIds.forEach((cbId, i) => {
-                if (placed.has(cbId)) return;
-                placed.add(cbId);
-                const rep = ports.find(p => p.callback.display_id === cbId)!;
-                const cb  = rep.callback;
-                const cx  = zoneCX(i);
-                cbPlacedX.set(cbId, cx);
-                nodes.push({
-                    id: `a-${cbId}`, type: 'agent',
-                    position: { x: cx - NHW, y: zoneY },
-                    data: {
-                        display_id: cb.display_id, host: cb.host,
-                        ip: parseAllIps(cb.ip).filter(isIPv4).join(', ') || cb.ip,
-                        user: cb.user, domain: cb.domain, active: cb.active,
-                        idx: i,
-                        tunnels: ports.filter(p => p.callback.display_id === cbId && !p.deleted)
-                            .map(p => ({ type: p.port_type, port: p.local_port })),
-                    },
-                });
-                edges.push({
-                    id: `c2-${cbId}`, source: 'mythic', target: `a-${cbId}`, type: 'flow',
-                    data: { active: cb.active, color: cb.active ? '#22c55e' : '#374151' },
-                });
-            });
-        });
-    }
+    });
 
     const agCX = (cbId: number) => cbPlacedX.get(cbId) ?? MX;
 
@@ -614,20 +749,32 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
 /** Graph legend */
 export const TnLegend = () => (
     <div className="flex flex-col gap-1.5 bg-black/90 border border-white/15 px-3 py-2.5 font-mono text-[10px] backdrop-blur-sm">
-        <span className="text-gray-300 tracking-widest font-bold mb-0.5">LEGEND</span>
+        <span className="text-gray-300 tracking-widest font-bold mb-0.5">TUNNEL TYPES</span>
         {(['socks','rpfwd','interactive'] as const).map(t => (
             <div key={t} className="flex items-center gap-2">
                 <span className="w-5 h-0.5 rounded shrink-0" style={{ background: TN_COLOR[t] }} />
                 <span style={{ color: TN_COLOR[t], fontWeight: 700 }}>{TN_LABEL[t]}</span>
             </div>
         ))}
-        <div className="flex items-center gap-2 mt-1">
+        <div className="h-px bg-white/10 my-1" />
+        <span className="text-gray-300 tracking-widest font-bold mb-0.5">CALLBACK</span>
+        <div className="flex items-center gap-2">
             <span className="w-5 h-0.5 bg-signal shrink-0" />
             <span className="text-signal font-bold">C2 ACTIVE</span>
         </div>
         <div className="flex items-center gap-2">
             <span className="w-5 border-t border-dashed border-gray-500 shrink-0" />
             <span className="text-gray-400 font-bold">C2 INACTIVE</span>
+        </div>
+        <div className="h-px bg-white/10 my-1" />
+        <span className="text-gray-300 tracking-widest font-bold mb-0.5">SEGMENTS</span>
+        <div className="flex items-center gap-2">
+            <span className="shrink-0 px-1 border border-amber-400/70 bg-amber-400/15 text-amber-400 font-black tracking-widest" style={{ fontSize: 8 }}>SEG-N</span>
+            <span className="text-gray-400 font-bold">/24 ZONE · UNIQUE COLOR</span>
+        </div>
+        <div className="flex items-center gap-2">
+            <span className="shrink-0 px-1 border border-yellow-400/70 bg-yellow-400/15 text-yellow-400 font-black tracking-widest" style={{ fontSize: 8 }}>PIV</span>
+            <span className="text-gray-400 font-bold">PIVOT — MULTI-HOMED</span>
         </div>
     </div>
 );

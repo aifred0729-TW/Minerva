@@ -1,14 +1,20 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import type { Callback } from '../../types/callbacks';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { CyberModal } from '../CyberModal';
 import { MythicDialog } from '../MythicDialog';
 import { EventTriggerContextSelectDialog } from '../EventTriggerContextSelect';
-import { getErrorMessage, parseFirstIP } from '../../lib/utils';
+import { getErrorMessage, parseFirstIP, cn, isCallbackAlive } from '../../lib/utils';
+import {
+    PANEL_CHAMFER, TILE_CHAMFER,
+    CornerTicks, Section, SelectableTile, ChamferedToggle, ActionButton, StatusPill, EmptyTile,
+} from '../LinkPanel/linkPanelParts';
 import { snackActions } from '../../lib/snackbar';
 import {
     Edit, Plus, Share2, GitBranch, Network, Info, Terminal,
-    Shield, Lock, Monitor, Link2, Zap, Trash2,
+    Shield, Lock, Monitor, Link2, Zap, Trash2, X,
+    Box, Cpu, Skull, Target, Tag, Send, ChevronRight, Radio, Crosshair,
 } from 'lucide-react';
 
 export interface CustomNodeFormData {
@@ -45,6 +51,10 @@ export interface GraphModalsProps {
     // Set Parent
     setParentModal: Callback | null;
     setSetParentModal: (v: Callback | null) => void;
+    setParentAnchor: { flowX: number; flowY: number; width: number; height: number } | null;
+    setSetParentAnchor: (v: { flowX: number; flowY: number; width: number; height: number } | null) => void;
+    /** Live ReactFlow viewport (updated on pan/zoom) so flow-anchored panels stay attached. */
+    liveViewport: { x: number; y: number; zoom: number };
     selectedDestination: Callback | null;
     setSelectedDestination: (v: Callback | null) => void;
     selectedProfile: any;
@@ -98,7 +108,8 @@ export const GraphModals = (props: GraphModalsProps) => {
         editCustomNodeModal, setEditCustomNodeModal, handleUpdateCustomNode,
         showExportImportModal, setShowExportImportModal, exportData, importData, setImportData,
         customNodesCount, customEdgesCount, handleCopyExportData, handleImportCustomNodes,
-        setParentModal, setSetParentModal, selectedDestination, setSelectedDestination,
+        setParentModal, setSetParentModal, setParentAnchor, setSetParentAnchor, liveViewport,
+        selectedDestination, setSelectedDestination,
         selectedProfile, setSelectedProfile, isP2PConnection, setIsP2PConnection,
         edgeLabel, setEdgeLabel, filteredCallbacksForParent, p2pData, allC2Data, handleSetParent,
         detailsModal, setDetailsModal, openEditCustomNode,
@@ -201,125 +212,25 @@ export const GraphModals = (props: GraphModalsProps) => {
                 )}
             </AnimatePresence>
 
-            {/* Set Parent Modal */}
-            <AnimatePresence>
-                {setParentModal && (
-                    <CyberModal title="LINK_TO_PARENT" onClose={() => setSetParentModal(null)} icon={<GitBranch />}>
-                        <div className="space-y-4">
-                            <div className="text-xs text-gray-400 font-mono mb-2">
-                                Link {setParentModal.isCustom ? 'Custom Node' : 'Callback'} #{setParentModal.display_id} ({setParentModal.host}) to another node.
-                            </div>
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">TARGET_NODE</label>
-                                <div className="grid gap-2 max-h-48 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                    {filteredCallbacksForParent.length > 0 ? (
-                                        filteredCallbacksForParent.map((callback: Callback) => {
-                                            const ip = callback.isCustom ? callback.ip : parseFirstIP(callback.ip);
-                                            return (
-                                                <button key={callback.id} onClick={() => setSelectedDestination(callback)}
-                                                    className={`flex items-center gap-3 px-3 py-2.5 border text-left text-xs font-mono transition-colors ${selectedDestination?.id === callback.id ? 'border-signal bg-signal/10 text-signal' : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:bg-white/5'}`}>
-                                                    <div className={`w-2 h-2 rounded-full ${callback.isCustom ? 'bg-cyan-500' : (callback.integrity_level > 2 ? 'bg-yellow-500' : 'bg-signal')}`} />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="font-bold">#{callback.display_id}</span>
-                                                            <span className="text-gray-500">@</span>
-                                                            <span className="truncate">{callback.host}</span>
-                                                            {callback.isCustom && <span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-1 py-0.5 rounded border border-cyan-500/30">CUSTOM</span>}
-                                                        </div>
-                                                        <div className="text-[11px] text-gray-600 flex items-center gap-2">
-                                                            <span>{callback.user}</span><span>•</span><span>{ip}</span>
-                                                            {callback.description && <><span>•</span><span className="italic truncate">{callback.description}</span></>}
-                                                        </div>
-                                                    </div>
-                                                    <span className="text-[11px] uppercase text-gray-600 border border-gray-700 px-1.5 py-0.5">
-                                                        {callback.isCustom ? 'CUSTOM' : callback.payload?.payloadtype?.name}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })
-                                    ) : (
-                                        <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_OTHER_CALLBACKS_AVAILABLE</div>
-                                    )}
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">CONNECTION_TYPE</label>
-                                <div className="flex gap-2">
-                                    <button onClick={() => { setIsP2PConnection(true); setSelectedProfile(null); }}
-                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border text-xs font-mono transition-colors ${isP2PConnection ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'}`}>
-                                        <GitBranch size={14} /><span>P2P</span>
-                                    </button>
-                                    <button onClick={() => { setIsP2PConnection(false); setSelectedProfile(null); }}
-                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border text-xs font-mono transition-colors ${!isP2PConnection ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'}`}>
-                                        <Network size={14} /><span>EGRESS</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-2">{isP2PConnection ? 'P2P_PROFILE' : 'C2_PROFILE'}</label>
-                                <div className="grid gap-2 max-h-32 overflow-y-auto border border-gray-800 p-2 bg-black/30">
-                                    {isP2PConnection ? (
-                                        <>
-                                            {p2pData?.c2profile?.map((profile: any) => (
-                                                <button key={profile.id} onClick={() => setSelectedProfile(profile)}
-                                                    className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${selectedProfile?.id === profile.id ? 'border-cyan-500 bg-cyan-500/10 text-cyan-400' : 'border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                                                    <GitBranch size={14} /><span>{profile.name}</span>
-                                                    <span className="ml-auto text-[11px] text-cyan-600 uppercase border border-cyan-800 px-1">P2P</span>
-                                                </button>
-                                            ))}
-                                            {(!p2pData?.c2profile || p2pData.c2profile.length === 0) && <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_P2P_PROFILES_AVAILABLE</div>}
-                                        </>
-                                    ) : (
-                                        <>
-                                            {allC2Data?.c2profile?.filter((p: any) => !p.is_p2p).map((profile: any) => (
-                                                <button key={profile.id} onClick={() => setSelectedProfile(profile)}
-                                                    className={`flex items-center gap-2 px-3 py-2 border text-left text-xs font-mono transition-colors ${selectedProfile?.id === profile.id ? 'border-purple-500 bg-purple-500/10 text-purple-400' : 'border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                                                    <Network size={14} /><span>{profile.name}</span>
-                                                    <div className="ml-auto flex items-center gap-1">
-                                                        {profile.running ? <span className="text-[11px] text-green-500 border border-green-800 px-1">RUNNING</span> : <span className="text-[11px] text-red-500 border border-red-800 px-1">STOPPED</span>}
-                                                    </div>
-                                                </button>
-                                            ))}
-                                            {(!allC2Data?.c2profile?.filter((p: { is_p2p: boolean }) => !p.is_p2p)?.length) && <div className="text-gray-500 text-xs font-mono p-3 text-center">NO_EGRESS_PROFILES_AVAILABLE</div>}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-mono text-gray-500 mb-1">EDGE_LABEL <span className="text-gray-600">(optional)</span></label>
-                                <input type="text" value={edgeLabel} onChange={(e) => setEdgeLabel(e.target.value)} placeholder="e.g., SMB Link, Internal Pivot..."
-                                    className="w-full bg-black/50 border border-gray-700 p-2 text-signal focus:border-signal outline-none font-mono text-xs placeholder:text-gray-600" />
-                            </div>
-                            {selectedDestination && selectedProfile && (
-                                <div className={`p-3 border text-xs font-mono ${isP2PConnection ? 'bg-cyan-900/20 border-cyan-500/30' : 'bg-purple-900/20 border-purple-500/30'}`}>
-                                    <div className={`mb-2 flex items-center gap-2 ${isP2PConnection ? 'text-cyan-400' : 'text-purple-400'}`}>
-                                        {isP2PConnection ? <GitBranch size={12} /> : <Network size={12} />}
-                                        <span>LINK_SUMMARY</span>
-                                        <span className={`text-[11px] px-1.5 py-0.5 border ${isP2PConnection ? 'border-cyan-600 text-cyan-500' : 'border-purple-600 text-purple-500'}`}>
-                                            {isP2PConnection ? 'P2P' : 'EGRESS'}
-                                        </span>
-                                    </div>
-                                    <div className="text-gray-300 flex items-center gap-2 flex-wrap">
-                                        <span className="text-signal font-bold">#{setParentModal.display_id}</span>
-                                        <span className="text-gray-600">({setParentModal.host})</span>
-                                        <span className={isP2PConnection ? 'text-cyan-500' : 'text-purple-500'}>→</span>
-                                        <span className={`px-2 py-0.5 ${isP2PConnection ? 'bg-cyan-900/50 text-cyan-400' : 'bg-purple-900/50 text-purple-400'}`}>{selectedProfile.name}</span>
-                                        <span className={isP2PConnection ? 'text-cyan-500' : 'text-purple-500'}>→</span>
-                                        <span className="text-signal font-bold">#{selectedDestination.display_id}</span>
-                                        <span className="text-gray-600">({selectedDestination.host})</span>
-                                    </div>
-                                    {edgeLabel && <div className="mt-2 text-gray-500 italic">Label: "{edgeLabel}"</div>}
-                                </div>
-                            )}
-                            <div className="flex justify-end gap-3 pt-2">
-                                <button onClick={() => setSetParentModal(null)} className="px-4 py-2 text-gray-400 hover:text-white font-mono text-sm">CANCEL</button>
-                                <button onClick={handleSetParent} disabled={!selectedProfile || !selectedDestination}
-                                    className={`px-6 py-2 font-bold font-mono text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isP2PConnection ? 'bg-cyan-600 text-white hover:bg-cyan-500' : 'bg-purple-600 text-white hover:bg-purple-500'}`}>CREATE_LINK</button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
+            {/* Link-to-Parent Side Panel — anchored to the right of the right-clicked node */}
+            <LinkToParentPanel
+                source={setParentModal}
+                anchor={setParentAnchor}
+                viewport={liveViewport}
+                onClose={() => { setSetParentModal(null); setSetParentAnchor(null); }}
+                selectedDestination={selectedDestination as any}
+                setSelectedDestination={setSelectedDestination}
+                selectedProfile={selectedProfile}
+                setSelectedProfile={setSelectedProfile}
+                isP2PConnection={isP2PConnection}
+                setIsP2PConnection={setIsP2PConnection}
+                edgeLabel={edgeLabel}
+                setEdgeLabel={setEdgeLabel}
+                filteredCallbacksForParent={filteredCallbacksForParent}
+                p2pData={p2pData}
+                allC2Data={allC2Data}
+                handleSetParent={handleSetParent}
+            />
 
             {/* Details Modal */}
             <AnimatePresence>
@@ -555,3 +466,371 @@ const CustomNodeFormFields = ({ form, setForm }: { form: CustomNodeFormData; set
         </div>
     </div>
 );
+
+/* ============================================================================
+ * LinkToParentPanel
+ * ----------------------------------------------------------------------------
+ * Cyberpunk 2077 style inline side panel that slides out to the right of the
+ * right-clicked node. NOT a modal — no scrim, no backdrop blur, the graph stays
+ * fully interactive while the panel is open. Visual language matches the rest
+ * of Minerva: pure void (black) surface, signal (white) text, ghost (gray)
+ * borders, and accent (green) used sparingly for status emphasis only.
+ * ========================================================================= */
+
+const PANEL_WIDTH = 460;
+const PANEL_MAX_HEIGHT = 600;
+// Panel anchors at the node's bottom-right corner. Small offsets clear the
+// node's outer glow / hover halo so the panel frame doesn't visually butt
+// into the node — large enough to read as "outside the node" but tight
+// enough to read as "attached to that corner".
+const PANEL_OFFSET_X = 12;
+const PANEL_OFFSET_Y = 12;
+interface LinkToParentPanelProps {
+    source: Callback | null;
+    /** Source node's position in React Flow's *flow* coordinate space. */
+    anchor: { flowX: number; flowY: number; width: number; height: number } | null;
+    /** Live ReactFlow viewport — recompute screen position on every change. */
+    viewport: { x: number; y: number; zoom: number };
+    onClose: () => void;
+    selectedDestination: Callback | null;
+    setSelectedDestination: (v: Callback | null) => void;
+    selectedProfile: any;
+    setSelectedProfile: (v: any) => void;
+    isP2PConnection: boolean;
+    setIsP2PConnection: (v: boolean) => void;
+    edgeLabel: string;
+    setEdgeLabel: (v: string) => void;
+    filteredCallbacksForParent: Callback[];
+    p2pData: any;
+    allC2Data: any;
+    handleSetParent: () => void;
+}
+
+const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
+    source, anchor, viewport, onClose,
+    selectedDestination, setSelectedDestination,
+    selectedProfile, setSelectedProfile,
+    isP2PConnection, setIsP2PConnection,
+    edgeLabel, setEdgeLabel,
+    filteredCallbacksForParent, p2pData, allC2Data, handleSetParent,
+}) => {
+    // Anchor the panel's top-left at the node's BOTTOM-RIGHT corner so it
+    // drops down-and-rightward from there. Recomputed every pan/zoom frame so
+    // the panel follows the node through canvas drags and zooms.
+    // No clamping in either axis — pulling the panel back toward the node
+    // would overlap it, so we let it overflow if needed; the panel follows
+    // the node so the user just pans to bring everything into view.
+    const position = React.useMemo(() => {
+        if (!anchor) return { left: 80, top: 80 };
+        const nodeRightScreenX  = (anchor.flowX + anchor.width)  * viewport.zoom + viewport.x;
+        const nodeBottomScreenY = (anchor.flowY + anchor.height) * viewport.zoom + viewport.y;
+        return {
+            left: nodeRightScreenX  + PANEL_OFFSET_X,
+            top:  nodeBottomScreenY + PANEL_OFFSET_Y,
+        };
+    }, [anchor, viewport]);
+
+    // RUNNING profiles first, STOPPED last; preserve insertion order within each bucket.
+    const egressProfiles = React.useMemo(() => {
+        const list = (allC2Data?.c2profile || []).filter((p: any) => !p.is_p2p);
+        return [...list].sort((a: any, b: any) => (b?.running ? 1 : 0) - (a?.running ? 1 : 0));
+    }, [allC2Data]);
+
+    const p2pProfiles = React.useMemo(() => {
+        const list = p2pData?.c2profile || [];
+        return [...list].sort((a: any, b: any) => (b?.running ? 1 : 0) - (a?.running ? 1 : 0));
+    }, [p2pData]);
+
+    if (typeof document === 'undefined') return null;
+
+    // ESC closes the panel without trapping graph interaction
+    React.useEffect(() => {
+        if (!source) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [source, onClose]);
+
+    // Broadcast-style horizontal reveal — outer width grows 0 → PANEL_WIDTH;
+    // the fixed-width inner content gets clipped from the left edge so the
+    // reveal extends rightward from the node into open space.
+    const expandTransition = { duration: 0.42, ease: [0.22, 1, 0.36, 1] as const };
+
+    return createPortal(
+        <AnimatePresence>
+            {source && (
+                <motion.div
+                    initial={{ width: 0, opacity: 0.6 }}
+                    animate={{ width: PANEL_WIDTH, opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={expandTransition}
+                    style={{
+                        top: position.top,
+                        left: position.left,
+                        maxHeight: PANEL_MAX_HEIGHT,
+                        clipPath: PANEL_CHAMFER,
+                    }}
+                    className="fixed z-[9999] overflow-hidden bg-black border border-signal/50 shadow-[0_0_40px_rgba(0,0,0,0.85)] backdrop-blur-md font-mono"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {/* L-shape corner ticks on the four corners — Cyberpunk HUD signature */}
+                    <CornerTicks side="left" />
+                    <CornerTicks side="right" />
+
+                    {/* Inner is pinned at PANEL_WIDTH; parent's animated width clips
+                        it from the left edge so content reveals rightward from the
+                        node side. */}
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.22, delay: 0.18 }}
+                        className="flex flex-col"
+                        style={{ width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
+                    >
+                    {/* Header — inverted ID tile + title block + glowing close button */}
+                    <div className="flex items-stretch border-b border-signal/40 bg-signal/[0.02]">
+                        <div className="relative flex items-center justify-center bg-signal px-3 min-w-[64px] shadow-[inset_0_0_12px_rgba(255,255,255,0.25)]">
+                            {/* Small corner ticks INSIDE the inverted block — Cyberpunk badge feel */}
+                            <span className="pointer-events-none absolute top-1 left-1 w-1.5 h-px bg-void" />
+                            <span className="pointer-events-none absolute top-1 left-1 w-px h-1.5 bg-void" />
+                            <span className="pointer-events-none absolute bottom-1 right-1 w-1.5 h-px bg-void" />
+                            <span className="pointer-events-none absolute bottom-1 right-1 w-px h-1.5 bg-void" />
+                            <span className="text-[16px] font-bold tracking-[0.15em] text-void">
+                                #{source.display_id}
+                            </span>
+                        </div>
+                        <div className="flex flex-col justify-center px-3 py-2 flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                                <GitBranch size={12} strokeWidth={2.5} className="text-accent shrink-0" />
+                                <span className="text-[11px] uppercase tracking-[0.3em] text-signal font-bold truncate">
+                                    LINK_TO_PARENT
+                                </span>
+                                <span className="ml-auto flex items-center gap-1 border border-accent/60 bg-accent/10 px-1.5 py-px text-[8px] uppercase tracking-[0.2em] text-accent shrink-0">
+                                    <span className="h-1 w-1 bg-accent animate-pulse rounded-full shadow-[0_0_4px_currentColor]" />
+                                    ARMED
+                                </span>
+                            </div>
+                            <div className="text-[10px] uppercase tracking-[0.2em] text-signal truncate mt-0.5">
+                                {source.isCustom ? 'CUSTOM' : 'CALLBACK'} · {source.host}
+                            </div>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="group flex items-center justify-center px-3 text-signal transition-all hover:bg-red-500/10 hover:text-red-400 border-l border-signal/40"
+                            aria-label="Close"
+                        >
+                            <X size={14} strokeWidth={2.5} className="transition-transform duration-200 group-hover:rotate-90" />
+                        </button>
+                    </div>
+
+                    {/* Body */}
+                    <div className="relative flex-1 space-y-4 overflow-y-auto px-4 py-4 cyber-scrollbar">
+                        {/* Target node picker */}
+                        <Section
+                            label="TARGET_NODE"
+                            icon={<Target size={11} strokeWidth={2.5} />}
+                            count={filteredCallbacksForParent.length}
+                        >
+                            {filteredCallbacksForParent.length > 0 ? (
+                                <div className="max-h-44 overflow-y-auto cyber-scrollbar space-y-1.5 pr-0.5">
+                                    {filteredCallbacksForParent.map((cb: Callback) => {
+                                        const selected = selectedDestination?.id === cb.id;
+                                        // Match the 2D graph node's own dead rendering (see
+                                        // CallbackGraph/nodes.tsx): liveness is the sleep-aware
+                                        // last_checkin check, NOT Mythic's `dead` column. That
+                                        // column lags ~60s, is skipped while the payload
+                                        // container is down, and follows each agent's own
+                                        // aliveness logic — so trusting it here flagged actively
+                                        // beaconing callbacks as DEAD in the picker even though
+                                        // their node still rendered live.
+                                        const kind: 'custom' | 'alive' | 'dead' = cb.isCustom
+                                            ? 'custom'
+                                            : !isCallbackAlive(cb)
+                                                ? 'dead'
+                                                : 'alive';
+                                        const KindIcon = kind === 'custom' ? Box : kind === 'alive' ? Cpu : Skull;
+                                        const iconCls  = kind === 'custom' ? 'text-signal' : kind === 'alive' ? 'text-accent' : 'text-red-500';
+                                        const pillText = cb.isCustom ? 'CUSTOM' : cb.payload?.payloadtype?.name;
+                                        return (
+                                            <SelectableTile
+                                                key={cb.id}
+                                                selected={selected}
+                                                onClick={() => setSelectedDestination(cb)}
+                                            >
+                                                {/* Status LED dot — pulses for live, dim for dead/custom */}
+                                                <span className={cn(
+                                                    'h-1.5 w-1.5 shrink-0 rounded-full',
+                                                    kind === 'alive' && 'bg-accent animate-pulse shadow-[0_0_4px_currentColor] text-accent',
+                                                    kind === 'dead' && 'bg-red-500 text-red-500',
+                                                    kind === 'custom' && 'bg-signal text-signal',
+                                                )} />
+                                                <KindIcon size={12} strokeWidth={2.2} className={cn('shrink-0', iconCls)} />
+                                                <span className="text-signal font-bold">#{cb.display_id}</span>
+                                                <span className={kind === 'dead' ? 'text-red-500' : 'text-accent'}>@</span>
+                                                <span className={cn('min-w-0 flex-1 truncate', kind === 'dead' ? 'text-signal line-through decoration-red-500/60' : 'text-signal')}>{cb.host}</span>
+                                                {kind !== 'custom' && (
+                                                    <span className={cn(
+                                                        'border px-1.5 py-px text-[9px] tracking-[0.2em] shrink-0',
+                                                        kind === 'alive' ? 'border-accent/60 bg-accent/10 text-accent' : 'border-red-500/60 bg-red-500/10 text-red-400'
+                                                    )}>
+                                                        {kind === 'alive' ? 'LIVE' : 'DEAD'}
+                                                    </span>
+                                                )}
+                                                <span className={cn(
+                                                    'border px-1.5 py-px text-[9px] tracking-[0.2em] shrink-0',
+                                                    kind === 'custom' ? 'border-signal/50 text-signal' :
+                                                    kind === 'alive' ? 'border-accent/60 text-accent' : 'border-red-500/60 text-red-400'
+                                                )}>
+                                                    {pillText}
+                                                </span>
+                                            </SelectableTile>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <EmptyTile text="NO_OTHER_CALLBACKS_AVAILABLE" />
+                            )}
+                        </Section>
+
+                        {/* Connection type toggle */}
+                        <Section
+                            label="CONNECTION_TYPE"
+                            icon={<Crosshair size={11} strokeWidth={2.5} />}
+                        >
+                            <div className="grid grid-cols-2 gap-2">
+                                <ChamferedToggle
+                                    icon={<GitBranch size={13} strokeWidth={2.2} />}
+                                    label="P2P"
+                                    active={isP2PConnection}
+                                    onClick={() => { setIsP2PConnection(true); setSelectedProfile(null); }}
+                                />
+                                <ChamferedToggle
+                                    icon={<Network size={13} strokeWidth={2.2} />}
+                                    label="EGRESS"
+                                    active={!isP2PConnection}
+                                    onClick={() => { setIsP2PConnection(false); setSelectedProfile(null); }}
+                                />
+                            </div>
+                        </Section>
+
+                        {/* Profile picker */}
+                        <Section
+                            label={isP2PConnection ? 'P2P_PROFILE' : 'C2_PROFILE'}
+                            icon={<Radio size={11} strokeWidth={2.5} />}
+                            count={(isP2PConnection ? p2pProfiles : egressProfiles).length}
+                        >
+                            {(isP2PConnection ? p2pProfiles : egressProfiles).length > 0 ? (
+                                <div className="max-h-36 overflow-y-auto cyber-scrollbar space-y-1.5 pr-0.5">
+                                    {(isP2PConnection ? p2pProfiles : egressProfiles).map((profile: any) => {
+                                        const selected = selectedProfile?.id === profile.id;
+                                        const running = !!profile.running;
+                                        return (
+                                            <SelectableTile
+                                                key={profile.id}
+                                                selected={selected}
+                                                onClick={() => setSelectedProfile(profile)}
+                                            >
+                                                <span className={cn(
+                                                    'h-1.5 w-1.5 shrink-0 rounded-full',
+                                                    running ? 'bg-accent animate-pulse shadow-[0_0_4px_currentColor] text-accent' : 'bg-signal/60 text-signal'
+                                                )} />
+                                                {isP2PConnection
+                                                    ? <GitBranch size={11} strokeWidth={2.2} className={cn('shrink-0', running ? 'text-accent' : 'text-signal')} />
+                                                    : <Network size={11} strokeWidth={2.2} className={cn('shrink-0', running ? 'text-accent' : 'text-signal')} />}
+                                                <span className="flex-1 truncate text-signal font-bold">{profile.name}</span>
+                                                <StatusPill running={running} />
+                                            </SelectableTile>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <EmptyTile text={isP2PConnection ? 'NO_P2P_PROFILES_AVAILABLE' : 'NO_EGRESS_PROFILES_AVAILABLE'} />
+                            )}
+                        </Section>
+
+                        {/* Optional edge label */}
+                        <Section
+                            label="EDGE_LABEL"
+                            icon={<Tag size={11} strokeWidth={2.5} />}
+                            hint="OPTIONAL"
+                        >
+                            <div className="relative" style={{ clipPath: TILE_CHAMFER }}>
+                                <input
+                                    type="text"
+                                    value={edgeLabel}
+                                    onChange={(e) => setEdgeLabel(e.target.value)}
+                                    placeholder="SMB_LINK · INTERNAL_PIVOT"
+                                    className="w-full border-l-2 border-l-signal/40 bg-signal/[0.03] pl-3 pr-5 py-2.5 text-[11px] tracking-wider text-signal placeholder:text-accent focus:border-l-accent focus:bg-signal/5 focus:outline-none transition-colors"
+                                />
+                            </div>
+                        </Section>
+
+                        {/* Link summary */}
+                        {selectedDestination && selectedProfile && (
+                            <div
+                                style={{ clipPath: TILE_CHAMFER }}
+                                className="relative border-l-2 border-l-accent bg-signal/[0.05] pl-3 pr-5 py-2.5 text-[11px] text-signal shadow-[0_0_18px_rgba(34,197,94,0.15)]"
+                            >
+                                <div className="mb-1.5 flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                        <Send size={11} strokeWidth={2.5} className="text-accent" />
+                                        <span className="text-[10px] uppercase tracking-[0.25em] text-signal">LINK_PREVIEW</span>
+                                    </div>
+                                    <span className="border border-accent/60 bg-accent/10 px-1.5 py-px text-[9px] tracking-[0.2em] text-accent">
+                                        {isP2PConnection ? 'P2P' : 'EGRESS'}
+                                    </span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5 text-signal">
+                                    <span className="border border-signal/40 bg-signal/10 px-1.5 py-px font-bold">#{source.display_id}</span>
+                                    <span className="text-signal">{source.host}</span>
+                                    <ChevronRight size={11} className="text-accent" />
+                                    <span className="border border-accent/60 bg-accent/10 px-1.5 py-px text-accent">{selectedProfile.name}</span>
+                                    <ChevronRight size={11} className="text-accent" />
+                                    <span className="border border-signal/40 bg-signal/10 px-1.5 py-px font-bold">#{selectedDestination.display_id}</span>
+                                    <span className="text-signal">{selectedDestination.host}</span>
+                                </div>
+                                {edgeLabel && (
+                                    <div className="mt-1.5 flex items-center gap-2 text-[10px] text-signal">
+                                        <Tag size={9} className="text-accent" />
+                                        <span>{edgeLabel}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer — graphical action buttons with clear affordance */}
+                    <div className="flex items-center justify-between gap-3 border-t border-signal/40 bg-signal/[0.02] px-4 py-3">
+                        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-signal">
+                            <span className="h-1 w-1 bg-accent animate-pulse" />
+                            <span>MINERVA · LINK</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <ActionButton
+                                variant="ghost"
+                                onClick={onClose}
+                                icon={<X size={12} strokeWidth={2.5} />}
+                            >
+                                CANCEL
+                            </ActionButton>
+                            <ActionButton
+                                variant="primary"
+                                onClick={handleSetParent}
+                                disabled={!selectedProfile || !selectedDestination}
+                                icon={<Link2 size={12} strokeWidth={2.5} />}
+                            >
+                                CREATE_LINK
+                            </ActionButton>
+                        </div>
+                    </div>
+                    </motion.div>{/* /inner fixed-width */}
+                </motion.div>
+            )}
+        </AnimatePresence>,
+        document.body
+    );
+};
+
+/* (Reusable LinkPanel parts moved to ../LinkPanel/linkPanelParts.tsx —
+   shared with the 3D Topology view to keep the visual language identical.) */

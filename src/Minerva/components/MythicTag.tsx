@@ -591,7 +591,7 @@ export function NewTagDialog(props: { target_object: string; target_object_id: a
                 <Typography>Tag</Typography>
                 <Typography component="span" style={{ fontSize: theme.typography.pxToRem(15) }}>
                   To create a new tag type click{' '}
-                  <Link style={{ wordBreak: 'break-all' }} color="textPrimary" href="/new/tagtypes" underline="always" target="_blank">here</Link>
+                  <Link style={{ wordBreak: 'break-all' }} color="textPrimary" href="/new/tags" underline="always" target="_blank">here</Link>
                 </Typography>
               </MythicStyledTableCell>
               <MythicStyledTableCell>

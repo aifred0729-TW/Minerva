@@ -22,7 +22,7 @@ const Opsec = () => {
     const { data, loading, error, refetch } = useQuery<any>(GET_OPSEC_QUEUE, { pollInterval: pageVisible ? 5000 : 0 });
     const [approve] = useMutation<any>(REQUEST_OPSEC_BYPASS, { onCompleted: () => refetch() });
     const [selected, setSelected] = useState<any>(null);
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
 
     const tasks = data?.task || [];
 

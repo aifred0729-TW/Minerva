@@ -8,7 +8,7 @@ import { getAuthHeaders } from '../../lib/auth';
 
 export { formatBytes, b64DecodeUnicode, parseIPString } from '../../lib/utils';
 export { getOSIcon, WindowsIcon, LinuxIcon, MacOSIcon } from '../../components/OSIcons';
-export { timeAgo as timeSince } from '../../lib/time';
+export { timeAgo as timeSince, RelativeTime } from '../../lib/time';
 
 export const parseIP = (ip: string): string => parseIPString(ip)[0] || ip || 'N/A';
 

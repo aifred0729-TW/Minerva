@@ -9,7 +9,7 @@ export const CREDENTIAL_FRAGMENT = gql`
         operator { username }
         task {
             display_id id
-            callback { id host display_id mythictree_groups }
+            callback { id host display_id }
         }
         tags { id tagtype { name color id } }
     }
@@ -20,55 +20,55 @@ export const CREDENTIAL_FRAGMENT = gql`
 // ============================================
 export const ACCOUNT_SEARCH = gql`
     ${CREDENTIAL_FRAGMENT}
-    query accountQuery($operation_id: Int!, $account: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!) {
-        credential_aggregate(distinct_on: id, where: {account: {_ilike: $account}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+    query accountQuery($operation_id: Int!, $account: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!, $types: [String!]!) {
+        credential_aggregate(distinct_on: id, where: {account: {_ilike: $account}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             aggregate { count }
         }
-        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {account: {_ilike: $account}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {account: {_ilike: $account}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             ...CredentialData
         }
     }
 `;
 export const REALM_SEARCH = gql`
     ${CREDENTIAL_FRAGMENT}
-    query realmQuery($operation_id: Int!, $realm: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!) {
-        credential_aggregate(distinct_on: id, where: {realm: {_ilike: $realm}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+    query realmQuery($operation_id: Int!, $realm: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!, $types: [String!]!) {
+        credential_aggregate(distinct_on: id, where: {realm: {_ilike: $realm}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             aggregate { count }
         }
-        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {realm: {_ilike: $realm}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {realm: {_ilike: $realm}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             ...CredentialData
         }
     }
 `;
 export const CREDENTIAL_SEARCH = gql`
     ${CREDENTIAL_FRAGMENT}
-    query credQuery($operation_id: Int!, $credential: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!) {
-        credential_aggregate(distinct_on: id, where: {credential_text: {_ilike: $credential}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+    query credQuery($operation_id: Int!, $credential: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!, $types: [String!]!) {
+        credential_aggregate(distinct_on: id, where: {credential_text: {_ilike: $credential}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             aggregate { count }
         }
-        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {credential_text: {_ilike: $credential}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {credential_text: {_ilike: $credential}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             ...CredentialData
         }
     }
 `;
 export const COMMENT_SEARCH = gql`
     ${CREDENTIAL_FRAGMENT}
-    query commentQuery($operation_id: Int!, $comment: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!) {
-        credential_aggregate(distinct_on: id, where: {comment: {_ilike: $comment}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+    query commentQuery($operation_id: Int!, $comment: String!, $offset: Int!, $fetchLimit: Int!, $deleted: Boolean!, $types: [String!]!) {
+        credential_aggregate(distinct_on: id, where: {comment: {_ilike: $comment}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             aggregate { count }
         }
-        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {comment: {_ilike: $comment}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}}) {
+        credential(limit: $fetchLimit, distinct_on: id, offset: $offset, order_by: {id: desc}, where: {comment: {_ilike: $comment}, operation_id: {_eq: $operation_id}, deleted: {_eq: $deleted}, type: {_in: $types}}) {
             ...CredentialData
         }
     }
 `;
 export const TAG_SEARCH = gql`
     ${CREDENTIAL_FRAGMENT}
-    query tagQuery($tag: String!, $offset: Int!, $fetchLimit: Int!) {
-        tag_aggregate(distinct_on: credential_id, where: {credential_id: {_is_null: false}, _or: [{data: {_cast: {String: {_ilike: $tag}}}}, {tagtype: {name: {_ilike: $tag}}}]}) {
+    query tagQuery($tag: String!, $offset: Int!, $fetchLimit: Int!, $types: [String!]!) {
+        tag_aggregate(distinct_on: credential_id, where: {credential_id: {_is_null: false}, credential: {type: {_in: $types}}, _or: [{data: {_cast: {String: {_ilike: $tag}}}}, {tagtype: {name: {_ilike: $tag}}}]}) {
             aggregate { count }
         }
-        tag(limit: $fetchLimit, distinct_on: credential_id, offset: $offset, order_by: {credential_id: desc}, where: {credential_id: {_is_null: false}, _or: [{data: {_cast: {String: {_ilike: $tag}}}}, {tagtype: {name: {_ilike: $tag}}}]}) {
+        tag(limit: $fetchLimit, distinct_on: credential_id, offset: $offset, order_by: {credential_id: desc}, where: {credential_id: {_is_null: false}, credential: {type: {_in: $types}}, _or: [{data: {_cast: {String: {_ilike: $tag}}}}, {tagtype: {name: {_ilike: $tag}}}]}) {
             credential { ...CredentialData }
         }
     }
@@ -127,12 +127,32 @@ export const UPDATE_CREDENTIAL_DELETED = gql`
         }
     }
 `;
+
+// Promote a harvested credential into Verified.
+//
+// Hasura's update permissions on the credential table don't expose `task_id`
+// (we can't null out the task link from here), so we use a comment-prefix
+// convention instead: the operator-promote action prepends `[VERIFIED]` to the
+// comment, and every "is this harvested?" check now treats that marker as an
+// override. All BULK_* queries below pick up the same prefix so promoted rows
+// never get scooped into a "delete all harvested" run.
+export const PROMOTE_CREDENTIAL_TO_VERIFIED = gql`
+    mutation PromoteCredentialToVerified($credential_id: Int!, $comment: String!) {
+        update_credential_by_pk(
+            pk_columns: { id: $credential_id }
+            _set: { comment: $comment }
+        ) {
+            id comment
+        }
+    }
+`;
 export const BULK_DELETE_HARVESTED = gql`
     mutation BulkDeleteHarvested($operation_id: Int!) {
         update_credential(
             where: {
                 operation_id: { _eq: $operation_id }
                 deleted: { _eq: false }
+                _not: { comment: { _ilike: "[VERIFIED]%" } }
                 _or: [
                     { task_id: { _is_null: false } }
                     { comment: { _ilike: "[AUTO:%" } }
@@ -149,6 +169,7 @@ export const FETCH_ALL_HARVESTED = gql`
             where: {
                 operation_id: { _eq: $operation_id }
                 deleted: { _eq: false }
+                _not: { comment: { _ilike: "[VERIFIED]%" } }
                 _or: [
                     { task_id: { _is_null: false } }
                     { comment: { _ilike: "[AUTO:%" } }
@@ -173,8 +194,16 @@ export const BULK_DELETE_VERIFIED = gql`
             where: {
                 operation_id: { _eq: $operation_id }
                 deleted: { _eq: false }
-                task_id: { _is_null: true }
-                _not: { comment: { _ilike: "[AUTO:%" } }
+                _or: [
+                    # Naturally-verified rows: never linked to a task and never
+                    # carried the auto-harvest marker.
+                    {
+                        task_id: { _is_null: true }
+                        _not: { comment: { _ilike: "[AUTO:%" } }
+                    }
+                    # Operator-promoted rows: explicit [VERIFIED] override.
+                    { comment: { _ilike: "[VERIFIED]%" } }
+                ]
             }
             _set: { deleted: true }
         ) { affected_rows }

@@ -113,7 +113,7 @@ const FieldSelector = ({ options, value, onChange }: { options: string[]; value:
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const Search = () => {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [searchParams, setSearchParams] = useSearchParams();
 
     const tabParam = (searchParams.get('tab') as SearchTab) || 'callbacks';

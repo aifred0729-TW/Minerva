@@ -270,7 +270,7 @@ const CreateArtifactModal = ({
 // Main Artifacts Page
 // ============================================
 const Artifacts = () => {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [searchQuery, setSearchQuery] = useState('');
     const [inputValue, setInputValue] = useState('');
     const [filterType, setFilterType] = useState('all');

@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════
 //  3D Topology domain types
 // ═══════════════════════════════════════════════
-import * as THREE from 'three';
+import { Color, Vector3 } from 'three';
 import type { QuickHackDef } from '../lib/quickhacks';
 import type { Callback } from './callbacks';
 
@@ -62,8 +62,8 @@ export interface TopoNode {
     type: 'core' | 'callback' | 'custom';
     label: string;
     sublabel: string;
-    position: THREE.Vector3;
-    color: THREE.Color;
+    position: Vector3;
+    color: Color;
     radius: number;
     alive: boolean;
     data: TopoNodeData | null;
@@ -80,15 +80,24 @@ export interface TopoEdge {
     id: string;
     source: string;
     target: string;
-    color: THREE.Color;
+    color: Color;
     isP2P: boolean;
     label: string;
+    /**
+     * Position within an edge "bundle" — the set of TopoEdges that
+     * share the same undirected node pair. Used by the renderer to
+     * fan parallel edges out into perpendicular bezier curves so a
+     * node hosting multiple C2 profiles (e.g. http + tcp) doesn't
+     * draw both lines on top of each other.
+     */
+    bundleIndex?: number;
+    bundleCount?: number;
 }
 
 export interface SubnetZone {
     cidr: string;
-    center: THREE.Vector3;
-    size: THREE.Vector3;
+    center: Vector3;
+    size: Vector3;
     nodeIds: string[];
 }
 
@@ -97,12 +106,20 @@ export interface QuickHackExecution {
     callbackId: number;
     callbackDisplayId: number;
     callbackHost: string;
+    /**
+     * Lowercased agent type derived from the target node's payload type at
+     * launch time. Used to pick the right variant from `hack.agentSteps`
+     * and to dispatch `minerva://` client-side actions.
+     */
+    agentType?: string;
+    /** Reference to the live Callback object (or custom node data); used by `minerva://` action handlers. */
+    callback?: any;
     taskId: number | null;
     phase: 'awaiting_input' | 'uploading' | 'processing' | 'completed' | 'error' | 'timeout';
     progress: number;
     startTime: number;
     errorMsg?: string;
-    nodePosition: THREE.Vector3;
+    nodePosition: Vector3;
     execId: string;
     variableValues: Record<string, string>;
     currentStep: number;

@@ -27,7 +27,7 @@ import { MythicFilesView } from './MythicFilesView';
 import { HostFileModal, ViewEditTagsModal, MediaPreviewModal, FilePreviewModal } from './modals';
 
 export default function Files() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const pageVisible = usePageVisible();
     const [selectedMachine, setSelectedMachine] = useState<MachineInfo | null>(null);
     const [sidebarView, setSidebarView] = useState<SidebarView>('machines');

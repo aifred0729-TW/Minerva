@@ -313,7 +313,7 @@ const TagTypeEditor = ({
 // Main Tags Page
 // ============================================
 const Tags = () => {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [tagtypes, setTagtypes] = useState<Tagtype[]>([]);
     const [loading, setLoading] = useState(true);
     const [editorOpen, setEditorOpen] = useState(false);
@@ -337,47 +337,48 @@ const Tags = () => {
         }
     });
 
-    // Create mutation
+    // Create mutation — backend uses Hasura's insert_tagtype_one
     const [createTagtype] = useMutation<any>(CREATE_TAGTYPE, {
         onCompleted: (data: any) => {
-            if (data.createTagtype.status === "success") {
-                const newTagtype = {
-                    id: data.createTagtype.id,
-                    name: data.createTagtype.name,
-                    description: data.createTagtype.description,
-                    color: data.createTagtype.color,
-                    tags_aggregate: { aggregate: { count: 0 } }
-                };
-                setTagtypes([...tagtypes, newTagtype]);
+            const created = data?.insert_tagtype_one;
+            if (created?.id) {
+                setTagtypes([...tagtypes, {
+                    id:          created.id,
+                    name:        created.name,
+                    description: created.description,
+                    color:       created.color,
+                    tags_aggregate: { aggregate: { count: 0 } },
+                }]);
                 snackActions.success('Tag type created');
                 setEditorOpen(false);
             } else {
-                snackActions.error(data.createTagtype.error);
+                snackActions.error('Failed to create tag type');
             }
         },
-        onError: () => {
-            snackActions.error('Failed to create tag type');
+        onError: (err) => {
+            snackActions.error('Failed to create tag type: ' + err.message);
         }
     });
 
-    // Update mutation
+    // Update mutation — backend uses Hasura's update_tagtype_by_pk
     const [updateTagtype] = useMutation<any>(UPDATE_TAGTYPE, {
         onCompleted: (data: any) => {
-            if (data.updateTagtype.status === "success") {
-                setTagtypes(tagtypes.map(t => 
-                    t.id === data.updateTagtype.id 
-                        ? { ...t, name: data.updateTagtype.name, description: data.updateTagtype.description, color: data.updateTagtype.color }
+            const updated = data?.update_tagtype_by_pk;
+            if (updated?.id) {
+                setTagtypes(tagtypes.map(t =>
+                    t.id === updated.id
+                        ? { ...t, name: updated.name, description: updated.description, color: updated.color }
                         : t
                 ));
                 snackActions.success('Tag type updated');
                 setEditorOpen(false);
                 setEditingTagtype(null);
             } else {
-                snackActions.error(data.updateTagtype.error);
+                snackActions.error('Failed to update tag type');
             }
         },
-        onError: () => {
-            snackActions.error('Failed to update tag type');
+        onError: (err) => {
+            snackActions.error('Failed to update tag type: ' + err.message);
         }
     });
 

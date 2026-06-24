@@ -204,15 +204,15 @@ export const GET_BUILT_PAYLOADS = gql`
             where: {
                 build_phase: {_eq: "success"}
                 deleted: {_eq: false}
-                auto_generated: {_eq: false}
             }
             order_by: {id: desc}
-            limit: 200
+            limit: 1000
         ) {
             id
             uuid
             description
             creation_time
+            auto_generated
             payloadtype { name }
             filemetum {
                 agent_file_id

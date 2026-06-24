@@ -21,12 +21,6 @@ import { apolloClient } from './Minerva/lib/apollo';
 import { meState } from './Minerva/lib/state';
 import { isJWTValid, FailedRefresh } from './Minerva/lib/auth';
 
-// ── Re-exports for backward compatibility with old components/ ────
-// Old code does: import { mythicUIVersion } from '../index';
-export { mythicUIVersion, isJWTValid, JWTTimeLeft, GetNewToken } from './Minerva/lib/auth';
-export { restartWebsockets } from './Minerva/lib/websocket';
-export { apolloClient } from './Minerva/lib/apollo';
-
 // ── Suppress ResizeObserver loop error globally ───────────────────
 if (typeof window !== 'undefined') {
     window.addEventListener('error', function (e) {

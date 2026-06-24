@@ -38,6 +38,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./nginx/nginx.dev.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       - minerva-dev
     restart: unless-stopped

@@ -15,6 +15,14 @@ import {
     Activity,
     Folder,
     Lock,
+    Share2,
+    HardDrive,
+    Eye,
+    EyeOff,
+    Monitor,
+    Server,
+    Crown,
+    Globe,
 }from 'lucide-react';
 import AceEditor from 'react-ace';
 import 'ace-builds/src-noconflict/mode-json';
@@ -25,6 +33,7 @@ import {
     fmtBytes, fmtUnixTime, tryParseJSON,
 } from './core';
 import type { MythicTableDef } from '../../types/output';
+import { cn } from '../../lib/utils';
 import { ProcessPanel } from './panels';
 import { FilesPanel } from './panels';
 import { ScreenshotPanel } from './panels';
@@ -545,6 +554,297 @@ export function NetstatPanel({ rows }: { rows: any[] }) {
     );
 }
 
+// ─── NetSharesPanel ───────────────────────────────────────────────────────────
+// Renders Apollo's `net_shares` output following the Minerva 先進極簡 design
+// language: signal/accent palette, mono uppercase labels with wide tracking,
+// rounded-md tile chrome, semantic-color tier chips (the same red / cyan /
+// purple / signal split the type-selector sidebar uses).
+//
+//   • ADMIN ($-suffixed)   → red    (lateral-movement target — surfaces first)
+//   • DISK                 → accent (normal browsable share)
+//   • IPC$                 → purple (named-pipe broker, deprioritised)
+//   • OTHER                → signal (printer / unknown)
+//
+// Rows are a labelled 5-column table with a Summary band above. Operator
+// reads the count strip first, then scans the table left-to-right:
+// share → host → tier → access → comment.
+type ShareTier = 'admin' | 'disk' | 'ipc' | 'other';
+const SHARE_TIER_RANK: Record<ShareTier, number> = { admin: 0, disk: 1, other: 2, ipc: 3 };
+const SHARE_TIER_META: Record<ShareTier, { label: string; chipCls: string; iconCls: string; icon: React.ReactNode }> = {
+    admin: { label: 'ADMIN',  chipCls: 'border-red-500/40    bg-red-500/10    text-red-400',    iconCls: 'text-red-400',    icon: <Lock      size={11} strokeWidth={2}/> },
+    disk:  { label: 'DISK',   chipCls: 'border-accent/40     bg-accent/10     text-accent',     iconCls: 'text-accent',     icon: <HardDrive size={11} strokeWidth={2}/> },
+    ipc:   { label: 'IPC',    chipCls: 'border-purple-500/40 bg-purple-500/10 text-purple-400', iconCls: 'text-purple-400', icon: <Network   size={11} strokeWidth={2}/> },
+    other: { label: 'OTHER',  chipCls: 'border-signal/30     bg-signal/[0.04] text-signal',     iconCls: 'text-signal',     icon: <Share2    size={11} strokeWidth={2}/> },
+};
+
+function classifyShare(name: string, type: string): ShareTier {
+    const n = String(name || '');
+    if (/^ADMIN\$$/i.test(n) || /^[A-Z]\$$/i.test(n)) return 'admin';
+    if (/^IPC\$$/i.test(n)) return 'ipc';
+    if (/disk/i.test(String(type || ''))) return 'disk';
+    return 'other';
+}
+
+// "Special Reserved for IPC." → "Reserved · IPC"
+// "Unknown type (2147483651)" → "Unknown"
+// Keeps the type chip terse so it doesn't dominate the row.
+function shortShareType(raw: string): string {
+    const s = String(raw || '').trim();
+    if (!s) return '—';
+    if (/^Disk\s*Drive/i.test(s)) return 'Disk';
+    if (/Special.*Reserved.*IPC/i.test(s)) return 'Reserved · IPC';
+    if (/Print/i.test(s)) return 'Printer';
+    if (/^Unknown\s+type/i.test(s)) return 'Unknown';
+    return s;
+}
+
+export function NetSharesPanel({ rows }: { rows: any[] }) {
+    const sorted = useMemo(() => [...rows].sort((a, b) => {
+        const ta = SHARE_TIER_RANK[classifyShare(a.share_name, a.type)];
+        const tb = SHARE_TIER_RANK[classifyShare(b.share_name, b.type)];
+        if (ta !== tb) return ta - tb;
+        return String(a.share_name || '').localeCompare(String(b.share_name || ''));
+    }), [rows]);
+
+    const readableCount = rows.filter(r => r.readable).length;
+    const adminCount = rows.filter(r => classifyShare(r.share_name, r.type) === 'admin').length;
+    const host = rows[0]?.computer_name || '';
+
+    return (
+        <OutputPanel
+            icon={<Share2 size={11}/>}
+            label={`NET SHARES${host ? ` · ${host}` : ''}`}
+            count={rows.length}
+        >
+            <div className="space-y-2">
+                {/* Summary strip — compact inline counts, tone-coded */}
+                <div className="flex items-center gap-3 px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-signal">
+                    <span className="flex items-center gap-1.5 text-accent">
+                        <Eye size={11}/> {readableCount} readable
+                    </span>
+                    {adminCount > 0 && (
+                        <span className="flex items-center gap-1.5 text-red-400">
+                            <Lock size={11}/> {adminCount} admin
+                        </span>
+                    )}
+                    <span className="flex items-center gap-1.5">
+                        <Share2 size={11}/> {rows.length} total
+                    </span>
+                </div>
+
+                {/* Column header */}
+                <div className="grid gap-x-3 px-2 py-1 border-b border-signal/15 font-mono text-[10px] uppercase tracking-wider text-signal select-none"
+                    style={{ gridTemplateColumns: 'minmax(0,13rem) minmax(0,9rem) 9rem 5.5rem minmax(0,1fr)' }}>
+                    <span>Share</span>
+                    <span>Host</span>
+                    <span>Type</span>
+                    <span>Access</span>
+                    <span>Comment</span>
+                </div>
+
+                {/* Rows — moderate density, inline */}
+                <div className="rounded-sm overflow-hidden bg-black/40">
+                    {sorted.map((r, i) => {
+                        const tier = classifyShare(r.share_name, r.type);
+                        const meta = SHARE_TIER_META[tier];
+                        const shareName = String(r.share_name || '');
+                        const uncPath = host && shareName ? `\\\\${host}\\${shareName}` : shareName;
+                        return (
+                            <div key={`${shareName}-${i}`}
+                                className={cn(
+                                    'grid gap-x-3 px-2 py-1.5 items-center font-mono text-[11px] transition-colors hover:bg-signal/[0.04]',
+                                    i > 0 && 'border-t border-signal/10',
+                                )}
+                                style={{ gridTemplateColumns: 'minmax(0,13rem) minmax(0,9rem) 9rem 5.5rem minmax(0,1fr)' }}>
+                                {/* Share name with tier icon + UNC tooltip */}
+                                <div className="flex items-center gap-1.5 min-w-0" title={uncPath}>
+                                    <span className={cn('shrink-0', meta.iconCls)}>{meta.icon}</span>
+                                    <span className={cn('font-bold truncate', meta.iconCls)}>{shareName}</span>
+                                </div>
+                                {/* Host */}
+                                <div className="flex items-center gap-1 min-w-0">
+                                    <Monitor size={10} className="text-signal shrink-0"/>
+                                    <span className="text-signal truncate">{r.computer_name || '—'}</span>
+                                </div>
+                                {/* Tier chip + verbose type concatenated */}
+                                <span className={cn(
+                                    'font-mono text-[10px] font-bold px-1.5 py-0.5 border rounded-sm w-fit truncate',
+                                    meta.chipCls,
+                                )} title={String(r.type || '')}>
+                                    {meta.label}{tier === 'other' || tier === 'disk' || tier === 'ipc' ? ` · ${shortShareType(r.type)}` : ''}
+                                </span>
+                                {/* Readable badge */}
+                                {r.readable ? (
+                                    <span className="inline-flex items-center gap-1 rounded-sm border border-accent/40 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider uppercase text-accent w-fit">
+                                        <Eye size={10}/> READ
+                                    </span>
+                                ) : (
+                                    <span className="inline-flex items-center gap-1 rounded-sm border border-signal/25 px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase text-signal w-fit">
+                                        <EyeOff size={10}/> NONE
+                                    </span>
+                                )}
+                                {/* Comment */}
+                                <span className="text-signal truncate" title={r.comment || ''}>
+                                    {r.comment?.trim() || <span className="text-signal opacity-50">—</span>}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </OutputPanel>
+    );
+}
+
+// ─── NetDcListPanel ───────────────────────────────────────────────────────────
+// Renders Apollo's `net_dclist` output as Minerva tile cards (per the design
+// language's tile pattern: rounded-md border, label/value field rows, wide
+// tracking on labels). Global-catalog DCs surface first with an amber accent
+// — they're the high-value target for Kerberos AS-REQ/TGS-REQ and SPN
+// queries, so the operator should triage them before the regular DCs.
+//
+// Each card:
+//   ┌──────────────────────────────────────────────────────────┐
+//   │ 🖧 DC01.contoso.local            [👑 GLOBAL CATALOG]     │
+//   │ ──────────────────────────────────────────────────────── │
+//   │ DOMAIN     contoso.local                                  │
+//   │ FOREST     contoso.local                                  │
+//   │ ADDRESSES  [192.168.200.1] [10.0.0.2]                     │
+//   │ OS         Windows Server 2025 Standard Evaluation       │
+//   └──────────────────────────────────────────────────────────┘
+
+function splitIps(raw: any): string[] {
+    if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
+    return String(raw || '')
+        .split(/[,;\s]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+}
+
+export function NetDcListPanel({ rows }: { rows: any[] }) {
+    const sorted = useMemo(() => [...rows].sort((a, b) => {
+        const ag = a.global_catalog ? 1 : 0;
+        const bg = b.global_catalog ? 1 : 0;
+        if (ag !== bg) return bg - ag; // GC first
+        return String(a.computer_name || '').localeCompare(String(b.computer_name || ''));
+    }), [rows]);
+
+    const distinct = (key: string) => {
+        const s = new Set<string>();
+        for (const r of rows) if (r[key]) s.add(String(r[key]));
+        return s.size;
+    };
+    const gcCount = rows.filter(r => !!r.global_catalog).length;
+
+    return (
+        <OutputPanel
+            icon={<Server size={11}/>}
+            label="DOMAIN CONTROLLERS"
+            count={rows.length}
+        >
+            <div className="space-y-2">
+                {/* Summary strip — inline, tone-coded */}
+                <div className="flex items-center gap-3 px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-signal">
+                    {gcCount > 0 && (
+                        <span className="flex items-center gap-1.5 text-amber-400">
+                            <Crown size={11}/> {gcCount} global catalog
+                        </span>
+                    )}
+                    {distinct('domain') > 0 && (
+                        <span className="flex items-center gap-1.5 text-accent">
+                            <Network size={11}/> {distinct('domain')} domain{distinct('domain') > 1 ? 's' : ''}
+                        </span>
+                    )}
+                    {distinct('forest') > 0 && (
+                        <span className="flex items-center gap-1.5 text-purple-400">
+                            <Layers size={11}/> {distinct('forest')} forest{distinct('forest') > 1 ? 's' : ''}
+                        </span>
+                    )}
+                    <span className="flex items-center gap-1.5">
+                        <Server size={11}/> {rows.length} dc total
+                    </span>
+                </div>
+
+                {/* DC cards — stacked layout, fields inline per row */}
+                <div className="space-y-1.5">
+                    {sorted.map((dc, i) => {
+                        const ips = splitIps(dc.ip_address);
+                        const isGC = !!dc.global_catalog;
+                        const nameToneCls = isGC ? 'text-amber-400' : 'text-accent';
+                        const borderCls = isGC ? 'border-amber-400/30' : 'border-signal/15';
+                        return (
+                            <div
+                                key={`${dc.computer_name}-${i}`}
+                                className={cn(
+                                    'rounded-sm border px-3 py-2 transition-colors hover:bg-signal/[0.04] bg-black/40',
+                                    borderCls,
+                                )}
+                            >
+                                {/* Header row: hostname + GC badge inline */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <Server size={14} className={cn('shrink-0', nameToneCls)}/>
+                                    <span
+                                        className={cn('font-mono font-bold text-sm truncate', nameToneCls)}
+                                        title={dc.computer_name}
+                                    >
+                                        {dc.computer_name || '(unknown)'}
+                                    </span>
+                                    {isGC && (
+                                        <span className="inline-flex items-center gap-1 rounded-sm border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider uppercase text-amber-400">
+                                            <Crown size={10}/> GLOBAL CATALOG
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Domain / forest crumb — inline label + value pairs */}
+                                {(dc.domain || dc.forest) && (
+                                    <div className="mt-1.5 flex items-center gap-2 flex-wrap font-mono text-[11px] text-signal">
+                                        {dc.domain && (
+                                            <span className="flex items-center gap-1.5">
+                                                <span className="text-signal opacity-70">domain</span>
+                                                <span className="font-bold text-signal">{dc.domain}</span>
+                                            </span>
+                                        )}
+                                        {dc.domain && dc.forest && <span className="text-signal opacity-40">·</span>}
+                                        {dc.forest && (
+                                            <span className="flex items-center gap-1.5">
+                                                <span className="text-signal opacity-70">forest</span>
+                                                <span className="font-bold text-purple-400">{dc.forest}</span>
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* IP chips row */}
+                                {ips.length > 0 && (
+                                    <div className="mt-1.5 flex items-center flex-wrap gap-1.5">
+                                        {ips.map((ip, ipIdx) => (
+                                            <span
+                                                key={`${ip}-${ipIdx}`}
+                                                className="inline-flex items-center gap-1 rounded-sm border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[11px] text-accent"
+                                            >
+                                                <Globe size={10}/> {ip}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* OS version footer */}
+                                {dc.os_version && (
+                                    <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px] text-signal" title={dc.os_version}>
+                                        <Monitor size={11} className="text-signal shrink-0"/>
+                                        <span className="truncate">{dc.os_version}</span>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </OutputPanel>
+    );
+}
+
 // ─── ProcessDetailPanel ───────────────────────────────────────────────────────
 
 function ProcessDetailItem({ p }: { p: any }) {
@@ -957,6 +1257,8 @@ export function hasBuiltinStructuredRenderer(responses: DecodedResponse[]): bool
             if (parsed[0]?.AdapterName !== undefined) return true;
             if (parsed[0]?.local_port !== undefined && parsed[0]?.protocol !== undefined) return true;
             if (parsed[0]?.process_id !== undefined) return true;
+            if (parsed[0]?.share_name !== undefined && parsed[0]?.computer_name !== undefined) return true;
+            if (parsed[0]?.computer_name !== undefined && parsed[0]?.forest !== undefined) return true;
         }
         return false;
     });
@@ -1017,6 +1319,10 @@ export function StructuredResponseOutput({ responses }: { responses: DecodedResp
                         return <NetstatPanel key={resp.id} rows={parsed}/>;
                     if (parsed[0]?.process_id !== undefined)
                         return <ProcessDetailPanel key={resp.id} procs={parsed}/>;
+                    if (parsed[0]?.share_name !== undefined && parsed[0]?.computer_name !== undefined)
+                        return <NetSharesPanel key={resp.id} rows={parsed}/>;
+                    if (parsed[0]?.computer_name !== undefined && parsed[0]?.forest !== undefined)
+                        return <NetDcListPanel key={resp.id} rows={parsed}/>;
                 }
                 if (/mimikatz\s+\d+\.\d+|mimikatz\(commandline\)\s*#/i.test(resp.text))
                     return <MimikatzPanel key={resp.id} content={resp.text}/>;

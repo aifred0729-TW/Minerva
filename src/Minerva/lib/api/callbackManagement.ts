@@ -87,6 +87,34 @@ export const GET_LINK_COMMANDS_FOR_CALLBACK = gql`
   }
 `;
 
+/**
+ * Unfiltered loadedcommands list — used by the AMPLIFICATION dispatcher
+ * as a fallback when no command on this callback registers the
+ * `graph_view:link` UI feature. Older Apollo builds (and some forks)
+ * ship the link command without that feature flag, so we match by name
+ * (`link`, `link_tcp`, `link_smb`, …) instead. Includes commandparameters
+ * so the dispatcher can introspect the actual parameter names — Apollo's
+ * link_tcp uses `address`/`port`, Poseidon uses `host`/`port`, etc.
+ */
+export const GET_ALL_LOADED_COMMANDS_FOR_CALLBACK = gql`
+  query GetAllLoadedCommandsForCallback($callback_id: Int!) {
+    loadedcommands(where: { callback_id: { _eq: $callback_id } }) {
+      command {
+        id
+        cmd
+        supported_ui_features
+        commandparameters {
+          name
+          type
+          required
+          parameter_group_name
+          default_value
+        }
+      }
+    }
+  }
+`;
+
 export const HIDE_CALLBACK_MUTATION = gql`
 mutation hideCallback ($callback_display_id: Int!, $active: Boolean){
   updateCallback(input: {callback_display_id: $callback_display_id, active: $active}) {
@@ -176,6 +204,10 @@ mutation CreateCustomGraphNode(
       unique_id: $unique_id
       data: $data
     }
+    on_conflict: {
+      constraint: agentstorage_unique_id
+      update_columns: [data]
+    }
   ) {
     id
     unique_id
@@ -232,6 +264,10 @@ mutation CreateCustomGraphEdge(
     object: {
       unique_id: $unique_id
       data: $data
+    }
+    on_conflict: {
+      constraint: agentstorage_unique_id
+      update_columns: [data]
     }
   ) {
     id

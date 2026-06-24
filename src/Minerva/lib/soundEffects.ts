@@ -21,8 +21,19 @@ let threeLoadAudio: HTMLAudioElement | null = null;
 
 const sfxState = () => {
     const s = useAppStore.getState();
-    return { enabled: s.sfxEnabled, volume: s.sfxVolume };
+    return {
+        enabled: s.sfxEnabled,
+        volume: s.sfxVolume,
+        individual: s.sfxIndividualEnabled ?? {},
+    };
 };
+
+/** True when both the master toggle and the per-sound flag allow playback. */
+function isSoundEnabled(key: string): boolean {
+    const { enabled, individual } = sfxState();
+    if (!enabled) return false;
+    return individual[key] !== false;
+}
 
 function getClickAudio():    HTMLAudioElement { if (!clickAudio)    { clickAudio    = new Audio(clickSfx);    } return clickAudio;    }
 function getCallbackAudio(): HTMLAudioElement { if (!callbackAudio) { callbackAudio = new Audio(callbackSfx); } return callbackAudio; }
@@ -45,9 +56,9 @@ const BASE_VOL: Record<string, number> = {
     doneQH:       0.5,
 };
 
-function play(audio: HTMLAudioElement, baseVol: number): void {
-    const { enabled, volume } = sfxState();
-    if (!enabled) return;
+function play(audio: HTMLAudioElement, baseVol: number, key: string): void {
+    if (!isSoundEnabled(key)) return;
+    const { volume } = sfxState();
     try {
         audio.volume = Math.min(1, baseVol * volume * 2); // sfxVolume 0.5 = nominal
         audio.currentTime = 0;
@@ -55,28 +66,28 @@ function play(audio: HTMLAudioElement, baseVol: number): void {
     } catch (e) { console.warn('[SFX] error:', e); }
 }
 
-export function playClick(): void    { play(getClickAudio(),    BASE_VOL.click);    }
-export function playCallback(): void { play(getCallbackAudio(), BASE_VOL.callback); }
-export function playEnter(): void    { play(getEnterAudio(),    BASE_VOL.enter);    }
-export function playTunnel(): void       { play(getTunnelAudio(),       BASE_VOL.tunnel);       }
-export function playNotification(): void { play(getNotificationAudio(), BASE_VOL.notification); }
-export function playThreeLoad(): void    { play(getThreeLoadAudio(),    BASE_VOL.threeLoad);    }
-function playOneShot(src: string, baseVol: number): void {
-    const { enabled, volume } = sfxState();
-    if (!enabled) return;
+export function playClick(): void        { play(getClickAudio(),        BASE_VOL.click,        'click');        }
+export function playCallback(): void     { play(getCallbackAudio(),     BASE_VOL.callback,     'callback');     }
+export function playEnter(): void        { play(getEnterAudio(),        BASE_VOL.enter,        'enter');        }
+export function playTunnel(): void       { play(getTunnelAudio(),       BASE_VOL.tunnel,       'tunnel');       }
+export function playNotification(): void { play(getNotificationAudio(), BASE_VOL.notification, 'notification'); }
+export function playThreeLoad(): void    { play(getThreeLoadAudio(),    BASE_VOL.threeLoad,    'threeLoad');    }
+function playOneShot(src: string, baseVol: number, key: string): void {
+    if (!isSoundEnabled(key)) return;
+    const { volume } = sfxState();
     try {
         const audio = new Audio(src);
         audio.volume = Math.min(1, baseVol * volume * 2);
         audio.play().catch(() => {});
     } catch {}
 }
-export function playSelectQH(): void { playOneShot(selectQHSfx, BASE_VOL.selectQH); }
-export function playDoneQH(): void   { playOneShot(doneQHSfx, BASE_VOL.doneQH); }
+export function playSelectQH(): void { playOneShot(selectQHSfx, BASE_VOL.selectQH, 'selectQH'); }
+export function playDoneQH(): void   { playOneShot(doneQHSfx,   BASE_VOL.doneQH,   'doneQH');   }
 
 export function playAuthed(): Promise<void> {
     return new Promise((resolve) => {
-        const { enabled, volume } = sfxState();
-        if (!enabled) { resolve(); return; }
+        if (!isSoundEnabled('authed')) { resolve(); return; }
+        const { volume } = sfxState();
         try {
             const audio = getAuthedAudio();
             audio.volume = Math.min(1, BASE_VOL.authed * volume * 2);

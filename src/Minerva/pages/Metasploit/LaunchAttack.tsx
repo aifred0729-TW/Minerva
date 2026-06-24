@@ -1,21 +1,26 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { createExecution, saveExecution, type MsfExecutionRecord } from './executionHistory';
+import {
+    createExecution, saveExecution, extractSessionFromOutput, extractJobIdFromOutput,
+    type MsfExecutionRecord,
+} from './executionHistory';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import {
     Search, Bug, ChevronRight, ArrowLeft, Crosshair, Play, Loader2,
     AlertTriangle, CheckCircle, ChevronDown, Target, Zap, FileText,
     Shield, Layers, Monitor, Globe, Network, Server, Wifi, Database,
-    Cpu, Box, Hash, Eye, Filter, X, SlidersHorizontal, ChevronLeft, Radio, Terminal
+    Cpu, Box, Hash, Eye, Filter, X, SlidersHorizontal, ChevronLeft, Radio
 } from 'lucide-react';
 import { useSubscription } from "@apollo/client/react";
 import { cn } from '../../lib/utils';
 import {
     listModules, getModuleInfo, getModuleOptions, getCompatiblePayloads, executeModule,
-    consoleCreate, consoleRead, consoleWrite, consoleDestroy,
-    type MsfModuleInfo, type MsfModuleOption, type MsfExecuteResult
+    consoleCreate, consoleRead, consoleWrite, consoleDestroy, getSessions,
+    type MsfModuleInfo, type MsfModuleOption, type MsfExecuteResult, type MsfSession,
 } from './msfrpc';
 import { CALLBACKPORT_STREAM } from '../../lib/api/tunnels';
 import type { CallbackPort } from '../../types/tunnels';
+import { ParsedOutputView } from './ParsedOutputView';
+import { useAllMsfTunnels } from './msfTunnelStore';
 
 const CONSOLE_WRITE_DELAY_MS = 150;
 const CONSOLE_POLL_INTERVAL_MS = 1_500;
@@ -73,7 +78,7 @@ function rankColor(rank: string): string {
     if (r === 'normal') return 'text-yellow-400 bg-yellow-500/15';
     if (r === 'average') return 'text-orange-400 bg-orange-500/15';
     if (r === 'low') return 'text-red-400 bg-red-500/15';
-    return 'text-gray-400 bg-gray-500/15';
+    return 'text-zinc-200 bg-gray-500/15';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -168,10 +173,18 @@ function ModuleSelector({ onSelect }: { onSelect: (type: ModuleType, name: strin
     const typeDef = MODULE_TYPES.find(t => t.key === activeType)!;
 
     return (
-        <motion.div variants={fadeIn} initial="hidden" animate="show" className="flex gap-0 h-[640px]">
+        <motion.div
+            variants={fadeIn}
+            initial="hidden"
+            animate="show"
+            // Dynamic height — extends to the viewport bottom minus the page
+            // chrome (header + tabs + step indicator + padding). Keeps a sane
+            // floor so the panel still looks healthy on short laptop screens.
+            className="flex gap-0 h-[calc(100vh-220px)] min-h-[560px] border border-ghost/15 rounded-md overflow-hidden"
+        >
             {/* ── Left Sidebar: Module Types ───────────────────────── */}
             <div className="w-48 shrink-0 border-r border-ghost/20 flex flex-col">
-                <div className="text-[9px] font-mono text-gray-600 uppercase tracking-[0.2em] px-4 py-3">MODULE TYPE</div>
+                <div className="text-[9px] font-mono text-zinc-300 uppercase tracking-[0.2em] px-4 py-3">MODULE TYPE</div>
                 <div className="flex-1 space-y-1 px-2">
                     {MODULE_TYPES.map(t => {
                         const isActive = activeType === t.key;
@@ -192,7 +205,7 @@ function ModuleSelector({ onSelect }: { onSelect: (type: ModuleType, name: strin
                                 </span>
                                 <div className="flex-1 min-w-0">
                                     <div className={cn("text-[11px] font-mono font-bold tracking-wider", isActive ? "text-black" : "text-white")}>{t.label}</div>
-                                    <div className={cn("text-[9px] font-mono", isActive ? "text-black/60" : "text-gray-600")}>
+                                    <div className={cn("text-[9px] font-mono", isActive ? "text-black/60" : "text-zinc-300")}>
                                         {count != null ? count.toLocaleString() : '...'}
                                     </div>
                                 </div>
@@ -202,113 +215,181 @@ function ModuleSelector({ onSelect }: { onSelect: (type: ModuleType, name: strin
                 </div>
             </div>
 
-            {/* ── Right Content ─────────────────────────────────────── */}
+            {/* ── Right Content — smooth-minimal module browser ──────── */}
             <div className="flex-1 flex flex-col min-w-0">
-                {/* Top Bar: Search + Filter Tags */}
-                <div className="px-4 pt-3 pb-3 border-b border-ghost/15 space-y-2.5">
-                    <div className="flex items-center gap-3">
-                        <div className={cn("flex items-center gap-2 shrink-0", typeDef.color)}>
-                            {typeDef.icon}
-                            <span className="text-sm font-mono font-bold tracking-widest">{typeDef.label}</span>
-                        </div>
-                        <span className="text-[10px] font-mono text-gray-500">{filtered.length.toLocaleString()} modules</span>
-                        <div className="flex-1" />
-                        {/* Search inline */}
-                        <div className="relative w-64">
-                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
-                            <input value={search} onChange={e => setSearch(e.target.value)}
-                                placeholder="Search modules..."
-                                className="w-full bg-black/60 border border-ghost/30 text-signal font-mono text-xs pl-8 pr-3 py-1.5 focus:border-signal/60 focus:outline-none transition-colors" />
-                        </div>
+
+                {/* Top: type label + count + search (full-width) */}
+                <div className="px-5 py-4 border-b border-ghost/15 flex items-center gap-4">
+                    <div className={cn('flex items-center gap-2.5 shrink-0', typeDef.color)}>
+                        {typeDef.icon}
+                        <span className="text-base font-mono font-bold tracking-[0.2em]">{typeDef.label}</span>
                     </div>
-
-                    {/* Filter Tags Row */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                        {/* Platform tags */}
-                        <div className="flex items-center gap-1 text-[9px] font-mono text-gray-600 uppercase tracking-wider shrink-0">
-                            <Monitor size={10} /> Platform:
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                            {platforms.slice(0, 12).map(([plat, count]) => (
-                                <button key={plat} onClick={() => togglePlatform(plat)}
-                                    className={cn(
-                                        "flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono border transition-all duration-150",
-                                        filterPlatforms.has(plat)
-                                            ? "border-signal/50 bg-signal/15 text-signal"
-                                            : "border-ghost/20 text-gray-500 hover:border-ghost/40 hover:text-gray-300"
-                                    )}>
-                                    {PLATFORM_ICONS[plat] || <Globe size={10} />}
-                                    <span>{plat}</span>
-                                    <span className="text-gray-600">{count}</span>
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Service tags (show when platforms selected or always top services) */}
-                        {services.length > 0 && (
-                            <>
-                                <div className="w-px h-4 bg-ghost/20 mx-1" />
-                                <div className="flex items-center gap-1 text-[9px] font-mono text-gray-600 uppercase tracking-wider shrink-0">
-                                    <Network size={10} /> Service:
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                    {services.slice(0, 10).map(([svc, count]) => (
-                                        <button key={svc} onClick={() => toggleService(svc)}
-                                            className={cn(
-                                                "px-2 py-0.5 text-[10px] font-mono border transition-all duration-150",
-                                                filterServices.has(svc)
-                                                    ? "border-signal/50 bg-signal/15 text-signal"
-                                                    : "border-ghost/20 text-gray-500 hover:border-ghost/40 hover:text-gray-300"
-                                            )}>
-                                            {svc} <span className="text-gray-600">{count}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-
-                        {/* Clear all */}
-                        {(filterPlatforms.size > 0 || filterServices.size > 0) && (
-                            <button onClick={clearFilters} className="px-2 py-0.5 text-[10px] font-mono text-red-400/70 hover:text-red-400 transition-colors flex items-center gap-1">
-                                <X size={10} /> Clear
-                            </button>
-                        )}
+                    <span className="text-sm font-mono text-signal tabular-nums">
+                        {filtered.length.toLocaleString()}
+                        <span className="text-signal/80 ml-1.5">modules</span>
+                    </span>
+                    <div className="flex-1" />
+                    <div className="relative w-72 shrink-0">
+                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-signal/80" />
+                        <input
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Search modules…"
+                            className="w-full bg-black/60 border border-signal/20 rounded-md text-signal font-mono text-sm pl-9 pr-3 py-2 focus:border-signal/60 focus:outline-none transition-colors"
+                        />
                     </div>
                 </div>
 
-                {/* Module List — compact rows */}
-                <div className="flex-1 overflow-y-auto cyber-scrollbar">
-                    {loading ? (
-                        <div className="flex items-center justify-center py-20 text-gray-500 font-mono text-sm">
-                            <Loader2 size={18} className="animate-spin mr-2" /> Loading modules...
+                {/* Filters — PLATFORM + SERVICE rows */}
+                <div className="px-5 py-3 border-b border-ghost/15 space-y-2">
+                    <div className="flex items-start gap-3">
+                        <span className="text-xs font-mono tracking-[0.25em] text-signal/80 w-20 shrink-0 pt-1.5 flex items-center gap-1.5">
+                            <Monitor size={11} /> PLATFORM
+                        </span>
+                        <div className="flex flex-wrap gap-1.5 flex-1">
+                            {platforms.slice(0, 12).map(([plat, count]) => {
+                                const isActive = filterPlatforms.has(plat);
+                                return (
+                                    <button
+                                        key={plat}
+                                        onClick={() => togglePlatform(plat)}
+                                        className={cn(
+                                            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border font-mono text-xs tracking-[0.15em] transition-all',
+                                            isActive
+                                                ? 'border-accent bg-accent/10 text-accent font-bold'
+                                                : 'border-signal/20 text-signal hover:border-signal/50 hover:bg-signal/[0.04]',
+                                        )}
+                                    >
+                                        {PLATFORM_ICONS[plat] || <Globe size={11} />}
+                                        <span>{plat}</span>
+                                        <span className={cn('text-xs tabular-nums', isActive ? 'text-accent/80' : 'text-signal/60')}>{count}</span>
+                                    </button>
+                                );
+                            })}
                         </div>
-                    ) : (
-                        <div className="divide-y divide-ghost/8">
-                            {paged.map(({ name, platform, service, leaf }) => (
-                                <button key={name} onClick={() => onSelect(activeType, name)}
-                                    className="w-full flex items-center gap-3 px-4 py-2 hover:bg-signal/5 transition-colors text-left group">
-                                    <div className="flex-1 min-w-0">
-                                        <span className="text-xs font-mono text-gray-300 group-hover:text-signal truncate block transition-colors">{leaf}</span>
-                                        <span className="text-[10px] font-mono text-gray-600">{platform}{service ? `/${service}` : ''}</span>
-                                    </div>
-                                    <ChevronRight size={14} className="text-gray-700 group-hover:text-signal shrink-0 transition-colors" />
-                                </button>
-                            ))}
-                            {paged.length === 0 && (
-                                <div className="text-center py-16 text-gray-500 font-mono text-sm">NO_MATCHING_MODULES</div>
-                            )}
+                        {(filterPlatforms.size > 0 || filterServices.size > 0) && (
+                            <button
+                                onClick={clearFilters}
+                                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-400/40 bg-amber-400/[0.05] font-mono text-xs tracking-[0.2em] text-amber-400 hover:bg-amber-400/10 transition-colors"
+                            >
+                                <X size={11} /> CLEAR
+                            </button>
+                        )}
+                    </div>
+
+                    {services.length > 0 && (
+                        <div className="flex items-start gap-3">
+                            <span className="text-xs font-mono tracking-[0.25em] text-signal/80 w-20 shrink-0 pt-1.5 flex items-center gap-1.5">
+                                <Network size={11} /> SERVICE
+                            </span>
+                            <div className="flex flex-wrap gap-1.5 flex-1">
+                                {services.slice(0, 12).map(([svc, count]) => {
+                                    const isActive = filterServices.has(svc);
+                                    return (
+                                        <button
+                                            key={svc}
+                                            onClick={() => toggleService(svc)}
+                                            className={cn(
+                                                'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border font-mono text-xs tracking-[0.15em] transition-all',
+                                                isActive
+                                                    ? 'border-accent bg-accent/10 text-accent font-bold'
+                                                    : 'border-signal/20 text-signal hover:border-signal/50 hover:bg-signal/[0.04]',
+                                            )}
+                                        >
+                                            <span>{svc}</span>
+                                            <span className={cn('text-xs tabular-nums', isActive ? 'text-accent/80' : 'text-signal/60')}>{count}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </div>
 
-                {/* Pagination */}
+                {/* Module cards — internal scroll */}
+                <div className="flex-1 overflow-y-auto cyber-scrollbar p-4">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-20 text-signal font-mono text-sm">
+                            <Loader2 size={18} className="animate-spin mr-2" /> Loading modules…
+                        </div>
+                    ) : paged.length === 0 ? (
+                        <div className="border border-dashed border-signal/20 rounded-md p-12 text-center text-signal font-mono">
+                            <Box size={36} className="mx-auto mb-2 opacity-50" />
+                            <div className="text-sm font-bold tracking-[0.2em]">NO_MATCHING_MODULES</div>
+                            <div className="text-xs text-signal/80 mt-1">Try clearing filters or changing the module type.</div>
+                        </div>
+                    ) : (
+                        <div className="space-y-1.5">
+                            {paged.map(({ name, platform, service, leaf }) => (
+                                <button
+                                    key={name}
+                                    onClick={() => onSelect(activeType, name)}
+                                    className={cn(
+                                        'group w-full text-left rounded-md border border-signal/20 hover:border-signal/50',
+                                        'bg-black/30 hover:bg-black/50 px-4 py-2.5 flex items-center gap-3 transition-all',
+                                    )}
+                                >
+                                    {/* Platform icon in soft frame */}
+                                    <div className={cn(
+                                        'flex items-center justify-center w-10 h-10 rounded-md shrink-0 transition-colors',
+                                        'bg-signal/[0.05] group-hover:bg-signal/10',
+                                        typeDef.color,
+                                    )}>
+                                        {PLATFORM_ICONS[platform] || <Globe size={16} />}
+                                    </div>
+
+                                    {/* Module name + badges */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-mono text-sm truncate">
+                                            <span className="text-signal/70">{platform}{service ? `/${service}` : ''}/</span>
+                                            <span className="text-signal font-bold">{leaf}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 mt-1">
+                                            <span className="inline-flex items-center gap-1 border border-signal/30 px-1.5 py-px text-[10px] tracking-[0.2em] text-signal rounded font-mono">
+                                                {PLATFORM_ICONS[platform] || <Globe size={9} />}
+                                                {platform}
+                                            </span>
+                                            {service && (
+                                                <span className="border border-signal/30 px-1.5 py-px text-[10px] tracking-[0.2em] text-signal rounded font-mono">
+                                                    {service}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <ChevronRight
+                                        size={16}
+                                        className="text-signal/60 group-hover:text-signal group-hover:translate-x-0.5 shrink-0 transition-all"
+                                    />
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Pagination — clean rounded buttons */}
                 {totalPages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-2 border-t border-ghost/15 text-xs font-mono text-gray-500">
-                        <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                            className="px-3 py-1 border border-ghost/20 hover:border-signal/30 hover:text-signal disabled:opacity-30 transition-colors">PREV</button>
-                        <span>PAGE {page + 1} / {totalPages}</span>
-                        <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
-                            className="px-3 py-1 border border-ghost/20 hover:border-signal/30 hover:text-signal disabled:opacity-30 transition-colors">NEXT</button>
+                    <div className="px-5 py-3 border-t border-ghost/15 flex items-center justify-between font-mono text-xs">
+                        <button
+                            onClick={() => setPage(p => Math.max(0, p - 1))}
+                            disabled={page === 0}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-signal/20 text-signal hover:border-signal/50 hover:bg-signal/[0.04] disabled:opacity-30 disabled:cursor-not-allowed transition-all tracking-[0.2em]"
+                        >
+                            <ChevronLeft size={12} /> PREV
+                        </button>
+                        <div className="flex items-baseline gap-2 text-signal">
+                            <span className="tracking-[0.2em] text-signal/80">PAGE</span>
+                            <span className="font-bold text-base tabular-nums">{page + 1}</span>
+                            <span className="text-signal/60">/</span>
+                            <span className="tabular-nums">{totalPages}</span>
+                        </div>
+                        <button
+                            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                            disabled={page >= totalPages - 1}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-signal/20 text-signal hover:border-signal/50 hover:bg-signal/[0.04] disabled:opacity-30 disabled:cursor-not-allowed transition-all tracking-[0.2em]"
+                        >
+                            NEXT <ChevronRight size={12} />
+                        </button>
                     </div>
                 )}
             </div>
@@ -343,14 +424,76 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
     const [payloadDropdownOpen, setPayloadDropdownOpen] = useState(false);
     const [selectedProxy, setSelectedProxy] = useState<string>(''); // 'socks5:host:port' or ''
 
-    // Subscribe to active SOCKS proxies from Mythic
-    const { data: proxyData } = useSubscription<any>(CALLBACKPORT_STREAM, {
+    // Subscribe to active SOCKS proxies from Mythic.
+    //
+    // CALLBACKPORT_STREAM is a Hasura `_stream` subscription — each event
+    // contains only the rows that *changed* since the cursor, not the full
+    // table. If we read straight off `data.callbackport_stream` every time
+    // (the previous shape) the visible list shrinks to whatever happened
+    // to be in the last delta, so the SOCKS option vanishes after a while
+    // even though the session is still alive. Fix: accumulate into state
+    // keyed by `id`, exactly like the Tunnels page does.
+    const [mythicPorts, setMythicPorts] = useState<CallbackPort[]>([]);
+    useSubscription<any>(CALLBACKPORT_STREAM, {
+        fetchPolicy: 'no-cache',
+        onData: ({ data }: any) => {
+            const incoming: CallbackPort[] = data?.data?.callbackport_stream || [];
+            if (!incoming.length) return;
+            setMythicPorts(prev => {
+                const next = [...prev];
+                for (const cur of incoming) {
+                    const idx = next.findIndex(p => p.id === cur.id);
+                    if (idx > -1) next[idx] = cur;
+                    else next.push(cur);
+                }
+                return next;
+            });
+        },
         onError: (err) => { console.error('[CALLBACKPORT_STREAM] subscription error:', err); },
     });
-    const socksProxies = useMemo(() => {
-        const ports: CallbackPort[] = proxyData?.callbackport_stream || [];
-        return ports.filter(p => p.port_type === 'socks' && !p.deleted);
-    }, [proxyData]);
+
+    // Also include MSF SOCKS tunnels (they don't live in Mythic's
+    // callbackport table). One tunnel per operation now — a single port
+    // covers all attached meterpreter sessions via MSF's route table.
+    // MSF SOCKS auxiliary is bound to 0.0.0.0 inside the MSF container,
+    // so from MSF's own perspective the proxy is reachable at
+    // `127.0.0.1:<port>`.
+    const msfTunnels = useAllMsfTunnels();
+
+    interface ProxyOption {
+        key: string;
+        value: string;            // The `Proxies` option value passed to MSF.
+        port: number;
+        label: string;            // Bottom-line description (operation identity).
+        source: 'mythic' | 'msf';
+    }
+
+    const proxyOptions = useMemo<ProxyOption[]>(() => {
+        const list: ProxyOption[] = [];
+        for (const p of mythicPorts) {
+            if (p.port_type !== 'socks' || p.deleted) continue;
+            const cb = p.callback;
+            list.push({
+                key: `mythic-${p.id}`,
+                value: `socks5:host.docker.internal:${p.local_port}`,
+                port: p.local_port,
+                label: `CB#${cb.display_id} · ${cb.host || cb.ip} · ${cb.user}@${cb.process_name || '?'}`,
+                source: 'mythic',
+            });
+        }
+        for (const t of msfTunnels) {
+            const sessionCount = Object.keys(t.sessions).length;
+            const routeCount = Object.values(t.sessions).reduce((n, s) => n + s.subnets.length, 0);
+            list.push({
+                key: `msf-op-${t.operationId}`,
+                value: `socks5:127.0.0.1:${t.port}`,
+                port: t.port,
+                label: `Op #${t.operationId} · ${sessionCount} session${sessionCount === 1 ? '' : 's'} · ${routeCount} route${routeCount === 1 ? '' : 's'}`,
+                source: 'msf',
+            });
+        }
+        return list;
+    }, [mythicPorts, msfTunnels]);
 
     // Load module info, options, payloads
     useEffect(() => {
@@ -435,13 +578,13 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
     }, [payloads, payloadSearch]);
 
     if (loading) {
-        return <div className="flex items-center justify-center py-20 text-gray-500 font-mono text-sm"><Loader2 size={18} className="animate-spin mr-2" /> Loading module...</div>;
+        return <div className="flex items-center justify-center py-20 text-zinc-300 font-mono text-sm"><Loader2 size={18} className="animate-spin mr-2" /> Loading module...</div>;
     }
 
     return (
         <motion.div variants={fadeIn} initial="hidden" animate="show" className="space-y-5">
             {/* Back */}
-            <button onClick={onBack} className="flex items-center gap-1 text-xs font-mono text-gray-500 hover:text-signal transition-colors">
+            <button onClick={onBack} className="flex items-center gap-1 text-xs font-mono text-zinc-300 hover:text-signal transition-colors">
                 <ArrowLeft size={14} /> BACK TO MODULE LIST
             </button>
 
@@ -462,19 +605,19 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                         </span>
                     )}
                 </div>
-                <div className="text-[10px] font-mono text-gray-600 mb-3 break-all">{name}</div>
+                <div className="text-[10px] font-mono text-zinc-300 mb-3 break-all">{name}</div>
                 {info?.description && (
-                    <p className="text-xs text-gray-400 leading-relaxed whitespace-pre-wrap max-h-[100px] overflow-y-auto cyber-scrollbar mb-3">{info.description.trim()}</p>
+                    <p className="text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap max-h-[100px] overflow-y-auto cyber-scrollbar mb-3">{info.description.trim()}</p>
                 )}
                 <div className="space-y-1 text-[10px] font-mono">
                     {info?.authors && info.authors.length > 0 && (
-                        <div className="flex gap-2"><span className="text-gray-600 uppercase shrink-0">Authors:</span><span className="text-gray-400">{info.authors.join(', ')}</span></div>
+                        <div className="flex gap-2"><span className="text-zinc-300 uppercase shrink-0">Authors:</span><span className="text-zinc-200">{info.authors.join(', ')}</span></div>
                     )}
                     {info?.references && info.references.length > 0 && (
-                        <div className="flex gap-2"><span className="text-gray-600 uppercase shrink-0">Refs:</span><span className="text-gray-400 truncate">{info.references.slice(0, 5).join(', ')}{info.references.length > 5 ? ` +${info.references.length - 5}` : ''}</span></div>
+                        <div className="flex gap-2"><span className="text-zinc-300 uppercase shrink-0">Refs:</span><span className="text-zinc-200 truncate">{info.references.slice(0, 5).join(', ')}{info.references.length > 5 ? ` +${info.references.length - 5}` : ''}</span></div>
                     )}
                     {info?.targets && info.targets.length > 0 && (
-                        <div className="flex gap-2"><span className="text-gray-600 uppercase shrink-0"><Target size={10} className="inline" /> Targets:</span><span className="text-gray-400">{info.targets.join(', ')}</span></div>
+                        <div className="flex gap-2"><span className="text-zinc-300 uppercase shrink-0"><Target size={10} className="inline" /> Targets:</span><span className="text-zinc-200">{info.targets.join(', ')}</span></div>
                     )}
                 </div>
             </div>
@@ -492,7 +635,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                 <div className="flex items-center gap-2 mb-3">
                     <Radio size={14} className="text-cyan-400" />
                     <span className="text-xs font-mono font-bold text-cyan-400 tracking-[0.15em] uppercase">PROXY ROUTING</span>
-                    <span className="text-[10px] font-mono text-gray-600">Route traffic through a Mythic SOCKS tunnel</span>
+                    <span className="text-[10px] font-mono text-zinc-300">Route traffic through a Mythic or MSF SOCKS tunnel</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {/* Direct connection option */}
@@ -502,47 +645,48 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                             "flex items-center gap-2 px-3 py-2 text-xs font-mono border transition-all duration-150",
                             selectedProxy === ''
                                 ? "border-signal/50 bg-signal/15 text-signal"
-                                : "border-ghost/20 text-gray-500 hover:border-ghost/40 hover:text-gray-300"
+                                : "border-ghost/20 text-zinc-300 hover:border-ghost/40 hover:text-white"
                         )}
                     >
                         <Globe size={12} />
                         DIRECT
                     </button>
-                    {/* SOCKS proxy options from Mythic */}
-                    {socksProxies.map(p => {
-                        const proxyValue = `socks5:host.docker.internal:${p.local_port}`;
-                        const isSelected = selectedProxy === proxyValue;
-                        const cb = p.callback;
+                    {/* SOCKS proxy options — Mythic + MSF, merged */}
+                    {proxyOptions.map(opt => {
+                        const isSelected = selectedProxy === opt.value;
+                        const accent = opt.source === 'msf' ? 'text-emerald-400' : 'text-cyan-400';
+                        const accentSelectedBg = opt.source === 'msf' ? 'border-emerald-400/50 bg-emerald-400/15' : 'border-cyan-400/50 bg-cyan-400/15';
                         return (
                             <button
-                                key={p.id}
-                                onClick={() => setSelectedProxy(isSelected ? '' : proxyValue)}
+                                key={opt.key}
+                                onClick={() => setSelectedProxy(isSelected ? '' : opt.value)}
                                 className={cn(
                                     "flex items-center gap-2 px-3 py-2 text-xs font-mono border transition-all duration-150",
                                     isSelected
-                                        ? "border-cyan-400/50 bg-cyan-400/15 text-cyan-400"
-                                        : "border-ghost/20 text-gray-500 hover:border-ghost/40 hover:text-gray-300"
+                                        ? `${accentSelectedBg} ${accent}`
+                                        : "border-ghost/20 text-zinc-300 hover:border-ghost/40 hover:text-white"
                                 )}
                             >
-                                <Network size={12} />
+                                <Network size={12} className={isSelected ? accent : ''} />
                                 <div className="text-left">
-                                    <div className={cn("text-[11px] font-bold", isSelected ? "text-cyan-400" : "text-gray-300")}>
-                                        :{p.local_port}
+                                    <div className={cn("text-[11px] font-bold flex items-center gap-1.5", isSelected ? accent : "text-gray-300")}>
+                                        <span className="text-[8px] tracking-widest opacity-70 uppercase">{opt.source}</span>
+                                        :{opt.port}
                                     </div>
-                                    <div className="text-[9px] text-gray-600">
-                                        CB#{cb.display_id} · {cb.host || cb.ip} · {cb.user}@{cb.process_name || '?'}
+                                    <div className="text-[9px] text-zinc-300">
+                                        {opt.label}
                                     </div>
                                 </div>
                             </button>
                         );
                     })}
-                    {socksProxies.length === 0 && (
-                        <span className="text-[10px] font-mono text-gray-600 self-center ml-2">No active SOCKS tunnels — start one from the Tunnels page</span>
+                    {proxyOptions.length === 0 && (
+                        <span className="text-[10px] font-mono text-zinc-300 self-center ml-2">No active SOCKS tunnels — start one from the Callbacks page</span>
                     )}
                 </div>
                 {selectedProxy && (
-                    <div className="mt-2 text-[10px] font-mono text-cyan-400/60 flex items-center gap-1.5">
-                        <CheckCircle size={10} /> Traffic will be routed through <span className="text-cyan-400 font-bold">{selectedProxy}</span>
+                    <div className="mt-2 text-[10px] font-mono text-cyan-300 flex items-center gap-1.5">
+                        <CheckCircle size={10} /> Traffic will be routed through <span className="text-cyan-300 font-bold">{selectedProxy}</span>
                     </div>
                 )}
             </div>
@@ -558,14 +702,14 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                                 <AlertTriangle size={14} className="text-red-400 drop-shadow-[0_0_6px_rgba(248,113,113,0.6)]" />
                                 <span className="text-xs font-mono font-bold text-red-400 tracking-[0.2em] uppercase">REQUIRED ZONE</span>
                             </div>
-                            <p className="text-[10px] font-mono text-red-300/40 mt-1">Critical parameters — all fields must be configured</p>
+                            <p className="text-[10px] font-mono text-red-300/80 mt-1">Critical parameters — all fields must be configured</p>
                         </div>
 
                         {/* Scrollable Content */}
                         <div className="p-5 flex-1 overflow-y-auto cyber-scrollbar space-y-5" style={{ maxHeight: '460px' }}>
                             {requiredOpts.length > 0 && (
                                 <div className="space-y-3">
-                                    <div className="text-[10px] font-mono text-red-300/50 uppercase tracking-widest">Module Parameters</div>
+                                    <div className="text-[10px] font-mono text-red-300 uppercase tracking-widest">Module Parameters</div>
                                     {requiredOpts.map(([key, opt]) => (
                                         <OptionField key={key} name={key} opt={opt} value={values[key] || ''} onChange={v => setValue(key, v)} />
                                     ))}
@@ -574,7 +718,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
 
                             {values.PAYLOAD && payloadRequiredOpts.length > 0 && (
                                 <div className="space-y-3 pt-3 border-t border-red-400/10">
-                                    <div className="text-[10px] font-mono text-cyan-400/60 uppercase tracking-widest flex items-center gap-1.5">
+                                    <div className="text-[10px] font-mono text-cyan-300 uppercase tracking-widest flex items-center gap-1.5">
                                         <Zap size={10} /> Payload Parameters
                                     </div>
                                     {payloadRequiredOpts.map(([key, opt]) => (
@@ -584,7 +728,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                             )}
 
                             {requiredOpts.length === 0 && payloadRequiredOpts.length === 0 && (
-                                <div className="text-center py-8 text-gray-600 font-mono text-xs">No required options</div>
+                                <div className="text-center py-8 text-zinc-300 font-mono text-xs">No required options</div>
                             )}
                         </div>
                     </div>
@@ -599,7 +743,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                                 <SlidersHorizontal size={14} className="text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]" />
                                 <span className="text-xs font-mono font-bold text-amber-400 tracking-[0.2em] uppercase">OPTIONAL ZONE</span>
                             </div>
-                            <p className="text-[10px] font-mono text-amber-300/30 mt-1">Payload selection, fine-tuning & additional configuration</p>
+                            <p className="text-[10px] font-mono text-amber-300/80 mt-1">Payload selection, fine-tuning & additional configuration</p>
                         </div>
 
                         {/* Scrollable Content */}
@@ -607,14 +751,14 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                             {/* Payload Selector */}
                             {type === 'exploit' && payloads.length > 0 && (
                                 <div className="space-y-2">
-                                    <div className="flex items-center gap-2 text-[10px] font-mono text-amber-300/50 uppercase tracking-widest">
+                                    <div className="flex items-center gap-2 text-[10px] font-mono text-amber-300 uppercase tracking-widest">
                                         <Zap size={10} /> Payload ({payloads.length})
                                     </div>
                                     <div className="relative">
                                         <button onClick={() => setPayloadDropdownOpen(!payloadDropdownOpen)}
                                             className="w-full flex items-center justify-between bg-black/60 border border-ghost/30 text-sm font-mono px-3 py-2.5 hover:border-amber-400/40 transition-colors">
-                                            <span className={values.PAYLOAD ? 'text-signal' : 'text-gray-500'}>{values.PAYLOAD || 'Select payload...'}</span>
-                                            <ChevronDown size={14} className={cn("text-gray-500 transition-transform", payloadDropdownOpen && "rotate-180")} />
+                                            <span className={values.PAYLOAD ? 'text-signal' : 'text-zinc-300'}>{values.PAYLOAD || 'Select payload...'}</span>
+                                            <ChevronDown size={14} className={cn("text-zinc-300 transition-transform", payloadDropdownOpen && "rotate-180")} />
                                         </button>
                                         <AnimatePresence>
                                             {payloadDropdownOpen && (
@@ -628,24 +772,24 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                                                     <div className="max-h-[220px] overflow-y-auto cyber-scrollbar">
                                                         {filteredPayloads.map(p => (
                                                             <button key={p} onClick={() => { setValue('PAYLOAD', p); setPayloadDropdownOpen(false); setPayloadSearch(''); }}
-                                                                className={cn("w-full text-left px-3 py-2 text-xs font-mono hover:bg-signal/10 transition-colors", values.PAYLOAD === p ? 'text-signal bg-signal/5' : 'text-gray-400')}>
+                                                                className={cn("w-full text-left px-3 py-2 text-xs font-mono hover:bg-signal/10 transition-colors", values.PAYLOAD === p ? 'text-signal bg-signal/5' : 'text-zinc-200')}>
                                                                 {p}
                                                             </button>
                                                         ))}
-                                                        {filteredPayloads.length === 0 && <div className="text-center py-4 text-gray-500 text-xs font-mono">No match</div>}
+                                                        {filteredPayloads.length === 0 && <div className="text-center py-4 text-zinc-300 text-xs font-mono">No match</div>}
                                                     </div>
                                                 </motion.div>
                                             )}
                                         </AnimatePresence>
                                     </div>
-                                    {payloadOptsLoading && <div className="text-[10px] font-mono text-gray-500 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Loading payload options...</div>}
+                                    {payloadOptsLoading && <div className="text-[10px] font-mono text-zinc-300 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Loading payload options...</div>}
                                 </div>
                             )}
 
                             {/* Payload Optional Options */}
                             {values.PAYLOAD && payloadOptionalOpts.length > 0 && (
                                 <div className="space-y-3 pt-3 border-t border-amber-400/10">
-                                    <div className="text-[10px] font-mono text-cyan-400/50 uppercase tracking-widest flex items-center gap-1.5">
+                                    <div className="text-[10px] font-mono text-cyan-300 uppercase tracking-widest flex items-center gap-1.5">
                                         <Zap size={10} /> Payload Options
                                     </div>
                                     {payloadOptionalOpts.map(([key, opt]) => (
@@ -657,7 +801,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                             {/* Module Optional Options */}
                             {optionalOpts.length > 0 && (
                                 <div className="space-y-3 pt-3 border-t border-amber-400/10">
-                                    <div className="text-[10px] font-mono text-amber-300/50 uppercase tracking-widest">Module Options</div>
+                                    <div className="text-[10px] font-mono text-amber-300 uppercase tracking-widest">Module Options</div>
                                     {optionalOpts.map(([key, opt]) => (
                                         <OptionField key={key} name={key} opt={opt} value={values[key] || ''} onChange={v => setValue(key, v)} />
                                     ))}
@@ -665,7 +809,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                             )}
 
                             {optionalOpts.length === 0 && payloadOptionalOpts.length === 0 && payloads.length === 0 && (
-                                <div className="text-center py-8 text-gray-600 font-mono text-xs">No optional parameters</div>
+                                <div className="text-center py-8 text-zinc-300 font-mono text-xs">No optional parameters</div>
                             )}
                         </div>
                     </div>
@@ -676,7 +820,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
             {allAdvanced.length > 0 && (
                 <div className="border border-ghost/20 bg-void/30 rounded-sm overflow-hidden">
                     <button onClick={() => setShowAdvanced(!showAdvanced)}
-                        className="w-full flex items-center justify-between px-5 py-3 text-xs font-mono text-gray-500 hover:text-gray-300 transition-colors">
+                        className="w-full flex items-center justify-between px-5 py-3 text-xs font-mono text-zinc-300 hover:text-white transition-colors">
                         <span className="tracking-[0.15em] uppercase">ADVANCED OPTIONS ({allAdvanced.length})</span>
                         <ChevronDown size={14} className={cn("transition-transform", showAdvanced && "rotate-180")} />
                     </button>
@@ -702,7 +846,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                     className={cn(
                         "group relative flex items-center justify-center gap-3 px-10 py-3.5 font-mono uppercase tracking-[0.2em] text-sm font-bold transition-all duration-300 overflow-hidden",
                         !allRequiredFilled
-                            ? "bg-gray-800/80 text-gray-600 border border-gray-700/50 cursor-not-allowed"
+                            ? "bg-black/50 text-zinc-300 border border-white/15 cursor-not-allowed"
                             : "bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white border border-red-400/30 hover:border-red-300/60"
                     )}
                     style={allRequiredFilled ? { boxShadow: '0 0 30px rgba(239,68,68,0.25), 0 0 60px rgba(239,68,68,0.10)' } : undefined}
@@ -730,7 +874,7 @@ function ModuleConfigurator({ type, name, onBack, onLaunched }: {
                     </span>
                 </button>
                 {!allRequiredFilled && (
-                    <span className="text-[10px] font-mono text-red-400/70 flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-red-300 flex items-center gap-1.5">
                         <AlertTriangle size={11} /> Complete all required fields to enable deployment
                     </span>
                 )}
@@ -746,6 +890,12 @@ function OptionField({ name, opt, value, onChange }: {
     name: string; opt: MsfModuleOption; value: string; onChange: (v: string) => void;
 }) {
     const isBool = opt.type === 'bool' || opt.type === 'boolean';
+    /*  MSF returns the SESSION parameter as `type: 'integer'` with the option
+        name `SESSION` and a stock description "The session to run this module
+        on" — there is no dedicated `session` type to switch on. We special-
+        case by the option name (case-insensitive), which is the actual
+        convention every post / session module follows. */
+    const isSession = name.toUpperCase() === 'SESSION';
     const hasEnums = opt.enums && opt.enums.length > 0;
 
     return (
@@ -753,13 +903,15 @@ function OptionField({ name, opt, value, onChange }: {
             <div className="flex items-center gap-2 mb-1">
                 <label className="text-[11px] font-mono text-signal/80 font-bold">{name}</label>
                 {opt.required && <span className="text-[9px] font-mono text-red-400 bg-red-500/10 px-1 rounded">REQ</span>}
-                <span className="text-[9px] font-mono text-gray-600 uppercase">{opt.type}</span>
+                <span className="text-[9px] font-mono text-zinc-300 uppercase">{opt.type}</span>
             </div>
-            {opt.desc && <p className="text-[10px] text-gray-500 mb-1.5 leading-relaxed">{opt.desc}</p>}
-            {isBool ? (
+            {opt.desc && <p className="text-[10px] text-zinc-300 mb-1.5 leading-relaxed">{opt.desc}</p>}
+            {isSession ? (
+                <SessionPicker value={value} onChange={onChange} required={opt.required} />
+            ) : isBool ? (
                 <button onClick={() => onChange(value === 'true' ? 'false' : 'true')}
                     className={cn("px-3 py-1.5 text-xs font-mono border transition-colors",
-                        value === 'true' ? "border-green-500/40 text-green-400 bg-green-500/10" : "border-ghost/30 text-gray-500 hover:border-white/30")}>
+                        value === 'true' ? "border-green-500/40 text-green-400 bg-green-500/10" : "border-ghost/30 text-zinc-300 hover:border-white/30")}>
                     {value === 'true' ? 'TRUE' : 'FALSE'}
                 </button>
             ) : hasEnums ? (
@@ -778,6 +930,190 @@ function OptionField({ name, opt, value, onChange }: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SESSION PICKER — used by OptionField when opt.type === 'session'
+// ═══════════════════════════════════════════════════════════════════════════
+/*  Why a custom popover instead of <select>:
+ *      A flat dropdown can't carry the per-session metadata an operator
+ *      actually needs to disambiguate ("session 3" tells you nothing — the
+ *      target host, user, payload, and session type do). We render each
+ *      session as a card row with id badge + type icon + host:port + user +
+ *      via_payload + info.
+ *
+ *  Refresh strategy:
+ *      Pull on mount + on popover open + on explicit REFRESH click. No
+ *      polling — sessions don't churn fast and a stale list one beat behind
+ *      is acceptable; the REFRESH button is one click away. */
+function SessionPicker({ value, onChange, required }: {
+    value: string;
+    onChange: (v: string) => void;
+    required?: boolean;
+}) {
+    const [sessions, setSessions] = useState<Record<string, MsfSession>>({});
+    const [loading, setLoading] = useState(false);
+    const [open, setOpen] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const pickerRef = useRef<HTMLDivElement>(null);
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            setSessions(await getSessions());
+        } catch (e: any) {
+            setError(e?.message || 'Failed to load sessions');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => { load(); }, [load]);
+    useEffect(() => { if (open) load(); }, [open, load]);
+
+    // Click outside closes the popover.
+    useEffect(() => {
+        if (!open) return;
+        const onDown = (e: MouseEvent) => {
+            if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [open]);
+
+    const entries = Object.entries(sessions).sort(([a], [b]) => Number(a) - Number(b));
+    const selected = value ? sessions[value] : undefined;
+
+    return (
+        <div ref={pickerRef} className="relative">
+            <button
+                onClick={() => setOpen(o => !o)}
+                className={cn(
+                    'w-full flex items-center gap-2 px-3 py-2 border text-left font-mono text-sm transition-colors',
+                    value
+                        ? 'border-accent/50 bg-accent/10 text-signal'
+                        : required
+                            ? 'border-red-500/40 bg-red-500/[0.04] text-signal hover:border-red-400/60'
+                            : 'border-ghost/30 bg-black/60 text-signal hover:border-signal/60',
+                )}
+            >
+                {value && selected ? (
+                    <>
+                        <SessionTypeIcon type={selected.type} />
+                        <span className="text-accent font-bold shrink-0">#{value}</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-signal/80 shrink-0">{selected.type}</span>
+                        <span className="text-signal/90 truncate">
+                            {sessionTargetLabel(selected)}
+                        </span>
+                    </>
+                ) : value ? (
+                    // ID set but the session has disappeared from the list — surface that loudly.
+                    <>
+                        <AlertTriangle size={13} className="text-yellow-400 shrink-0" />
+                        <span className="text-accent font-bold shrink-0">#{value}</span>
+                        <span className="text-yellow-300/90">no longer active</span>
+                    </>
+                ) : (
+                    <span className="text-signal/60">
+                        {loading ? 'loading sessions…' : entries.length === 0 ? 'no active sessions' : '-- select session --'}
+                    </span>
+                )}
+                <ChevronDown size={13} className={cn('ml-auto text-signal/60 transition-transform', open && 'rotate-180')} />
+            </button>
+
+            {open && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-void/95 backdrop-blur-md border border-signal/40 shadow-2xl shadow-signal/10">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-signal/15 bg-signal/5">
+                        <span className="text-[10px] font-mono tracking-[0.3em] text-signal/80">
+                            SESSIONS · {entries.length}
+                        </span>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); load(); }}
+                            disabled={loading}
+                            className="flex items-center gap-1 text-[10px] font-mono tracking-[0.25em] text-signal hover:text-accent disabled:opacity-50"
+                        >
+                            {loading ? <Loader2 size={11} className="animate-spin" /> : <Radio size={11} />} REFRESH
+                        </button>
+                    </div>
+
+                    <div className="max-h-72 overflow-y-auto cyber-scrollbar">
+                        {error ? (
+                            <div className="px-3 py-4 text-[11px] text-red-300 font-mono">
+                                {error}
+                            </div>
+                        ) : entries.length === 0 ? (
+                            <div className="px-3 py-4 text-[11px] text-signal/60 font-mono">
+                                {loading ? 'loading…' : 'No active Metasploit sessions. Open one (e.g. via a multi/handler) and refresh.'}
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-signal/10">
+                                {entries.map(([id, s]) => {
+                                    const isSelected = id === value;
+                                    return (
+                                        <button
+                                            key={id}
+                                            onClick={() => { onChange(id); setOpen(false); }}
+                                            className={cn(
+                                                'w-full px-3 py-2 text-left font-mono transition-colors flex items-start gap-2.5',
+                                                isSelected
+                                                    ? 'bg-accent/10 border-l-2 border-accent'
+                                                    : 'hover:bg-signal/5 border-l-2 border-transparent',
+                                            )}
+                                        >
+                                            <SessionTypeIcon type={s.type} />
+                                            <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-accent font-bold text-xs">#{id}</span>
+                                                    <span className="text-[9px] uppercase tracking-[0.25em] text-signal/80">{s.type}</span>
+                                                    {s.platform && (
+                                                        <span className="text-[9px] uppercase tracking-[0.2em] text-signal/60">
+                                                            {s.platform}{s.arch ? `/${s.arch}` : ''}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 text-[11px] text-signal">
+                                                    {s.username && <span className="text-yellow-400/90">{s.username}</span>}
+                                                    {s.username && <span className="text-signal/40">@</span>}
+                                                    <span className="text-signal truncate">{sessionTargetLabel(s)}</span>
+                                                </div>
+                                                {s.info && (
+                                                    <div className="text-[10px] text-signal/70 truncate" title={s.info}>{s.info}</div>
+                                                )}
+                                                {s.via_payload && (
+                                                    <div className="text-[10px] text-signal/50 truncate" title={s.via_payload}>
+                                                        via · {s.via_payload}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {isSelected && <CheckCircle size={13} className="text-accent shrink-0 mt-0.5" />}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Best-effort target label. tunnel_peer is "ip:port" of the remote side;
+// fall back through target_host / session_host / "?" so we never render blank.
+function sessionTargetLabel(s: MsfSession): string {
+    if (s.tunnel_peer) return s.tunnel_peer;
+    if (s.target_host && s.session_port) return `${s.target_host}:${s.session_port}`;
+    if (s.target_host) return s.target_host;
+    if (s.session_host) return s.session_host;
+    return '(no target)';
+}
+
+function SessionTypeIcon({ type }: { type: string }) {
+    const t = (type || '').toLowerCase();
+    if (t === 'meterpreter') return <Zap size={13} className="text-accent shrink-0" />;
+    if (t === 'shell')       return <Cpu size={13} className="text-yellow-400 shrink-0" />;
+    return <Box size={13} className="text-signal/70 shrink-0" />;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // STEP 3 — LIVE EXECUTION OUTPUT
 // ═══════════════════════════════════════════════════════════════════════════
 function ExecutionResult({ launchInfo, onBack, onNew }: {
@@ -787,7 +1123,6 @@ function ExecutionResult({ launchInfo, onBack, onNew }: {
     const [busy, setBusy] = useState(true);
     const [consoleId, setConsoleId] = useState<string | null>(null);
     const [initError, setInitError] = useState<string | null>(null);
-    const outputRef = useRef<HTMLDivElement>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const initRef = useRef(false);
     const recordRef = useRef<MsfExecutionRecord | null>(null);
@@ -843,10 +1178,26 @@ function ExecutionResult({ launchInfo, onBack, onNew }: {
                 if (res.data) {
                     setOutput(prev => {
                         const updated = prev + res.data;
-                        // Persist output to history
+                        // Persist output + status transitions to history
                         if (recordRef.current) {
                             recordRef.current.output = updated;
-                            if (!res.busy) {
+                            // Capture backing job id (run -j) so we can reconcile later
+                            // even if the user navigates away before completion.
+                            if (!recordRef.current.jobId) {
+                                const jid = extractJobIdFromOutput(updated);
+                                if (jid) recordRef.current.jobId = jid;
+                            }
+                            // A successful exploit / handler will print "session N opened".
+                            // That's our real completion signal — the MSF console itself
+                            // stays "busy" briefly afterwards which is what made tasks look
+                            // permanently RUNNING in the history view.
+                            const sess = extractSessionFromOutput(updated);
+                            if (sess && recordRef.current.status !== 'complete') {
+                                recordRef.current.status = 'complete';
+                                recordRef.current.sessionId = sess.id;
+                                recordRef.current.sessionType = sess.type;
+                                recordRef.current.completedAt = new Date().toISOString();
+                            } else if (!res.busy && recordRef.current.status === 'running') {
                                 recordRef.current.status = 'complete';
                                 recordRef.current.completedAt = new Date().toISOString();
                             }
@@ -869,15 +1220,23 @@ function ExecutionResult({ launchInfo, onBack, onNew }: {
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
     }, [consoleId]);
 
-    // Auto-scroll
-    useEffect(() => {
-        if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
-    }, [output]);
-
     // Cleanup console on unmount
     useEffect(() => {
         return () => {
             if (consoleId) consoleDestroy(consoleId).catch(() => { });
+            // Don't leave the record stuck on 'running' if the user navigated away
+            // before the poll loop observed completion.
+            const r = recordRef.current;
+            if (r && r.status === 'running') {
+                const sess = extractSessionFromOutput(r.output);
+                if (sess) {
+                    r.sessionId = sess.id;
+                    r.sessionType = sess.type;
+                }
+                r.status = 'complete';
+                r.completedAt = new Date().toISOString();
+                saveExecution(r);
+            }
         };
     }, [consoleId]);
 
@@ -892,7 +1251,7 @@ function ExecutionResult({ launchInfo, onBack, onNew }: {
                     </h3>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={onBack} className="px-4 py-1.5 border border-ghost/30 text-gray-400 text-xs font-mono uppercase tracking-wider hover:text-white hover:border-white/30 transition-colors">
+                    <button onClick={onBack} className="px-4 py-1.5 border border-ghost/30 text-zinc-200 text-xs font-mono uppercase tracking-wider hover:text-white hover:border-white/30 transition-colors">
                         RECONFIGURE
                     </button>
                     <button onClick={onNew} className="px-4 py-1.5 bg-signal text-black text-xs font-mono uppercase tracking-wider hover:bg-signal/80 transition-colors">
@@ -904,19 +1263,19 @@ function ExecutionResult({ launchInfo, onBack, onNew }: {
             {/* Info Summary */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="border border-ghost/20 bg-void/50 px-4 py-3">
-                    <div className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">MODULE</div>
+                    <div className="text-[9px] font-mono text-zinc-300 uppercase tracking-widest mb-1">MODULE</div>
                     <div className="text-xs font-mono text-signal truncate">{moduleType}/{moduleName}</div>
                 </div>
                 <div className="border border-ghost/20 bg-void/50 px-4 py-3">
-                    <div className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">TARGET</div>
+                    <div className="text-[9px] font-mono text-zinc-300 uppercase tracking-widest mb-1">TARGET</div>
                     <div className="text-xs font-mono text-white">{options.RHOSTS || options.RHOST || '-'}</div>
                 </div>
                 <div className="border border-ghost/20 bg-void/50 px-4 py-3">
-                    <div className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">PAYLOAD</div>
+                    <div className="text-[9px] font-mono text-zinc-300 uppercase tracking-widest mb-1">PAYLOAD</div>
                     <div className="text-xs font-mono text-cyan-400 truncate">{options.PAYLOAD || '-'}</div>
                 </div>
                 <div className="border border-ghost/20 bg-void/50 px-4 py-3">
-                    <div className="text-[9px] font-mono text-gray-600 uppercase tracking-widest mb-1">PROXY</div>
+                    <div className="text-[9px] font-mono text-zinc-300 uppercase tracking-widest mb-1">PROXY</div>
                     <div className="text-xs font-mono text-purple-400">{proxy || 'DIRECT'}</div>
                 </div>
             </div>
@@ -929,43 +1288,33 @@ function ExecutionResult({ launchInfo, onBack, onNew }: {
                 </div>
             )}
 
-            {/* Live Output Terminal */}
-            <div className="border border-ghost/30 bg-black overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2 border-b border-ghost/15 bg-black/80">
-                    <div className="flex items-center gap-2 text-xs font-mono text-gray-400 uppercase tracking-widest">
-                        <Terminal size={13} />
-                        {consoleId ? `CONSOLE #${consoleId}` : 'INITIALIZING...'}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {busy && (
-                            <span className="flex items-center gap-1 text-[10px] font-mono text-yellow-400">
+            {/* Live Output Terminal — parsed view with raw fallback */}
+            {!consoleId && !initError ? (
+                <div className="border border-ghost/30 bg-black p-4 flex items-center gap-2 text-zinc-300 font-mono text-xs">
+                    <Loader2 size={12} className="animate-spin" /> Creating console and sending commands...
+                </div>
+            ) : (
+                <ParsedOutputView
+                    output={output}
+                    busy={busy && !!consoleId}
+                    title={consoleId ? `CONSOLE #${consoleId}` : 'INITIALIZING...'}
+                    rightSlot={
+                        busy ? (
+                            <span className="flex items-center gap-1 text-[10px] font-mono text-amber-400 font-bold tracking-[0.2em]">
                                 <Loader2 size={10} className="animate-spin" /> RUNNING
                             </span>
-                        )}
-                        {!busy && output && (
-                            <span className="flex items-center gap-1 text-[10px] font-mono text-green-400">
+                        ) : output ? (
+                            <span className="flex items-center gap-1 text-[10px] font-mono text-accent font-bold tracking-[0.2em]">
                                 <CheckCircle size={10} /> DONE
                             </span>
-                        )}
-                    </div>
-                </div>
-                <div
-                    ref={outputRef}
-                    className="p-4 font-mono text-xs text-gray-300 h-[450px] overflow-y-auto cyber-scrollbar whitespace-pre-wrap leading-relaxed"
-                >
-                    {!consoleId && !initError && (
-                        <span className="text-gray-600 flex items-center gap-2">
-                            <Loader2 size={12} className="animate-spin" /> Creating console and sending commands...
-                        </span>
-                    )}
-                    {output}
-                    {busy && consoleId && <span className="text-yellow-400 animate-pulse">█</span>}
-                </div>
-            </div>
+                        ) : null
+                    }
+                />
+            )}
 
             {/* Options used */}
             <details className="group">
-                <summary className="flex items-center gap-2 cursor-pointer text-xs font-mono text-gray-500 hover:text-gray-300 transition-colors">
+                <summary className="flex items-center gap-2 cursor-pointer text-xs font-mono text-zinc-300 hover:text-white transition-colors">
                     <ChevronRight size={12} className="group-open:rotate-90 transition-transform" />
                     EXECUTION PARAMETERS ({Object.keys(options).length})
                 </summary>
@@ -973,7 +1322,7 @@ function ExecutionResult({ launchInfo, onBack, onNew }: {
                     <div className="grid grid-cols-2 gap-x-6 gap-y-1">
                         {Object.entries(options).map(([k, v]) => (
                             <div key={k} className="flex items-baseline gap-2 text-xs font-mono py-0.5">
-                                <span className="text-gray-500 shrink-0">{k}:</span>
+                                <span className="text-zinc-300 shrink-0">{k}:</span>
                                 <span className="text-signal truncate">{v}</span>
                             </div>
                         ))}
@@ -1000,7 +1349,7 @@ export default function LaunchAttack() {
     return (
         <div>
             {/* Step Indicator */}
-            <div className="flex items-center gap-2 mb-6 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
+            <div className="flex items-center gap-2 mb-6 text-[10px] font-mono text-zinc-300 uppercase tracking-widest">
                 <span className={cn(step === 'select' && 'text-signal')}>1. SELECT MODULE</span>
                 <ChevronRight size={10} />
                 <span className={cn(step === 'configure' && 'text-signal')}>2. CONFIGURE</span>

@@ -28,7 +28,7 @@ import {
 } from './modals';
 
 export default function Operations() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const pageVisible = usePageVisible();
     const me = useReactiveVar(meState);
     const currentUserId: number = me?.user?.user_id ?? me?.user?.id ?? 0;

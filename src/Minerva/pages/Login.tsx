@@ -5,6 +5,7 @@ import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store';
+import { useShallow } from 'zustand/shallow';
 import { loginUser } from '../lib/api';
 import { successfulLogin } from '../lib/auth';
 import { HEALTH_URL } from '../lib/urls';
@@ -402,7 +403,7 @@ const ServerStatus = () => {
 
 export default function Login() {
     const navigate = useNavigate();
-    const { setAppState, isLoggingOut, reset } = useAppStore();
+    const { setAppState, isLoggingOut, reset } = useAppStore(useShallow(s => ({ setAppState: s.setAppState, isLoggingOut: s.isLoggingOut, reset: s.reset })));
 
     const [viewMode, setViewMode] = useState<ViewMode>(isLoggingOut ? 'HANDSHAKE' : 'INTRO');
 

@@ -164,3 +164,31 @@ export function secondsToRelative(diffSecs: number): string {
     if (diffSecs < SECONDS_PER_DAY)    return `${Math.floor(diffSecs / SECONDS_PER_HOUR)}h ago`;
     return `${Math.floor(diffSecs / SECONDS_PER_DAY)}d ago`;
 }
+
+/**
+ * Self-updating relative-time element.
+ *
+ * `timeAgo` is a pure function — it computes "Xs/m/h ago" once at call time,
+ * so any component that renders `timeAgo(ts)` directly freezes its value until
+ * the parent happens to re-render. This wrapper owns a lightweight ticker that
+ * re-renders just itself every `intervalMs`, keeping the readout live without
+ * forcing a re-render of the (often heavy) surrounding panel. It mirrors the
+ * self-contained interval used by Callbacks' `LastCheckinCell`.
+ *
+ * Defined with `React.createElement` because this module is a `.ts` file and
+ * therefore can't contain JSX.
+ */
+export function RelativeTime({
+    value,
+    intervalMs = 1000,
+}: {
+    value: string | null | undefined;
+    intervalMs?: number;
+}): React.ReactElement {
+    const [, setTick] = React.useState(0);
+    React.useEffect(() => {
+        const id = setInterval(() => setTick((t) => t + 1), intervalMs);
+        return () => clearInterval(id);
+    }, [intervalMs]);
+    return React.createElement(React.Fragment, null, timeAgo(value));
+}

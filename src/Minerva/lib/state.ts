@@ -79,7 +79,7 @@ export const operatorSettingDefaults: Record<string, any> = {
     showHostname: false,
     showOPSECBypassUsername: false,
     showCallbackGroups: false,
-    useDisplayParamsForCLIHistory: true,
+    useDisplayParamsForCLIHistory: false,
     interactType: "interactSplit",
     taskTimestampDisplayField: "timestamp",
     callbacks_table_columns: [

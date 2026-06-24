@@ -29,81 +29,12 @@ import type { CallbackPort } from '../../types/tunnels';
 import { loadingSound, fmtBytes } from './tunnels.utils';
 import { TunnelRow } from './TunnelRow';
 import { tnNodeTypes, tnEdgeTypes, buildTunnelGraph, TnLegend } from './TunnelGraph';
+import { useAllMsfTunnels } from '../Metasploit/msfTunnelStore';
+import { useMsfSyntheticCallbacks } from '../Callbacks/msfSyntheticCallbacks';
+import { msfTunnelToCallbackPort } from './msfTunnelAdapter';
 
 // ============================================
-// Flow Diagram components (inline — small)
-// ============================================
-
-/** Single labelled node box in the flow diagram */
-const FlowNode = ({
-    label,
-    sublabel,
-    borderClass = 'border-white/15',
-    bgClass = 'bg-black/50',
-    labelClass = 'text-gray-200',
-}: {
-    label: React.ReactNode;
-    sublabel?: string;
-    borderClass?: string;
-    bgClass?: string;
-    labelClass?: string;
-}) => (
-    <div className={cn('px-2 py-1 border shrink-0 text-center', borderClass, bgClass)}>
-        <div className={cn('font-mono font-bold text-[11px] tracking-wide leading-none', labelClass)}>{label}</div>
-        {sublabel && (
-            <div className="text-[9px] text-gray-600 font-mono mt-0.5 leading-none tracking-widest uppercase">{sublabel}</div>
-        )}
-    </div>
-);
-
-/** Connecting line with an animated Framer-Motion particle */
-const FlowArrow = ({
-    active,
-    particleClass,
-    direction = 'right',
-    label,
-}: {
-    active: boolean;
-    particleClass: string;
-    direction?: 'right' | 'left' | 'both';
-    label?: string;
-}) => {
-    const arrowTxtClass = active ? particleClass.replace('bg-', 'text-') : 'text-gray-700';
-    return (
-        <div className="flex flex-col items-center justify-center flex-1 min-w-[36px] max-w-[80px]">
-            {label && (
-                <span className="text-[9px] text-gray-600 font-mono mb-0.5 tracking-wider uppercase">{label}</span>
-            )}
-            <div className="relative flex items-center w-full gap-0.5">
-                {(direction === 'left' || direction === 'both') && (
-                    <span className={cn('text-[10px] leading-none shrink-0', arrowTxtClass)}>◂</span>
-                )}
-                <div className="relative flex-1 h-px bg-gray-700/50 overflow-hidden">
-                    {active && (
-                        <motion.div
-                            className={cn('absolute top-[-1.5px] h-[4px] w-3 rounded-sm opacity-80', particleClass)}
-                            animate={{ x: direction === 'left' ? ['110%', '-60%'] : ['-60%', '110%'] }}
-                            transition={{ duration: 1.3, repeat: Infinity, ease: 'linear' }}
-                        />
-                    )}
-                    {active && direction === 'both' && (
-                        <motion.div
-                            className={cn('absolute top-[-1.5px] h-[4px] w-3 rounded-sm opacity-50', particleClass)}
-                            animate={{ x: ['110%', '-60%'] }}
-                            transition={{ duration: 1.3, repeat: Infinity, ease: 'linear', delay: 0.65 }}
-                        />
-                    )}
-                </div>
-                {(direction === 'right' || direction === 'both') && (
-                    <span className={cn('text-[10px] leading-none shrink-0', arrowTxtClass)}>▸</span>
-                )}
-            </div>
-        </div>
-    );
-};
-
-// ============================================
-// Stats bar
+// Stats strip — minimal "data ribbon"
 // ============================================
 const StatsBar = ({ ports }: { ports: CallbackPort[] }) => {
     const active = ports.filter(p => !p.deleted);
@@ -113,27 +44,33 @@ const StatsBar = ({ ports }: { ports: CallbackPort[] }) => {
     const totalRx = active.reduce((a, p) => a + (p.bytes_received || 0), 0);
     const totalTx = active.reduce((a, p) => a + (p.bytes_sent || 0), 0);
 
-    const Stat = ({ label, value, color }: { label: string; value: string | number; color: string }) => (
-        <div className="text-right border-l border-ghost/20 pl-5">
-            <div className="text-gray-400 text-[11px] font-mono tracking-widest">{label}</div>
-            <div className={cn('text-xl font-bold tabular-nums font-mono', color)}>{value}</div>
+    const Cell = ({
+        label, value, color = 'text-white',
+    }: { label: string; value: React.ReactNode; color?: string }) => (
+        <div className="flex flex-col items-end leading-none">
+            <span className="text-[9px] tracking-[0.25em] text-zinc-500 mb-1">{label}</span>
+            <span className={cn('text-base font-bold tabular-nums font-mono', color)}>{value}</span>
         </div>
     );
 
     return (
-        <div className="flex gap-5 text-sm font-mono items-center">
-            <Stat label="ACTIVE"      value={active.length} color="text-signal" />
-            <Stat label="SOCKS5"      value={socks.length}  color="text-signal" />
-            <Stat label="RPFWD"       value={rpfwd.length}  color="text-blue-400" />
-            <Stat label="INTERACTIVE" value={inter.length}  color="text-purple-400" />
-            <div className="text-right border-l border-ghost/20 pl-5">
-                <div className="text-gray-400 text-[11px] font-mono tracking-widest">RX / TX</div>
-                <div className="flex items-baseline gap-1.5">
-                    <span className="text-xl font-bold font-mono tabular-nums text-green-400">{fmtBytes(totalRx)}</span>
-                    <span className="text-ghost/40 text-sm">/</span>
-                    <span className="text-xl font-bold font-mono tabular-nums text-blue-400">{fmtBytes(totalTx)}</span>
-                </div>
-            </div>
+        <div className="flex items-stretch gap-5 font-mono">
+            <Cell label="ACTIVE" value={active.length} color="text-signal" />
+            <div className="w-px bg-white/10" />
+            <Cell label="SOCKS5" value={socks.length} color="text-emerald-400" />
+            <Cell label="RPFWD"  value={rpfwd.length} color="text-sky-400" />
+            <Cell label="INTER"  value={inter.length} color="text-purple-400" />
+            <div className="w-px bg-white/10" />
+            <Cell
+                label="RX / TX"
+                value={
+                    <span className="flex items-baseline gap-1">
+                        <span className="text-emerald-400">{fmtBytes(totalRx)}</span>
+                        <span className="text-zinc-600 text-xs">/</span>
+                        <span className="text-sky-400">{fmtBytes(totalTx)}</span>
+                    </span>
+                }
+            />
         </div>
     );
 };
@@ -142,8 +79,27 @@ const StatsBar = ({ ports }: { ports: CallbackPort[] }) => {
 // Main Page
 // ============================================
 export default function Tunnels() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [ports, setPorts] = useState<CallbackPort[]>([]);
+    const msfTunnels = useAllMsfTunnels();
+    const msfCallbacks = useMsfSyntheticCallbacks();
+    // Merge Mythic tunnels (from Hasura subscription) with MSF SOCKS
+    // tunnels (driven by msfTunnelStore). One row per Mythic operation:
+    // pick the most-recently attached session as the visual
+    // representative for the embedded callback block; the row's
+    // description still surfaces the full session count + route count.
+    const allPorts = useMemo<CallbackPort[]>(() => {
+        const synthetic: CallbackPort[] = [];
+        for (const t of msfTunnels) {
+            const attachedSids = Object.entries(t.sessions)
+                .sort(([, a], [, b]) => b.attachedAt.localeCompare(a.attachedAt))
+                .map(([sid]) => sid);
+            const repSid = attachedSids[0];
+            const rep = repSid ? msfCallbacks.find((c: any) => c._msfSessionId === repSid) : undefined;
+            synthetic.push(msfTunnelToCallbackPort(t, rep));
+        }
+        return synthetic.length > 0 ? [...ports, ...synthetic] : ports;
+    }, [ports, msfTunnels, msfCallbacks]);
     const [showStopped, setShowStopped] = useState(false);
     const [search, setSearch] = useState('');
     const [sortField, setSortField] = useState<'port' | 'type' | 'callback' | 'traffic'>('port');
@@ -151,6 +107,7 @@ export default function Tunnels() {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     const [hiddenPorts, setHiddenPorts] = useState<Set<number>>(new Set());
+    const [selectedPortId, setSelectedPortId] = useState<number | null>(null);
 
     // Play loading sound on mount
     useEffect(() => {
@@ -167,7 +124,7 @@ export default function Tunnels() {
             return { ...p, callback: { ...p.callback, active: alive } };
         });
 
-    // Periodic alive-check: re-evaluate every 15 s
+    // Periodic alive-check
     useEffect(() => {
         const id = setInterval(() => {
             setPorts(prev => {
@@ -181,28 +138,32 @@ export default function Tunnels() {
     // Rebuild graph whenever ports / showStopped / hiddenPorts changes
     useEffect(() => {
         const timer = setTimeout(() => {
-            const visible = ports.filter(p =>
+            const visible = allPorts.filter(p =>
                 !hiddenPorts.has(p.id) && (showStopped || !p.deleted)
             );
             const { nodes: n, edges: e } = buildTunnelGraph(visible);
             setNodes(n);
             setEdges(e);
-        }, 80); // debounce to batch rapid state changes
+        }, 80);
         return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ports, showStopped, hiddenPorts]);
+    }, [allPorts, showStopped, hiddenPorts]);
 
     // Optimistic local toggle
     const handlePortToggled = (id: number, deleted: boolean) => {
         setPorts(prev => prev.map(p => p.id === id ? { ...p, deleted } : p));
     };
 
-    // Hide / Unhide handlers (client-side only)
+    // Hide / Unhide handlers
     const handleHidePort = (id: number) => {
         setHiddenPorts(prev => new Set(prev).add(id));
+        if (selectedPortId === id) setSelectedPortId(null);
     };
-    const handleUnhideAll = () => {
-        setHiddenPorts(new Set());
+    const handleUnhideAll = () => setHiddenPorts(new Set());
+
+    // Toggle selection (click again to deselect)
+    const handleSelect = (id: number) => {
+        setSelectedPortId(prev => prev === id ? null : id);
     };
 
     // Real-time stream subscription
@@ -228,7 +189,7 @@ export default function Tunnels() {
     });
 
     const filtered = useMemo(() => {
-        let list = ports.filter(p => !hiddenPorts.has(p.id) && (showStopped || !p.deleted));
+        let list = allPorts.filter(p => !hiddenPorts.has(p.id) && (showStopped || !p.deleted));
         if (search.trim()) {
             const q = search.toLowerCase();
             list = list.filter(p =>
@@ -255,23 +216,19 @@ export default function Tunnels() {
         });
 
         return list;
-    }, [ports, showStopped, hiddenPorts, search, sortField, sortDir]);
+    }, [allPorts, showStopped, hiddenPorts, search, sortField, sortDir]);
 
     const toggleSort = (field: typeof sortField) => {
-        if (sortField === field) {
-            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortField(field);
-            setSortDir('asc');
-        }
+        if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        else { setSortField(field); setSortDir('asc'); }
     };
 
     const SortBtn = ({ field, label }: { field: typeof sortField; label: string }) => (
         <button
             onClick={() => toggleSort(field)}
             className={cn(
-                'flex items-center gap-1 text-xs font-mono font-bold tracking-wider transition-colors',
-                sortField === field ? 'text-signal' : 'text-gray-500 hover:text-gray-300'
+                'flex items-center gap-1 text-[10px] font-mono font-bold tracking-[0.2em] transition-colors',
+                sortField === field ? 'text-signal' : 'text-zinc-600 hover:text-zinc-300'
             )}
         >
             {label}
@@ -285,64 +242,67 @@ export default function Tunnels() {
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
             <main
                 className={cn(
-                    'transition-all duration-300 p-6 lg:p-12 h-screen flex flex-col overflow-hidden',
+                    'transition-all duration-300 p-6 lg:p-10 h-screen flex flex-col overflow-hidden',
                     isSidebarCollapsed ? 'ml-16' : 'ml-64'
                 )}
             >
-                {/* Header */}
+                {/* ── Header ──────────────────────────────────────── */}
                 <motion.header
-                    className="flex justify-between items-center mb-8"
+                    className="flex justify-between items-center mb-6"
                     initial={{ opacity: 0, y: -18 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.35, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
                 >
                     <div className="flex items-center gap-4">
-                        <div className="p-3 border border-white/50 bg-white/10 rounded">
-                            <Network size={24} className="text-white" />
+                        <div
+                            className="p-3 border border-white/40 bg-white/5 relative"
+                            style={{ clipPath: 'polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px))' }}
+                        >
+                            <Network size={22} className="text-white" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold tracking-widest text-white uppercase">TUNNEL MANAGER</h1>
-                            <p className="text-xs text-gray-300 font-mono flex items-center gap-2 uppercase tracking-[0.2em]">
-                                <span className="w-2 h-2 bg-signal rounded-full animate-pulse" />
-                                ACTIVE TUNNELS
+                            <h1 className="text-xl font-bold tracking-[0.25em] text-white uppercase">TUNNEL MANAGER</h1>
+                            <p className="text-[10px] text-zinc-400 font-mono flex items-center gap-2 uppercase tracking-[0.3em] mt-0.5">
+                                <span className="w-1.5 h-1.5 bg-signal rounded-full animate-pulse" />
+                                LIVE TRAFFIC TOPOLOGY
                             </p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-6">
-                        <StatsBar ports={ports} />
+                    <div className="flex items-center gap-5">
+                        <StatsBar ports={allPorts} />
 
-                        <div className="h-8 w-px bg-ghost/20" />
+                        <div className="h-9 w-px bg-white/10" />
 
                         <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-2 bg-black/40 border border-white/10 px-3 py-1.5 focus-within:border-signal/50 transition-colors">
-                                <Search size={12} className="text-gray-500 shrink-0" />
+                            <div className="flex items-center gap-2 bg-black/40 border border-white/10 px-2.5 py-1.5 focus-within:border-signal/50 transition-colors">
+                                <Search size={11} className="text-zinc-500 shrink-0" />
                                 <input
                                     type="text"
                                     value={search}
                                     onChange={e => setSearch(e.target.value)}
-                                    placeholder="Filter by port, host, IP..."
-                                    className="bg-transparent outline-none text-white font-mono text-xs placeholder-gray-600 w-44"
+                                    placeholder="filter port / host / ip"
+                                    className="bg-transparent outline-none text-white font-mono text-xs placeholder-zinc-700 w-44"
                                 />
                             </div>
                             <button
                                 onClick={() => setShowStopped(s => !s)}
                                 className={cn(
-                                    'flex items-center gap-1.5 px-3 py-1.5 border font-mono text-xs transition-colors whitespace-nowrap',
+                                    'flex items-center gap-1.5 px-3 py-1.5 border font-mono text-[10px] tracking-widest transition-colors whitespace-nowrap',
                                     showStopped
                                         ? 'border-signal/40 text-signal bg-signal/10'
-                                        : 'border-gray-700 text-gray-500 hover:border-gray-500'
+                                        : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
                                 )}
                             >
-                                {showStopped ? <Eye size={12} /> : <EyeOff size={12} />}
+                                {showStopped ? <Eye size={11} /> : <EyeOff size={11} />}
                                 {showStopped ? 'HIDE STOPPED' : 'SHOW STOPPED'}
                             </button>
                             {hiddenPorts.size > 0 && (
                                 <button
                                     onClick={handleUnhideAll}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 border border-yellow-500/40 text-yellow-400 font-mono text-xs hover:bg-yellow-500/10 transition-colors whitespace-nowrap"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 border border-yellow-500/40 text-yellow-400 font-mono text-[10px] tracking-widest hover:bg-yellow-500/10 transition-colors whitespace-nowrap"
                                 >
-                                    <Eye size={12} />
+                                    <Eye size={11} />
                                     UNHIDE ({hiddenPorts.size})
                                 </button>
                             )}
@@ -350,89 +310,29 @@ export default function Tunnels() {
                     </div>
                 </motion.header>
 
-                {/* Body: left list + right graph */}
-                <div className="flex-1 flex overflow-hidden">
+                {/* ── Body: traffic map + info cards ─────────────── */}
+                <div className="flex-1 flex overflow-hidden gap-4">
 
-                    {/* ── LEFT: Tunnel list ─────────────────────────────── */}
+                    {/* ── LEFT: Traffic flow map (2D) ──────────────── */}
                     <motion.div
-                        className="w-[480px] shrink-0 flex flex-col border-r border-white/8 overflow-hidden"
+                        className="flex-1 relative overflow-hidden border border-white/8"
+                        style={{
+                            background: '#030307',
+                            clipPath: 'polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px))',
+                        }}
                         initial={{ opacity: 0, x: -28 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.35, delay: 0.14, ease: [0.22, 1, 0.36, 1] }}
                     >
-                        <div className="flex-1 overflow-y-auto p-4 cyber-scrollbar">
-                            {/* Sort controls */}
-                            <div className="flex items-center gap-3 mb-4 px-1 flex-wrap">
-                                <span className="text-gray-500 text-xs font-mono tracking-widest">SORT:</span>
-                                <SortBtn field="port" label="PORT" />
-                                <SortBtn field="type" label="TYPE" />
-                                <SortBtn field="callback" label="CB" />
-                                <SortBtn field="traffic" label="TRAFFIC" />
-                                <span className="ml-auto text-gray-400 text-xs font-mono shrink-0">
-                                    {filtered.length} tunnel{filtered.length !== 1 ? 's' : ''}
-                                    {!showStopped && ports.filter(p => p.deleted).length > 0 && (
-                                        <span className="ml-1 text-gray-600">
-                                            (+{ports.filter(p => p.deleted).length} stopped)
-                                        </span>
-                                    )}
-                                    {hiddenPorts.size > 0 && (
-                                        <span className="ml-1 text-yellow-600">
-                                            (+{hiddenPorts.size} hidden)
-                                        </span>
-                                    )}
-                                </span>
-                            </div>
-
-                            {/* Tunnel list */}
-                            <AnimatePresence initial={false}>
-                                {filtered.length === 0 ? (
-                                    <motion.div
-                                        key="empty"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        className="flex flex-col items-center justify-center h-48 gap-3 text-gray-600 font-mono"
-                                    >
-                                        <Network size={32} className="opacity-20" />
-                                        <span className="text-sm tracking-widest">
-                                            {ports.length === 0
-                                                ? 'NO ACTIVE TUNNELS'
-                                                : search
-                                                    ? 'NO RESULTS FOR FILTER'
-                                                    : 'NO MATCHING TUNNELS'}
-                                        </span>
-                                        {ports.length > 0 && !showStopped && (
-                                            <button
-                                                onClick={() => setShowStopped(true)}
-                                                className="text-[11px] text-signal hover:underline tracking-wider"
-                                            >
-                                                Show stopped tunnels
-                                            </button>
-                                        )}
-                                    </motion.div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {filtered.map(port => (
-                                            <TunnelRow key={port.id} port={port} onPortToggled={handlePortToggled} onHide={handleHidePort} />
-                                        ))}
-                                    </div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-                    </motion.div>
-
-                    {/* ── RIGHT: Flow-map graph ─────────────────────────── */}
-                    <motion.div
-                        className="flex-1 relative overflow-hidden"
-                        style={{ background: '#030303' }}
-                        initial={{ opacity: 0, x: 28 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ duration: 0.35, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                    >
-                        {/* keyframe for animated edges */}
                         <style>{`@keyframes tunnelDash { to { stroke-dashoffset: -28; } }`}</style>
 
+                        <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-2">
+                            <span className="w-1 h-3.5 bg-signal" style={{ boxShadow: '0 0 6px #22c55e' }} />
+                            <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-white">FLOW MAP</span>
+                        </div>
+
                         {ports.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-700 font-mono">
+                            <div className="flex flex-col items-center justify-center h-full gap-3 text-zinc-700 font-mono">
                                 <Network size={36} className="opacity-15" />
                                 <span className="text-xs tracking-widest">FLOW MAP — WAITING FOR TUNNELS</span>
                             </div>
@@ -450,7 +350,7 @@ export default function Tunnels() {
                                     minZoom={0.2}
                                     maxZoom={2.5}
                                     proOptions={{ hideAttribution: true }}
-                                    style={{ background: '#030303' }}
+                                    style={{ background: '#030307' }}
                                 >
                                     <Background
                                         variant={"dots" as BackgroundVariant}
@@ -458,21 +358,96 @@ export default function Tunnels() {
                                         size={0.8}
                                         color="#111111"
                                     />
-
                                 </ReactFlow>
 
-                                {/* Legend overlay */}
                                 <div className="absolute top-3 right-3 z-10 pointer-events-none">
                                     <TnLegend />
                                 </div>
-                                {/* Hint */}
                                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-                                    <span className="font-mono text-[9px] text-gray-700 bg-black/60 border border-white/5 px-2.5 py-1 tracking-widest whitespace-nowrap">
-                                        DRAG · SCROLL TO ZOOM · ANIMATED = LIVE TRAFFIC
+                                    <span className="font-mono text-[9px] text-zinc-700 bg-black/60 border border-white/5 px-2.5 py-1 tracking-widest whitespace-nowrap">
+                                        DRAG · SCROLL · 3D VIEW IS NOW IN TOPOLOGY3D
                                     </span>
                                 </div>
                             </>
                         )}
+                    </motion.div>
+
+                    {/* ── RIGHT: Info-card column ────────────────────── */}
+                    <motion.div
+                        className="w-[460px] shrink-0 flex flex-col overflow-hidden border border-white/8"
+                        style={{
+                            background: 'linear-gradient(180deg, #060609 0%, #030305 100%)',
+                            clipPath: 'polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px))',
+                        }}
+                        initial={{ opacity: 0, x: 28 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.35, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                        {/* Card column header */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/8 bg-black/30">
+                            <div className="flex items-center gap-2">
+                                <span className="w-1 h-3.5 bg-signal" style={{ boxShadow: '0 0 6px #22c55e' }} />
+                                <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-white">TUNNELS</span>
+                                <span className="font-mono text-[10px] text-zinc-500">
+                                    {filtered.length}
+                                    {!showStopped && ports.filter(p => p.deleted).length > 0 && (
+                                        <span className="text-zinc-700 ml-1">(+{ports.filter(p => p.deleted).length} stopped)</span>
+                                    )}
+                                    {hiddenPorts.size > 0 && (
+                                        <span className="text-yellow-600 ml-1">(+{hiddenPorts.size} hidden)</span>
+                                    )}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-zinc-700 text-[9px] font-mono tracking-[0.25em]">SORT</span>
+                                <SortBtn field="port" label="PORT" />
+                                <SortBtn field="type" label="TYPE" />
+                                <SortBtn field="callback" label="CB" />
+                                <SortBtn field="traffic" label="↓↑" />
+                            </div>
+                        </div>
+
+                        {/* Card list */}
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2 cyber-scrollbar">
+                            <AnimatePresence initial={false}>
+                                {filtered.length === 0 ? (
+                                    <motion.div
+                                        key="empty"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        className="flex flex-col items-center justify-center h-48 gap-3 text-zinc-700 font-mono"
+                                    >
+                                        <Network size={28} className="opacity-20" />
+                                        <span className="text-xs tracking-widest">
+                                            {ports.length === 0
+                                                ? 'NO ACTIVE TUNNELS'
+                                                : search
+                                                    ? 'NO RESULTS FOR FILTER'
+                                                    : 'NO MATCHING TUNNELS'}
+                                        </span>
+                                        {ports.length > 0 && !showStopped && (
+                                            <button
+                                                onClick={() => setShowStopped(true)}
+                                                className="text-[10px] text-signal hover:underline tracking-wider"
+                                            >
+                                                Show stopped tunnels
+                                            </button>
+                                        )}
+                                    </motion.div>
+                                ) : (
+                                    filtered.map(port => (
+                                        <TunnelRow
+                                            key={port.id}
+                                            port={port}
+                                            selected={selectedPortId === port.id}
+                                            onSelect={handleSelect}
+                                            onPortToggled={handlePortToggled}
+                                            onHide={handleHidePort}
+                                        />
+                                    ))
+                                )}
+                            </AnimatePresence>
+                        </div>
                     </motion.div>
 
                 </div>

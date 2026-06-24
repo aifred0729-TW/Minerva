@@ -73,9 +73,39 @@ http {
             proxy_send_timeout 86400s;
         }
 
+        # Mythic REST/webhook API — task_upload_file_webhook, eventing_import_webhook,
+        # files/download/*, /api/v1.0/health, etc. All client calls under /api/* go
+        # straight to mythic_server. Buffering is disabled so multi-megabyte file
+        # uploads stream through without spooling to disk inside this proxy.
+        location /api/ {
+            proxy_pass ${MYTHIC_ADDRESS}/api/;
+            proxy_ssl_verify off;
+
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_request_buffering off;
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+        }
+
         # Auth endpoint
         location /auth {
             proxy_pass ${MYTHIC_ADDRESS}/auth;
+            proxy_ssl_verify off;
+
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Invite registration endpoint
+        location /invite {
+            proxy_pass ${MYTHIC_ADDRESS}/invite;
             proxy_ssl_verify off;
 
             proxy_set_header Host $host;

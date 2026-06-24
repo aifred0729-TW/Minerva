@@ -14,6 +14,10 @@ export interface NodeContextMenuState {
     x: number;
     y: number;
     callback: Callback;
+    /** Bounding rect of the node's DOM element at right-click time — used by
+     *  flow-anchored panels (e.g. LINK_TO_PARENT) to compute precise anchor
+     *  coords without relying on React Flow's possibly-stale `measured`. */
+    nodeRect?: DOMRect | null;
 }
 
 export interface EdgeContextMenuState {
@@ -43,7 +47,7 @@ export interface GraphContextMenusProps {
     onEditCustomNode: (node: any) => void;
     onClearLinkFocus: () => void;
     onSetLinkFocus: (id: string, label: string) => void;
-    onSetParent: (callback: Callback) => void;
+    onSetParent: (callback: Callback, anchor?: { x: number; y: number }) => void;
     getParentEdge: (id: number | string) => any;
     onDisconnectParent: (callback: Callback) => void;
     onDeleteCustomNode: (node: any) => void;
@@ -131,28 +135,28 @@ export function GraphContextMenus({
                                     </button>
                                 )}
 
-                                <button 
-                                    onClick={() => onSetParent(contextMenu.callback)} 
+                                <button
+                                    onClick={() => onSetParent(contextMenu.callback, { x: contextMenu.x, y: contextMenu.y })}
                                     className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
                                 >
-                                    <GitBranch size={14} className="text-blue-500" /> 
+                                    <GitBranch size={14} className="text-blue-500" />
                                     <span>Link to Parent</span>
                                 </button>
 
                                 {getParentEdge(contextMenu.callback.id) && (
-                                    <button 
-                                        onClick={() => onDisconnectParent(contextMenu.callback)} 
+                                    <button
+                                        onClick={() => onDisconnectParent(contextMenu.callback)}
                                         className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
                                     >
-                                        <X size={14} className="text-orange-500" /> 
+                                        <X size={14} className="text-orange-500" />
                                         <span>Disconnect from Parent</span>
                                     </button>
                                 )}
 
                                 <div className="h-px bg-white/10 my-1" />
 
-                                <button 
-                                    onClick={() => onDeleteCustomNode(contextMenu.callback)} 
+                                <button
+                                    onClick={() => onDeleteCustomNode(contextMenu.callback)}
                                     className="flex items-center gap-3 px-3 py-2.5 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors group"
                                 >
                                     <X size={14} className="text-red-500" /> 
@@ -229,28 +233,28 @@ export function GraphContextMenus({
                                     </button>
                                 )}
 
-                                <button 
-                                    onClick={() => onSetParent(contextMenu.callback)} 
+                                <button
+                                    onClick={() => onSetParent(contextMenu.callback, { x: contextMenu.x, y: contextMenu.y })}
                                     className="flex items-center gap-3 px-3 py-2.5 hover:bg-blue-900/30 text-xs text-left text-blue-400 hover:text-blue-300 transition-colors group"
                                 >
-                                    <GitBranch size={14} className="text-blue-500" /> 
+                                    <GitBranch size={14} className="text-blue-500" />
                                     <span>Link to Parent</span>
                                 </button>
 
                                 {getParentEdge(contextMenu.callback.id) && (
-                                    <button 
-                                        onClick={() => onDisconnectParent(contextMenu.callback)} 
+                                    <button
+                                        onClick={() => onDisconnectParent(contextMenu.callback)}
                                         className="flex items-center gap-3 px-3 py-2.5 hover:bg-orange-900/30 text-xs text-left text-orange-400 hover:text-orange-300 transition-colors group"
                                     >
-                                        <X size={14} className="text-orange-500" /> 
+                                        <X size={14} className="text-orange-500" />
                                         <span>Disconnect from Parent</span>
                                     </button>
                                 )}
 
                                 <div className="h-px bg-white/10 my-1" />
 
-                                <button 
-                                    onClick={() => onHide(contextMenu.callback)} 
+                                <button
+                                    onClick={() => onHide(contextMenu.callback)}
                                     className="flex items-center gap-3 px-3 py-2.5 hover:bg-red-900/30 text-xs text-left text-red-400 hover:text-red-300 transition-colors group"
                                 >
                                     <EyeOff size={14} className="text-red-500" /> 

@@ -36,7 +36,7 @@ export function CreateWrapperWizard({
     onComplete?: (uuid?: string) => void;
 }) {
     const navigate = useNavigate();
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const me = useReactiveVar(meState);
 
     const [currentStep, setCurrentStep] = useState(0);

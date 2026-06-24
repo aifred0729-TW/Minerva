@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { Callback, CallbackGraphEdge, CallbackC2Profile, CallbackTag } from '../../types';
 import { useQuery, useSubscription, useMutation, useLazyQuery, useApolloClient, useReactiveVar } from "@apollo/client/react";
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -52,7 +52,7 @@ import {
 import { useAppStore } from '../../store';
 import { usePageVisible } from '../../lib/usePageVisible';
 import { meState } from '../../lib/state';
-import { isCallbackAlive, cn, getErrorMessage, parseIPString, parseFirstIP, downloadBlob } from '../../lib/utils';
+import { isCallbackAlive, isOrphanedTcpP2P, cn, getErrorMessage, parseIPString, parseFirstIP, downloadBlob } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
 import { CyberTable } from '../../components/CyberTable';
 import { CyberModal } from '../../components/CyberModal';
@@ -79,6 +79,10 @@ import {
     UPDATE_CALLBACK_GROUPS_MUTATION,
     GET_CUSTOM_BROWSERS,
 }from '../../lib/api';
+import { killSession as killMsfSession } from '../Metasploit/msfrpc';
+import { useMsfSyntheticCallbacks, removeMsfSessionFromLedger, clearDeadMsfSessions, msfSessionIdOf, setMsfSessionHidden } from './msfSyntheticCallbacks';
+import { MsfSocksDialog } from './MsfSocksDialog';
+import { useAllMsfTunnels } from '../Metasploit/msfTunnelStore';
 import { loadingSound, LastCheckinCell, getPlatformIcon, JsonHighlight } from './utils';
 import { DetailedCallbackModal } from './DetailedCallbackModal';
 import { C2PathDialog } from './C2PathDialog';
@@ -92,7 +96,7 @@ const CONTEXT_MENU_MAX_HEIGHT = 600;
 const MENU_MIN_SPACE_BELOW = 260;
 
 export default function Callbacks() {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const pageVisible = usePageVisible();
     React.useEffect(() => {
         const audio = new Audio(loadingSound);
@@ -107,6 +111,11 @@ export default function Callbacks() {
     const { data: edgesData } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES, { pollInterval: pageVisible ? 10000 : 0 });
     const { data: customBrowsersData } = useQuery<any>(GET_CUSTOM_BROWSERS);
     const customBrowsers = customBrowsersData?.custombrowser || [];
+
+    // ── MSF session injection ─────────────────────────────────────────────
+    // MSF sessions are surfaced through a shared hook so the 2D CallbackGraph
+    // and the 3D Topology view see the same set of synthetic nodes.
+    const msfCallbacks = useMsfSyntheticCallbacks();
     const me = useReactiveVar(meState);
     const navigate = useNavigate();
     const [hideCallback] = useMutation<any>(HIDE_CALLBACK_MUTATION);
@@ -123,6 +132,8 @@ export default function Callbacks() {
     const [bulkHideCallbacks] = useMutation<any>(HIDE_CALLBACKS_BULK);
     const client = useApolloClient();
     const [actionsMenuOpenId, setActionsMenuOpenId] = useState<number | null>(null);
+    const [socksDialogFor, setSocksDialogFor] = useState<Callback | null>(null);
+    const msfTunnels = useAllMsfTunnels();
     const [showEventingDialog, setShowEventingDialog] = useState<Callback | null>(null);
     const [sleepEditCallback, setSleepEditCallback] = useState<Callback | null>(null);
     const [sleepEditValue, setSleepEditValue] = useState('');
@@ -183,6 +194,19 @@ export default function Callbacks() {
     const [splitSecondId, setSplitSecondId] = useState<number | null>(null);
     // ── Selected row highlight ──
     const [selectedCallbackId, setSelectedCallbackId] = useState<number | null>(null);
+    const highlightAppliedRef = React.useRef(false);
+    const { displayId: urlDisplayId } = useParams<{ displayId?: string }>();
+
+    // Auto-highlight + scroll when navigating via /callbacks/:displayId deep-link
+    useEffect(() => {
+        if (!urlDisplayId || highlightAppliedRef.current) return;
+        const targetDisplayId = parseInt(urlDisplayId, 10);
+        const cb = (data?.callback || []).find((c: Callback) => c.display_id === targetDisplayId);
+        if (cb) {
+            setSelectedCallbackId(cb.id);
+            highlightAppliedRef.current = true;
+        }
+    }, [data, urlDisplayId]);
     const handleSort = (key: string) => {
         if (sortKey === key) {
             if (sortDir === 'ASC') setSortDir('DESC');
@@ -273,6 +297,8 @@ export default function Callbacks() {
     }, [headerMenu]);
 
     const handleInteract = useCallback((row: Callback, newWindow = false) => {
+        // Both Mythic and MSF callbacks share `/console/<displayId>` — the
+        // Console page picks MSF mode when display_id >= MSF_DISPLAY_ID_OFFSET.
         if (newWindow || operatorSettings.interactType === 'new_window') {
             window.open(`/new/callbacks/${row.display_id}`, '_blank');
         } else if (operatorSettings.interactType === 'console_tab') {
@@ -320,10 +346,28 @@ export default function Callbacks() {
     }, []);
 
     const handleHide = async (cb: Callback) => {
+        // MSF synthetic callbacks aren't in Mythic's DB — flipping the
+        // `active` column via HIDE_CALLBACK_MUTATION would 404. Honour
+        // the same UX by toggling the operator-side `hidden` flag in
+        // the local ledger; the synthetic factory maps that to
+        // `active: false` so the standard "Hide Hidden" filter does
+        // the right thing without a server round trip.
+        if (cb._isMsfSession) {
+            const sid = cb._msfSessionId as string | undefined;
+            if (sid) { setMsfSessionHidden(sid, true); snackActions.success(`Callback ${cb.display_id} hidden`); }
+            setActionsMenuOpenId(null);
+            return;
+        }
         try { await hideCallback({ variables: { callback_display_id: cb.display_id, active: false } }); snackActions.success(`Callback ${cb.display_id} hidden`); refetch(); } catch (e: unknown) { snackActions.error(getErrorMessage(e)); }
         setActionsMenuOpenId(null);
     };
     const handleShow = async (cb: Callback) => {
+        if (cb._isMsfSession) {
+            const sid = cb._msfSessionId as string | undefined;
+            if (sid) { setMsfSessionHidden(sid, false); snackActions.success(`Callback ${cb.display_id} restored`); }
+            setActionsMenuOpenId(null);
+            return;
+        }
         try { await hideCallback({ variables: { callback_display_id: cb.display_id, active: true } }); snackActions.success(`Callback ${cb.display_id} restored`); refetch(); } catch (e: unknown) { snackActions.error(getErrorMessage(e)); }
         setActionsMenuOpenId(null);
     };
@@ -403,23 +447,28 @@ export default function Callbacks() {
 
     // ── C2 egress status map ──
     const callbackEgressStatus = useMemo(() => {
-        const map = new Map<number, { hasActiveEgress: boolean; isP2POnly: boolean }>();
+        const map = new Map<number, { hasActiveEgress: boolean; isP2POnly: boolean; hasActiveP2PPeer: boolean }>();
         const edges = edgesData?.callbackgraphedge || [];
         edges.forEach((edge: CallbackGraphEdge) => {
             [edge.source?.id, edge.destination?.id].filter(Boolean).forEach((id: number) => {
-                if (!map.has(id)) map.set(id, { hasActiveEgress: false, isP2POnly: true });
+                if (!map.has(id)) map.set(id, { hasActiveEgress: false, isP2POnly: true, hasActiveP2PPeer: false });
                 const entry = map.get(id)!;
                 if (!edge.c2profile?.is_p2p && edge.end_timestamp === null) entry.hasActiveEgress = true;
                 if (!edge.c2profile?.is_p2p) entry.isP2POnly = false;
+                if (edge.c2profile?.is_p2p && edge.end_timestamp === null) entry.hasActiveP2PPeer = true;
             });
         });
         return map;
     }, [edgesData]);
 
+    const edgesForOrphanCheck = edgesData?.callbackgraphedge as CallbackGraphEdge[] | undefined;
+
     // ── Per-column filter + sort logic ──
     const filteredData = useMemo(() => {
-        let rows = (data?.callback || []).filter((c: Callback) =>
-            (showHiddenCallbacks || c.active !== false) && (!hideDead || isCallbackAlive(c)));
+        // Mythic callbacks + MSF synthetic sessions in one stream
+        const combined = [...(data?.callback || []), ...msfCallbacks];
+        let rows = combined.filter((c: Callback) =>
+            (showHiddenCallbacks || c.active !== false) && (!hideDead || isCallbackAlive(c, edgesForOrphanCheck)));
         const filters = Object.entries(columnFilters).filter(([, v]) => v.trim());
         if (filters.length > 0) {
             rows = rows.filter((row: Callback) => {
@@ -510,7 +559,7 @@ export default function Callbacks() {
             });
         }
         return rows;
-    }, [data, showHiddenCallbacks, hideDead, columnFilters, sortKey, sortDir]);
+    }, [data, msfCallbacks, showHiddenCallbacks, hideDead, columnFilters, sortKey, sortDir, edgesForOrphanCheck]);
 
     // Group callbacks by host — show best per machine, expandable to see others
     const displayData = useMemo(() => {
@@ -534,8 +583,8 @@ export default function Callbacks() {
         for (const [hostKey, cbs] of hostMap.entries()) {
             // Sort: alive first → highest privilege → newest
             const sorted = [...cbs].sort((a, b) => {
-                const aAlive = a.active !== false && isCallbackAlive(a) ? 1 : 0;
-                const bAlive = b.active !== false && isCallbackAlive(b) ? 1 : 0;
+                const aAlive = a.active !== false && isCallbackAlive(a, edgesForOrphanCheck) ? 1 : 0;
+                const bAlive = b.active !== false && isCallbackAlive(b, edgesForOrphanCheck) ? 1 : 0;
                 if (bAlive !== aAlive) return bAlive - aAlive;
                 const aPriv = privOrder(a), bPriv = privOrder(b);
                 if (bPriv !== aPriv) return bPriv - aPriv;
@@ -615,7 +664,31 @@ export default function Callbacks() {
             )
         },
         PID: { header: "PID", accessorKey: "pid", className: "font-mono text-gray-400", filterKey: 'PID', sortKey: 'pid' },
-        "LAST CHECKIN": { header: "LAST CHECKIN", sortKey: 'last_checkin', cell: (row: Callback) => <LastCheckinCell lastCheckin={row.last_checkin} agentType={row.payload?.payloadtype?.agent_type} dead={row.dead} /> },
+        "LAST CHECKIN": {
+            header: "LAST CHECKIN", sortKey: 'last_checkin',
+            cell: (row: Callback) => {
+                // A callback is treated as "P2P-routed" only when every
+                // attached C2 profile is P2P — at least one direct C2
+                // (HTTP/HTTPS/etc.) means the agent has its own beacon
+                // and last_checkin is reliable.
+                const profiles = row.callbackc2profiles ?? [];
+                const isP2P = profiles.length > 0 && profiles.every(p => p?.c2profile?.is_p2p);
+                const lastTaskProcessedAt = row.tasks?.[0]?.status_timestamp_processed;
+                const orphanTcpP2P = isOrphanedTcpP2P(row, edgesForOrphanCheck);
+                return (
+                    <LastCheckinCell
+                        lastCheckin={row.last_checkin}
+                        agentType={row.payload?.payloadtype?.agent_type}
+                        dead={row.dead}
+                        sleepInfo={row.sleep_info}
+                        isP2P={isP2P}
+                        initCallback={row.init_callback}
+                        lastTaskProcessedAt={lastTaskProcessedAt}
+                        orphanTcpP2P={orphanTcpP2P}
+                    />
+                );
+            },
+        },
         DESCRIPTION: {
             header: "DESCRIPTION", filterKey: 'DESCRIPTION', sortKey: 'description',
             cell: (row: Callback) => <span className="text-xs text-gray-500 italic truncate max-w-[150px] block" title={row.description}>{row.description || "No description"}</span>
@@ -732,8 +805,11 @@ export default function Callbacks() {
                                     : <Terminal size={12} />}
                     </button>
                     {row.dead && <span title="Dead"><Skull size={11} className="text-red-500" /></span>}
-                    {!row.dead && !isCallbackAlive(row) && <span title="Not responding"><Skull size={11} className="text-yellow-600 opacity-50" /></span>}
-                    <span className={row.active === false ? "text-gray-600" : "text-gray-400"}>#{row.display_id}</span>
+                    {!row.dead && isOrphanedTcpP2P(row, edgesForOrphanCheck) && <span title="TCP P2P · no peer linked"><Skull size={11} className="text-red-500" /></span>}
+                    {!row.dead && !isOrphanedTcpP2P(row, edgesForOrphanCheck) && !isCallbackAlive(row) && <span title="Not responding"><Skull size={11} className="text-yellow-600 opacity-50" /></span>}
+                    <span className={row.active === false ? "text-gray-600" : "text-gray-400"}>
+                        #{row.display_id}
+                    </span>
                     {row.active === false && <span title="Hidden"><EyeOff size={11} className="text-yellow-500" /></span>}
                     {row.trigger_on_checkin_after_time && <span title="Alert trigger set"><Bell size={9} className="text-orange-400" /></span>}
                     {(row.callbackports || []).length > 0 && (
@@ -759,6 +835,74 @@ export default function Callbacks() {
                 <div className="relative">
                     <button onClick={(e) => handleActionsClick(e, row.id)} className="p-1 hover:text-signal text-gray-500 transition-colors"><MoreVertical size={16} /></button>
                     {actionsMenuOpenId === row.id && createPortal(
+                        row._isMsfSession ? (
+                        // MSF callback menu — visually identical to the
+                        // Mythic menu so meterpreter rows feel like just
+                        // another agent. The action set is a subset (we
+                        // skip the Mythic-only mutations Apollo/etc need
+                        // — lock/edit/eventing — because they'd write
+                        // to the Mythic callback table by display_id and
+                        // our synthetic ids don't exist there).
+                        <div className="fixed z-50 bg-black border border-signal/30 shadow-lg shadow-signal/10 w-64 backdrop-blur-md overflow-y-auto" style={{ top: menuPosition.top, bottom: menuPosition.bottom, left: menuPosition.left, maxHeight: menuPosition.maxH }} onClick={e => e.stopPropagation()}>
+                            <div className="px-3 py-2 border-b border-white/10">
+                                <div className="text-[10px] font-mono text-gray-500">CALLBACK #{row.display_id}</div>
+                                <div className="text-xs text-gray-300">{row.user}@{row.host}</div>
+                            </div>
+                            <div className="p-1 flex flex-col">
+                                <div className="px-3 py-1 text-[10px] font-mono text-gray-600 uppercase">Tasking Views</div>
+                                <button onClick={() => { handleInteract(row); setActionsMenuOpenId(null); }} className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors"><Terminal size={14} /> Interact (Console)</button>
+                                <button onClick={() => { window.open(`/console/${row.display_id}`, '_blank'); setActionsMenuOpenId(null); }} className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors"><ExternalLink size={14} /> Console (New Tab)</button>
+                                <button onClick={() => { navigator.clipboard.writeText(`#${row.display_id} ${row.user}@${row.host}`); snackActions.success('Copied'); setActionsMenuOpenId(null); }} className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors"><Copy size={14} /> Copy Identity</button>
+                                <div className="h-px bg-white/10 my-1" />
+                                {/* SOCKS routes — always available on alive rows. The
+                                    operation-wide tunnel auto-starts at boot; this
+                                    dialog edits which subnets this session contributes. */}
+                                {!row.dead && (() => {
+                                    const sid = msfSessionIdOf(row);
+                                    const attached = sid ? msfTunnels.some(t => sid in t.sessions) : false;
+                                    return (
+                                        <button onClick={() => { setSocksDialogFor(row); setActionsMenuOpenId(null); }}
+                                                className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors">
+                                            <Wifi size={14} /> {attached ? 'SOCKS Routes (Active)' : 'SOCKS Routes…'}
+                                        </button>
+                                    );
+                                })()}
+                                <div className="h-px bg-white/10 my-1" />
+                                {/* Kill — only meaningful while still alive */}
+                                {!row.dead && (
+                                    <button onClick={async () => {
+                                        if (!window.confirm(`Kill callback #${row.display_id}?`)) return;
+                                        try { await killMsfSession(String(row._msfSessionId)); snackActions.success(`Callback #${row.display_id} killed`); } catch (e: any) { snackActions.error(e?.message || 'Kill failed'); }
+                                        setActionsMenuOpenId(null);
+                                    }} className="flex items-center gap-2 px-3 py-2 hover:bg-red-900/30 text-xs text-red-400 hover:text-red-300 transition-colors"><XCircle size={14} /> Kill Session</button>
+                                )}
+                                {/* Hide / Show — mirrors the Mythic hide UX but
+                                    stored client-side because MSF synthetic
+                                    callbacks aren't in Mythic's DB. */}
+                                {row.active === false ? (
+                                    <button onClick={() => handleShow(row)} className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-signal transition-colors">
+                                        <Eye size={14} /> Show Callback
+                                    </button>
+                                ) : (
+                                    <button onClick={() => handleHide(row)} className="flex items-center gap-2 px-3 py-2 hover:bg-red-900/30 text-xs text-red-400 hover:text-red-300 transition-colors">
+                                        <EyeOff size={14} /> Hide Callback
+                                    </button>
+                                )}
+                                {/* Remove from list — drops the entry from the local ledger */}
+                                <button onClick={() => {
+                                    const ok = row.dead
+                                        ? true
+                                        : window.confirm(`Drop callback #${row.display_id} from the list?\n\nThis only hides it locally; the session itself is not killed.`);
+                                    if (!ok) return;
+                                    removeMsfSessionFromLedger(String(row._msfSessionId));
+                                    snackActions.success(`Callback #${row.display_id} removed`);
+                                    setActionsMenuOpenId(null);
+                                }} className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 text-xs text-gray-300 hover:text-orange-300 transition-colors">
+                                    <EyeOff size={14} /> {row.dead ? 'Remove from List' : 'Remove from List (local)'}
+                                </button>
+                            </div>
+                        </div>
+                        ) : (
                         <div className="fixed z-50 bg-black border border-signal/30 shadow-lg shadow-signal/10 w-64 backdrop-blur-md overflow-y-auto" style={{ top: menuPosition.top, bottom: menuPosition.bottom, left: menuPosition.left, maxHeight: menuPosition.maxH }} onClick={e => e.stopPropagation()}>
                             <div className="px-3 py-2 border-b border-white/10">
                                 <div className="text-[10px] font-mono text-gray-500">CALLBACK #{row.display_id}</div>
@@ -822,7 +966,8 @@ export default function Callbacks() {
                                     <button onClick={() => handleHide(row)} className="flex items-center gap-2 px-3 py-2 hover:bg-red-900/30 text-xs text-red-400 hover:text-red-300 transition-colors"><EyeOff size={14} /> Hide Callback</button>
                                 )}
                             </div>
-                        </div>,
+                        </div>
+                        ),
                         document.body
                     )}
                 </div>
@@ -1263,6 +1408,22 @@ export default function Callbacks() {
                         displayId={c2PathCallback.display_id}
                         onClose={() => setC2PathCallback(null)} />
                 )}
+            </AnimatePresence>
+            {/* MSF SOCKS Tunnel Dialog */}
+            <AnimatePresence>
+                {socksDialogFor && (() => {
+                    const sid = msfSessionIdOf(socksDialogFor);
+                    if (!sid) return null;
+                    return (
+                        <MsfSocksDialog
+                            open={true}
+                            onClose={() => setSocksDialogFor(null)}
+                            sessionId={sid}
+                            label={`${socksDialogFor.user}@${socksDialogFor.host}`}
+                            ipField={socksDialogFor.ip as any}
+                        />
+                    );
+                })()}
             </AnimatePresence>
             {/* Open Multiple Modal */}
             <AnimatePresence>

@@ -2,13 +2,21 @@ import React from 'react';
 import { useSubscription } from "@apollo/client/react";
 import { SUBSCRIBE_NEW_CALLBACKS, SUBSCRIBE_EVENTS, SUBSCRIBE_ALERT_COUNT } from '../lib/api';
 import { useAppStore } from '../store';
+import { useShallow } from 'zustand/shallow';
 import { getSkewedNow } from '../lib/time';
 import { Bell, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'react-toastify';
-import { playCallback, playNotification } from '../lib/soundEffects';
+import { playNotification } from '../lib/soundEffects';
 import { dbg } from '../lib/utils';
+import { pushBroadcast } from '../lib/broadcastBus';
+import { parseBroadcastMessage } from './broadcastTheme';
+import { subscribeMsfNewSession, pickMsfHost, pickMsfUser } from '../pages/Callbacks/msfSyntheticCallbacks';
 
-// Component that plays a sound when a new callback connects
+// Component that plays a sound + raises a top-center broadcast for every
+// callback arrival. Mythic native callbacks and Metasploit sessions both
+// flow through `pushBroadcast`, which calls `playCallback()` internally,
+// so the operator gets one consistent "new callback" notification regardless
+// of agent type.
 export function CallbackSoundTrigger() {
     const [fromNow] = React.useState(getSkewedNow().toISOString());
 
@@ -17,14 +25,50 @@ export function CallbackSoundTrigger() {
         fetchPolicy: "no-cache",
         shouldResubscribe: true,
         onData: ({ data }: { data: any } ) => {
-            if (data.data?.callback_stream?.length > 0) {
-                playCallback();
+            const incoming: any[] = data?.data?.callback_stream || [];
+            for (const cb of incoming) {
+                const agent = (cb?.payload?.payloadtype?.name || 'CALLBACK').toUpperCase();
+                const displayId = cb?.display_id ?? cb?.id;
+                // `pushBroadcast` already triggers `playCallback()` — explicitly
+                // calling it would double the chime.
+                pushBroadcast({
+                    level: 'ops',
+                    title: `New callback C${displayId}`,
+                    message: `${cb?.user || '?'}@${cb?.host || '?'} · ${agent}`,
+                    key: `mythic-new-callback-${cb?.id}`,
+                    holdMs: 6000,
+                    ttlMs: 30_000,
+                });
             }
         },
         onError: (error) => {
             dbg('subscriptions', 'Callback sound trigger error:', error);
         },
     });
+
+    // Mirror the same arrival behaviour for Metasploit sessions: the
+    // synthetic-callback ledger fires `subscribeMsfNewSession` whenever
+    // a session appears on MSF-RPC for the first time (or resurrects after
+    // dying). We play the callback sound and queue a broadcast just like
+    // a fresh Mythic callback would.
+    React.useEffect(() => {
+        return subscribeMsfNewSession((ev) => {
+            // `pushBroadcast` already triggers `playCallback()` — calling
+            // it here a second time would double the chime.
+            const host = pickMsfHost(ev.snapshot);
+            const user = pickMsfUser(ev.snapshot);
+            pushBroadcast({
+                level: ev.resurrected ? 'info' : 'ops',
+                title: ev.resurrected
+                    ? `MSF-${ev.sessionId} resurrected`
+                    : `New MSF session MSF-${ev.sessionId}`,
+                message: `${user}@${host} · ${ev.snapshot.type?.toUpperCase() || 'SESSION'}`,
+                key: `msf-new-${ev.sessionId}-${ev.resurrected ? 'res' : 'new'}`,
+                holdMs: 6000,
+                ttlMs: 30_000,
+            });
+        });
+    }, []);
 
     return null;
 }
@@ -65,7 +109,7 @@ const CyberToast = ({
 // Component that listens for real-time event notifications
 export function EventNotifications() {
     const [fromNow] = React.useState(getSkewedNow().toISOString());
-    const { hideLoginNotifications } = useAppStore();
+    const hideLoginNotifications = useAppStore(s => s.hideLoginNotifications);
 
     useSubscription<any>(SUBSCRIBE_EVENTS, {
         variables: { fromNow },
@@ -76,41 +120,60 @@ export function EventNotifications() {
         },
         onData: ({ data }: { data: any } ) => {
             if (data.data?.operationeventlog_stream?.length > 0) {
-                const event = data.data.operationeventlog_stream[0];
+                const stream = data.data.operationeventlog_stream;
+                
+                stream.forEach((event: any) => {
+                    // Bridge Minerva important-broadcast events into the in-app
+                    // ImportantBroadcast bar and skip the regular toast.
+                    // Detection: parse JSON and check minerva_broadcast marker
+                    // (source is now 'minerva_broadcast:<uuid>' — unique per send
+                    // to bypass Mythic server dedup on same-source warning events).
+                    const broadcastPayload = parseBroadcastMessage(event.message);
+                    if (broadcastPayload) {
+                        pushBroadcast({
+                            level: broadcastPayload.level,
+                            title: broadcastPayload.title,
+                            message: broadcastPayload.body,
+                            key: `evt-${event.id}`,
+                            ttlMs: 15_000,
+                        });
+                        return; // proceed to next event in stream
+                    }
 
-                // Filter out api, debug, and agent level events
-                if (event.level === 'api' || event.level === 'debug' || event.level === 'agent') {
-                    return;
-                }
+                    // Filter out api, debug, and agent level events
+                    if (event.level === 'api' || event.level === 'debug' || event.level === 'agent') {
+                        return;
+                    }
 
-                // Skip resolved events
-                if (event.resolved) {
-                    return;
-                }
+                    // Skip resolved events
+                    if (event.resolved) {
+                        return;
+                    }
 
-                // Skip login notifications if user disabled them
-                if (hideLoginNotifications && /\blogged in\b/i.test(event.message)) {
-                    return;
-                }
+                    // Skip login notifications if user disabled them
+                    if (hideLoginNotifications && /\blogged in\b/i.test(event.message)) {
+                        return;
+                    }
 
-                const username = event.operator?.username;
-                const message = event.message;
+                    const username = event.operator?.username;
+                    const message = event.message;
 
-                // Play notification sound
-                playNotification();
+                    // Play notification sound
+                    playNotification();
 
-                // Show toast notification
-                if (event.warning) {
-                    toast.warning(
-                        <CyberToast message={message} username={username} isWarning={true} />,
-                        { autoClose: 4000 }
-                    );
-                } else {
-                    toast.info(
-                        <CyberToast message={message} username={username} isWarning={false} />,
-                        { autoClose: 3000 }
-                    );
-                }
+                    // Show toast notification
+                    if (event.warning) {
+                        toast.warning(
+                            <CyberToast message={message} username={username} isWarning={true} />,
+                            { autoClose: 4000 }
+                        );
+                    } else {
+                        toast.info(
+                            <CyberToast message={message} username={username} isWarning={false} />,
+                            { autoClose: 3000 }
+                        );
+                    }
+                });
             }
         }
     });
@@ -120,7 +183,7 @@ export function EventNotifications() {
 
 // Component that tracks alert count for badge
 export function AlertCountSubscription() {
-    const { alertCount, setAlertCount } = useAppStore();
+    const { alertCount, setAlertCount } = useAppStore(useShallow(s => ({ alertCount: s.alertCount, setAlertCount: s.setAlertCount })));
 
     useSubscription<any>(SUBSCRIBE_ALERT_COUNT, {
         shouldResubscribe: true,
@@ -140,7 +203,7 @@ export function AlertCountSubscription() {
 
 // Badge component for sidebar
 export function NotificationBadge({ className }: { className?: string }) {
-    const { alertCount } = useAppStore();
+    const alertCount = useAppStore(s => s.alertCount);
 
     if (alertCount === 0) return null;
 
@@ -157,7 +220,7 @@ export function NotificationBadge({ className }: { className?: string }) {
 
 // Larger notification bell icon with badge for sidebar
 export function NotificationBell() {
-    const { alertCount } = useAppStore();
+    const alertCount = useAppStore(s => s.alertCount);
 
     return (
         <div className="relative">

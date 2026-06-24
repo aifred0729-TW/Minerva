@@ -5,6 +5,7 @@ import { useMutation, useApolloClient } from "@apollo/client/react";
 import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import { usePageVisible } from '../../lib/usePageVisible';
 import { useAppStore } from '../../store';
+import { useShallow } from 'zustand/shallow';
 import {
     Terminal, Folder, Activity, Info, Lock, Unlock, MessageSquare,
     Zap, XCircle, EyeOff, MoreHorizontal, X,
@@ -20,19 +21,76 @@ import { MythicDialog } from '../../components/MythicDialog';
 import { EventTriggerContextSelectDialog } from '../../components/EventTriggerContextSelect';
 import { cn, getErrorMessage } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
-import { timeSince } from './utils';
+import { RelativeTime } from './utils';
 import { ConsoleTerminal } from './ConsoleTerminal';
 import { InfoPanel } from './InfoPanel';
 import { FileBrowserPanel } from './FileBrowserPanel';
 import { ProcessList } from './ProcessList';
+import { MeterpreterInfoPanel } from './MeterpreterInfoPanel';
+import { MsfFileBrowserPanel } from './MsfFileBrowserPanel';
+import { MsfProcessList } from './MsfProcessList';
+import { getSessions as getMsfSessions, type MsfSession } from '../Metasploit/msfrpc';
+import {
+    getMsfLedgerSnapshot,
+    MSF_DISPLAY_ID_OFFSET,
+    pickMsfHost,
+    pickMsfUser,
+} from '../Callbacks/msfSyntheticCallbacks';
+import { MsfConsoleBootChrome } from './MsfConsoleBootChrome';
 
 export default function Console() {
     const { id } = useParams();
     const navigate = useNavigate();
     const client = useApolloClient();
-    const { isSidebarCollapsed, consoleTabs, openConsoleTab, closeConsoleTab } = useAppStore();
+    const { isSidebarCollapsed, consoleTabs, openConsoleTab, closeConsoleTab } = useAppStore(useShallow(s => ({ isSidebarCollapsed: s.isSidebarCollapsed, consoleTabs: s.consoleTabs, openConsoleTab: s.openConsoleTab, closeConsoleTab: s.closeConsoleTab })));
     const pageVisible = usePageVisible();
     const [activeTab, setActiveTab] = useState<'info' | 'files' | 'processes'>('info');
+
+    // ── MSF session mode ────────────────────────────────────────────────────
+    // MSF synthetic callbacks use a positive display_id (>=100000) so the
+    // route is just `/console/<displayId>` — no special prefix. We still
+    // accept the legacy `msf-<sid>` URL form for backward compatibility.
+    const idParam = id || '';
+    const idAsInt = parseInt(idParam, 10);
+    const legacyMsfMatch = idParam.startsWith('msf-');
+    const isMsf = legacyMsfMatch
+        || (Number.isFinite(idAsInt) && idAsInt >= MSF_DISPLAY_ID_OFFSET);
+    const msfSessionId = isMsf
+        ? (legacyMsfMatch ? idParam.slice(4) : String(idAsInt - MSF_DISPLAY_ID_OFFSET))
+        : '';
+    // Seed from the synthetic-callback ledger so the Console renders the
+    // host/user/platform chrome on the very first paint instead of waiting
+    // on a fresh `session.list` RPC (which adds 100-500ms of "INITIALIZING…"
+    // dead air). The background poll below still runs to keep the snapshot
+    // fresh — the ledger is just our warm cache.
+    const [msfSession, setMsfSession] = useState<MsfSession | null>(() =>
+        isMsf && msfSessionId ? getMsfLedgerSnapshot(msfSessionId) : null,
+    );
+    const [msfConnectionLost, setMsfConnectionLost] = useState(false);
+    const [msfRefreshKey, setMsfRefreshKey] = useState(0);
+
+    useEffect(() => {
+        if (!isMsf) return;
+        let cancelled = false;
+        const tick = async () => {
+            try {
+                const all = await getMsfSessions();
+                if (cancelled) return;
+                const s = all[msfSessionId];
+                if (s) {
+                    setMsfSession(s);
+                    setMsfConnectionLost(false);
+                } else {
+                    setMsfConnectionLost(true);
+                }
+            } catch {
+                if (!cancelled) setMsfConnectionLost(true);
+            }
+        };
+        tick();
+        const iv = setInterval(() => { if (pageVisible) tick(); }, 5_000);
+        return () => { cancelled = true; clearInterval(iv); };
+    }, [isMsf, msfSessionId, pageVisible, msfRefreshKey]);
     const [showCallbackMenu, setShowCallbackMenu] = useState(false);
     const [menuPos, setMenuPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
     const [descEditOpen, setDescEditOpen] = useState(false);
@@ -55,11 +113,13 @@ export default function Console() {
 
     const { data, loading, error } = useQuery<any>(GET_CALLBACK_DETAILS, {
         variables: { display_id: parseInt(id || '0') },
-        pollInterval: pageVisible ? 5000 : 0
+        pollInterval: pageVisible ? 5000 : 0,
+        skip: isMsf,
     });
 
     const { data: allCallbacksData } = useQuery<any>(GET_ALL_CALLBACKS_BY_DOMAIN, {
-        pollInterval: pageVisible ? 15000 : 0
+        pollInterval: pageVisible ? 15000 : 0,
+        skip: isMsf,
     });
 
     const [hideCallback] = useMutation<any>(HIDE_CALLBACK_MUTATION, {
@@ -111,9 +171,20 @@ export default function Console() {
     const callback = data?.callback?.[0];
     const allCallbacks = allCallbacksData?.callback || [];
 
-    // Register tab in global store when callback data loads
+    // Register tab in global store when data is available (Mythic OR MSF).
     useEffect(() => {
-        if (callback) {
+        if (isMsf && msfSession) {
+            const sType = msfSession.type === 'meterpreter' ? 'METERPRETER' : 'MSF_SHELL';
+            openConsoleTab({
+                // Use the offset display_id so the tab id is a regular number
+                // matching what shows in `/callbacks` — `C100003` looks like a
+                // normal callback tab rather than the old "MSF-3" form.
+                id: MSF_DISPLAY_ID_OFFSET + (parseInt(msfSessionId, 10) || 0),
+                host: pickMsfHost(msfSession),
+                user: pickMsfUser(msfSession),
+                payloadType: sType,
+            });
+        } else if (callback) {
             openConsoleTab({
                 id: callback.display_id,
                 host: callback.host || '',
@@ -122,11 +193,48 @@ export default function Console() {
             });
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [callback?.display_id]);
+    }, [callback?.display_id, isMsf, msfSession?.uuid]);
 
-    if (loading && !callback) return <div className="bg-black text-signal p-10 font-mono text-base">INITIALIZING_CONSOLE...</div>;
-    if (error) return <div className="bg-black text-red-500 p-10 font-mono text-base">CONNECTION_ERROR: {error.message}</div>;
-    if (!callback) return <div className="bg-black text-red-500 p-10 font-mono text-base">ERROR: CALLBACK_NOT_FOUND</div>;
+    if (isMsf) {
+        if (!msfSession && !msfConnectionLost) {
+            return (
+                <MsfConsoleBootChrome
+                    sessionId={msfSessionId}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                />
+            );
+        }
+    } else {
+        if (loading && !callback) {
+            return (
+                <MsfConsoleBootChrome
+                    sessionId={id || ''}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    mode="mythic"
+                />
+            );
+        }
+        if (error) {
+            return (
+                <MsfConsoleBootChrome
+                    sessionId={id || ''}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    mode="mythic"
+                    errorMessage={error.message}
+                />
+            );
+        }
+        if (!callback) {
+            return (
+                <MsfConsoleBootChrome
+                    sessionId={id || ''}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    mode="mythic"
+                    errorMessage="CALLBACK_NOT_FOUND"
+                />
+            );
+        }
+    }
 
     return (
         <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void overflow-hidden">
@@ -139,85 +247,132 @@ export default function Console() {
             >
                 {/* Multi-callback tab bar */}
                 {consoleTabs.length > 1 && (
-                    <div className="flex items-center gap-0 bg-black/80 border-b border-signal/10 overflow-x-auto shrink-0 h-8">
-                        {consoleTabs.map(tab => (
-                            <div key={tab.id}
-                                className={cn(
-                                    'flex items-center gap-1.5 px-3 h-full border-r border-signal/10 font-mono text-[11px] cursor-pointer select-none group shrink-0',
-                                    tab.id === parseInt(id || '0')
-                                        ? 'bg-signal/10 text-signal border-t-2 border-t-signal'
-                                        : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-                                )}
-                            >
-                                <span onClick={() => navigate(`/console/${tab.id}`)}>
-                                    C{tab.id}&nbsp;·&nbsp;{tab.host || `#${tab.id}`}
-                                </span>
-                                <button
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        const currentId = parseInt(id || '0');
-                                        if (tab.id === currentId) {
-                                            const idx = consoleTabs.findIndex(t => t.id === tab.id);
-                                            const next = consoleTabs[idx + 1] ?? consoleTabs[idx - 1];
-                                            closeConsoleTab(tab.id);
-                                            navigate(next ? `/console/${next.id}` : '/console-matrix');
-                                        } else {
-                                            closeConsoleTab(tab.id);
-                                        }
-                                    }}
-                                    className="ml-1 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                    <div className="flex items-center gap-0 bg-machine/40 border-b border-signal/15 overflow-x-auto shrink-0 h-8">
+                        {consoleTabs.map(tab => {
+                            const isActive = tab.id === id || (typeof tab.id === 'number' && tab.id === parseInt(id || '0'));
+                            return (
+                                <div key={String(tab.id)}
+                                    className={cn(
+                                        'flex items-center gap-1.5 px-3 h-full border-r border-signal/15 font-mono text-[11px] cursor-pointer select-none group shrink-0',
+                                        isActive
+                                            ? 'bg-signal/10 text-signal border-t-2 border-t-accent'
+                                            : 'text-signal hover:bg-signal/5'
+                                    )}
                                 >
-                                    <X size={9} />
-                                </button>
-                            </div>
-                        ))}
+                                    <span onClick={() => navigate(`/console/${tab.id}`)} className="flex items-center gap-1">
+                                        <span>C{tab.id}</span>
+                                        <span className="text-signal/60">·</span>
+                                        <span>{tab.host || `#${tab.id}`}</span>
+                                    </span>
+                                    <button
+                                        onClick={e => {
+                                            e.stopPropagation();
+                                            if (isActive) {
+                                                const idx = consoleTabs.findIndex(t => t.id === tab.id);
+                                                const next = consoleTabs[idx + 1] ?? consoleTabs[idx - 1];
+                                                closeConsoleTab(tab.id);
+                                                navigate(next ? `/console/${next.id}` : '/callbacks');
+                                            } else {
+                                                closeConsoleTab(tab.id);
+                                            }
+                                        }}
+                                        className="ml-1 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
+                                    >
+                                        <X size={9} />
+                                    </button>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
                 {/* Header */}
-                <header className="h-14 bg-black/50 border-b border-signal/20 flex items-center px-6 justify-between backdrop-blur-sm shrink-0">
+                <header className="h-14 bg-machine/40 border-b border-signal/20 flex items-center px-6 justify-between backdrop-blur-sm shrink-0">
                     <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 border border-signal bg-signal/10 flex items-center justify-center">
+                        <div className="w-10 h-10 border flex items-center justify-center border-signal bg-signal/10">
                             <Terminal size={20} className="text-signal" />
                         </div>
-                        <div>
-                            <h1 className="text-lg font-bold tracking-widest flex items-center gap-2">
-                                <span className="text-signal">CALLBACK_{callback.display_id}</span>
-                                <span className="text-gray-500 text-sm">/</span>
-                                <span className="text-white text-base">{callback.user}@{callback.host}</span>
-                            </h1>
-                            <div className="flex items-center gap-3 text-[11px] text-gray-500 font-mono">
-                                <span className="flex items-center gap-1">
-                                    <span className="w-2 h-2 bg-signal rounded-full animate-pulse"></span>
-                                    ONLINE
-                                </span>
-                                <span>•</span>
-                                <span>{callback.payload?.payloadtype?.name}</span>
-                                <span>•</span>
-                                <span>{callback.os} ({callback.architecture})</span>
-                                {callback.domain && (
-                                    <>
-                                        <span>•</span>
-                                        <span className="text-cyan-400">{callback.domain}</span>
-                                    </>
-                                )}
+                        {isMsf ? (
+                            <div>
+                                <h1 className="text-lg font-bold tracking-[0.2em] flex items-center gap-2">
+                                    <span className="text-signal">CALLBACK_{MSF_DISPLAY_ID_OFFSET + (parseInt(msfSessionId, 10) || 0)}</span>
+                                    <span className="text-signal/60 text-sm">/</span>
+                                    <span className="text-signal text-base">
+                                        {msfSession ? `${pickMsfUser(msfSession)}@${pickMsfHost(msfSession)}` : 'msf@—'}
+                                    </span>
+                                </h1>
+                                <div className="flex items-center gap-3 text-[11px] text-signal font-mono">
+                                    <span className="flex items-center gap-1">
+                                        {msfConnectionLost ? (
+                                            <>
+                                                <span className="w-2 h-2 bg-red-500 rounded-full" />
+                                                DISCONNECTED
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="w-2 h-2 bg-accent rounded-full animate-pulse" />
+                                                ONLINE
+                                            </>
+                                        )}
+                                    </span>
+                                    <span>•</span>
+                                    <span className="uppercase tracking-[0.2em]">
+                                        {msfSession?.type === 'meterpreter' ? 'METERPRETER' : 'MSF_SHELL'}
+                                    </span>
+                                    <span>•</span>
+                                    <span>{msfSession?.platform || '—'} ({msfSession?.arch || '—'})</span>
+                                    {msfSession?.via_exploit && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="text-accent truncate max-w-[260px]" title={msfSession.via_exploit}>
+                                                via {msfSession.via_exploit}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div>
+                                <h1 className="text-lg font-bold tracking-widest flex items-center gap-2">
+                                    <span className="text-signal">CALLBACK_{callback.display_id}</span>
+                                    <span className="text-signal/60 text-sm">/</span>
+                                    <span className="text-signal text-base">{callback.user}@{callback.host}</span>
+                                </h1>
+                                <div className="flex items-center gap-3 text-[11px] text-signal font-mono">
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 bg-accent rounded-full animate-pulse"></span>
+                                        ONLINE
+                                    </span>
+                                    <span>•</span>
+                                    <span>{callback.payload?.payloadtype?.name}</span>
+                                    <span>•</span>
+                                    <span>{callback.os} ({callback.architecture})</span>
+                                    {callback.domain && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="text-accent">{callback.domain}</span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    
+
                     <div className="flex items-center gap-3">
-                        <div className="text-right hidden md:block">
-                            <div className="text-[11px] text-gray-500 uppercase">Last Seen</div>
-                            <div className="text-signal font-mono text-sm">{timeSince(callback.last_checkin)}</div>
-                        </div>
-                        {/* Callback action menu */}
-                        <div ref={cbMenuRef}>
+                        {!isMsf && (
+                            <div className="text-right hidden md:block">
+                                <div className="text-[11px] text-signal uppercase tracking-[0.25em]">Last Seen</div>
+                                <div className="text-signal font-mono text-sm"><RelativeTime value={callback.last_checkin} /></div>
+                            </div>
+                        )}
+                        {/* Callback action menu — Mythic only */}
+                        {!isMsf && <div ref={cbMenuRef}>
                             <button
                                 onClick={(e) => {
                                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                     setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
                                     setShowCallbackMenu(m => !m);
                                 }}
-                                className="p-2 rounded text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                                className="p-2 rounded text-signal hover:text-accent hover:bg-signal/10 transition-colors"
                                 title="Callback Actions"
                             >
                                 <MoreHorizontal size={18} />
@@ -280,13 +435,13 @@ export default function Console() {
                                 </div>,
                                 document.body
                             )}
-                        </div>
+                        </div>}
                     </div>
                 </header>
 
-                {/* Description edit — accordion below header */}
+                {/* Description edit — accordion below header (Mythic only) */}
                 <AnimatePresence>
-                {descEditOpen && (
+                {!isMsf && descEditOpen && (
                     <motion.div
                         className="overflow-hidden shrink-0"
                         initial={{ height: 0, opacity: 0 }}
@@ -327,7 +482,30 @@ export default function Console() {
                 {/* Main Content */}
                 <div className="flex-1 p-3 grid grid-cols-1 lg:grid-cols-3 gap-3 min-h-0 overflow-hidden">
                     <div className="lg:col-span-2 flex flex-col gap-3 min-h-0">
-                        <ConsoleTerminal
+                        {isMsf ? (
+                            <ConsoleTerminal
+                                agentMode="msf"
+                                msfSessionId={msfSessionId}
+                                msfSessionType={msfSession?.type || 'meterpreter'}
+                                msfConnectionLost={msfConnectionLost}
+                                // Mythic-shaped scalars are required by the prop type; for MSF
+                                // they're inert (all Apollo hooks are skipped). We derive a
+                                // stable numeric identity from the session id so any local
+                                // caches keyed by callbackId stay distinct between sessions.
+                                callbackId={MSF_DISPLAY_ID_OFFSET + (parseInt(msfSessionId, 10) || 0)}
+                                callbackDbId={-1}
+                                callbackUUID={`msf-${msfSessionId}`}
+                                payloadtypeName={msfSession?.type === 'meterpreter' ? 'METERPRETER' : 'MSF_SHELL'}
+                                payloadtypeId={0}
+                                callbackOs={msfSession?.platform || ''}
+                                operationId={0}
+                                callbackHost={msfSession ? pickMsfHost(msfSession) : ''}
+                                callbackActive={!msfConnectionLost}
+                                callbackLastCheckin={new Date().toISOString()}
+                                callbackSleepInfo={null}
+                            />
+                        ) : (
+                            <ConsoleTerminal
                                 callbackId={callback.display_id}
                                 callbackDbId={callback.id}
                                 callbackUUID={callback.agent_callback_id}
@@ -340,24 +518,33 @@ export default function Console() {
                                 callbackLastCheckin={callback.last_checkin || null}
                                 callbackSleepInfo={callback.sleep_info || null}
                             />
+                        )}
                     </div>
 
-                    <div className="flex flex-col bg-black/40 border border-white/10 min-h-0 rounded overflow-hidden">
-                        {/* Tabs */}
-                        <div className="flex border-b border-white/10 shrink-0">
-                            {[
-                                { id: 'info', label: 'INFO', icon: Info },
-                                { id: 'files', label: 'FILES', icon: Folder },
-                                { id: 'processes', label: 'PROCS', icon: Activity },
-                            ].map(tab => (
+                    <div className="flex flex-col bg-machine/30 border border-signal/15 min-h-0 rounded-md overflow-hidden">
+                        {/* Tabs — adapt to agent type */}
+                        <div className="flex border-b border-signal/15 shrink-0">
+                            {(isMsf
+                                ? [
+                                    { id: 'info' as const,      label: 'INFO',  icon: Info,     enabled: true },
+                                    { id: 'files' as const,     label: 'FILES', icon: Folder,   enabled: msfSession?.type === 'meterpreter' },
+                                    { id: 'processes' as const, label: 'PROCS', icon: Activity, enabled: msfSession?.type === 'meterpreter' },
+                                ]
+                                : [
+                                    { id: 'info' as const,      label: 'INFO',  icon: Info,     enabled: true },
+                                    { id: 'files' as const,     label: 'FILES', icon: Folder,   enabled: true },
+                                    { id: 'processes' as const, label: 'PROCS', icon: Activity, enabled: true },
+                                ]
+                            ).map(tab => (
                                 <button
                                     key={tab.id}
-                                    onClick={() => setActiveTab(tab.id as 'info' | 'files' | 'processes')}
+                                    onClick={() => tab.enabled && setActiveTab(tab.id)}
+                                    disabled={!tab.enabled}
                                     className={cn(
-                                        "flex-1 py-3 text-xs font-bold tracking-wider flex items-center justify-center gap-2 transition-colors duration-200",
-                                        activeTab === tab.id 
-                                            ? "bg-signal text-black" 
-                                            : "text-gray-500 hover:text-white hover:bg-white/5"
+                                        'flex-1 py-3 text-xs font-bold tracking-[0.25em] flex items-center justify-center gap-2 transition-colors duration-200',
+                                        activeTab === tab.id
+                                            ? 'bg-signal text-void'
+                                            : 'text-signal hover:bg-signal/10 disabled:opacity-40 disabled:hover:bg-transparent'
                                     )}
                                 >
                                     <tab.icon size={14} />
@@ -367,19 +554,49 @@ export default function Console() {
                         </div>
 
                         {/* Tab Content */}
-                        <div className="flex-1 p-3 overflow-hidden relative">
+                        <div className="flex-1 overflow-hidden relative">
                             <div className="absolute inset-0 p-3 overflow-hidden flex flex-col">
-                                {activeTab === 'info' && <InfoPanel callback={callback} allCallbacks={allCallbacks} />}
-                                {activeTab === 'files' && <FileBrowserPanel host={callback.host} callbackId={callback.display_id} />}
-                                {activeTab === 'processes' && <ProcessList host={callback.host} />}
+                                {isMsf ? (
+                                    <>
+                                        {activeTab === 'info' && (
+                                            <MeterpreterInfoPanel
+                                                sessionId={msfSessionId}
+                                                session={msfSession}
+                                                connectionLost={msfConnectionLost}
+                                                onKilled={() => {
+                                                    closeConsoleTab(`msf-${msfSessionId}`);
+                                                    navigate('/callbacks');
+                                                }}
+                                            />
+                                        )}
+                                        {activeTab === 'files' && (
+                                            <MsfFileBrowserPanel
+                                                sessionId={msfSessionId}
+                                                session={msfSession}
+                                            />
+                                        )}
+                                        {activeTab === 'processes' && (
+                                            <MsfProcessList
+                                                sessionId={msfSessionId}
+                                                session={msfSession}
+                                            />
+                                        )}
+                                    </>
+                                ) : (
+                                    <>
+                                        {activeTab === 'info' && <InfoPanel callback={callback} allCallbacks={allCallbacks} />}
+                                        {activeTab === 'files' && <FileBrowserPanel host={callback.host} callbackId={callback.display_id} />}
+                                        {activeTab === 'processes' && <ProcessList host={callback.host} />}
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             </motion.div>
 
-            {/* Eventing Trigger Dialog */}
-            {showEventingDialog && (
+            {/* Eventing Trigger Dialog — Mythic only */}
+            {!isMsf && showEventingDialog && callback && (
                 <MythicDialog fullWidth={true} maxWidth="xl" open={showEventingDialog}
                     onClose={() => setShowEventingDialog(false)}
                     innerDialog={<EventTriggerContextSelectDialog

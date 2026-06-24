@@ -24,7 +24,7 @@ import {
 }from 'lucide-react';
 import { cn, isCallbackAlive } from '../../lib/utils';
 import { getOSIcon } from '../../components/OSIcons';
-import { parseIP, getIPRange, timeSince } from './utils';
+import { parseIP, getIPRange, RelativeTime } from './utils';
 
 interface InfoRowProps {
     label: string;
@@ -150,7 +150,7 @@ export const InfoPanel = ({ callback, allCallbacks }: { callback: any, allCallba
                     <InfoRow label="Agent" value={callback.payload?.payloadtype?.name} icon={Zap} />
                     <InfoRow label="Sleep" value={sleepInfo} icon={Clock} />
                     <InfoRow label="Locked" value={callback.locked ? "Yes" : "No"} icon={callback.locked ? Lock : Unlock} color={callback.locked ? "text-red-400" : "text-gray-400"} />
-                    <InfoRow label="Checkin" value={callback.last_checkin ? timeSince(callback.last_checkin) : 'N/A'} icon={Clock} color="text-signal" />
+                    <InfoRow label="Checkin" value={callback.last_checkin ? <RelativeTime value={callback.last_checkin} /> : 'N/A'} icon={Clock} color="text-signal" />
                     {callback.description && <InfoRow label="Desc" value={callback.description} icon={Info} mono={false} />}
                 </div>
             </div>
@@ -255,7 +255,7 @@ export const MachineListView = ({ machines, currentCallback, allCallbacks, navig
                     <div className={cn("text-[10px] mt-0.5", dead ? "text-black/60" : "text-gray-500")}>
                         {cb.process_name || cb.payload?.payloadtype?.name || '?'}
                         <span className="mx-1">·</span>
-                        {timeSince(cb.last_checkin)}
+                        <RelativeTime value={cb.last_checkin} />
                     </div>
                 </div>
                 <div className={cn("w-2 h-2 rounded-full shrink-0",
@@ -379,7 +379,7 @@ export const MachineListView = ({ machines, currentCallback, allCallbacks, navig
                                     <span>{m.ip}</span>
                                     <span>•</span>
                                     <span className={isDead ? "text-black/80" : "text-signal"}>
-                                        {timeSince(m.last_checkin)}
+                                        <RelativeTime value={m.last_checkin} />
                                     </span>
                                 </div>
                             </div>
@@ -521,7 +521,7 @@ export const MachineGraphView = ({ machines, currentCallback, navigate }: { mach
                                     <div>Status: <span className={isDead ? "text-red-400 font-bold" : "text-signal"}>
                                         {isDead ? "DEAD" : "ALIVE"}
                                     </span></div>
-                                    <div>Last: <span className="text-white">{timeSince(node.machine.last_checkin)}</span></div>
+                                    <div>Last: <span className="text-white"><RelativeTime value={node.machine.last_checkin} /></span></div>
                                 </div>
                             </div>
                         )}

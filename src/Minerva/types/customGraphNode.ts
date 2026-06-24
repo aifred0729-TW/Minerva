@@ -16,6 +16,10 @@ export interface CustomGraphNode {
   description?: string;
   hidden?: boolean;
   timestamp: string;
+  // Operation scoping — nodes are partitioned per Mythic operation. Legacy
+  // rows without this field belong to no operation and are adopted by the
+  // current op on first edit.
+  operation_id?: number;
   // Position data for the graph layout
   position?: {
     x: number;
@@ -63,6 +67,7 @@ export interface CreateCustomGraphNodeInput {
   username?: string;
   description?: string;
   hidden?: boolean;
+  operation_id?: number;
   position?: {
     x: number;
     y: number;
@@ -81,6 +86,7 @@ export interface UpdateCustomGraphNodeInput {
   username?: string;
   description?: string;
   hidden?: boolean;
+  operation_id?: number;
   position?: {
     x: number;
     y: number;

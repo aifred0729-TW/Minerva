@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery } from "../../lib/useQueryCompat";
+import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import { usePageVisible } from '../../lib/usePageVisible';
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store';
@@ -17,10 +17,11 @@ import { TaskDetail } from './TaskDetail';
 export default function SingleTaskView() {
     const { displayId }          = useParams<{ displayId?: string }>();
     const navigate               = useNavigate();
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const pageVisible = usePageVisible();
     const initId                 = displayId ? parseInt(displayId, 10) : null;
 
+    // Selections (selTask is also where the URL-derived task ends up)
     const [selHost, setSelHost]   = useState<string | null>(null);
     const [selTask, setSelTask]   = useState<Record<string, unknown> | null>(null);
 
@@ -30,36 +31,50 @@ export default function SingleTaskView() {
     });
     const callbacks: CbRow[] = useMemo(() => cbData?.callback ?? [], [cbData]);
 
+    // Deep-link: observe a useQuery result directly. Lazy-query / onCompleted
+    // wrappers were unreliable under Apollo v4's cache-and-network delivery on
+    // a fresh tab — the right pane stayed empty even after the task arrived.
+    const { data: taskData } = useQuery<any>(GET_TASK_BY_DISPLAY_ID, {
+        variables: { display_id: initId ?? 0 },
+        skip: !initId,
+        fetchPolicy: 'network-only',
+    });
+
+    // Adopt the fetched task into selTask as soon as it arrives. Imperative
+    // setState (not useMemo derivation) so the right pane definitely re-renders.
+    useEffect(() => {
+        const t = taskData?.task?.[0];
+        if (!t) return;
+        if ((selTask as any)?.display_id === t.display_id) return;
+        setSelTask(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [taskData]);
+
+    // Once both selTask and the callbacks list are available, derive the host
+    // for the host tree / task list panes. Runs whenever either side updates so
+    // late-loading callbacks still pick up the correct host.
+    useEffect(() => {
+        if (selHost) return;
+        const cb = (selTask as any)?.callback;
+        if (!cb || !callbacks.length) return;
+        const cbRow = callbacks.find((c: CbRow) => c.display_id === cb.display_id);
+        if (!cbRow) return;
+        const dk   = domainKey(cbRow);
+        const host = (cbRow.host || `C${cbRow.display_id}`).toUpperCase();
+        setSelHost(`${dk}::${host}`);
+    }, [selTask, callbacks, selHost]);
+
+    const effectiveTask = selTask;
+    const effectiveHost = selHost;
+
     const selCbs = useMemo<CbRow[]>(() => {
-        if (!selHost) return [];
-        const [dk, host] = selHost.split('::');
+        if (!effectiveHost) return [];
+        const [dk, host] = effectiveHost.split('::');
         return callbacks.filter(cb =>
             domainKey(cb) === dk &&
             (cb.host || `C${cb.display_id}`).toUpperCase() === host
         );
-    }, [selHost, callbacks]);
-
-    const [fetchById] = useLazyQuery<any>(GET_TASK_BY_DISPLAY_ID, {
-        fetchPolicy: 'network-only',
-        onCompleted: (data: any) => {
-            const t = data?.task?.[0];
-            if (!t) return;
-            setSelTask(t);
-            if (t.callback) {
-                const cbRow = callbacks.find(c => c.display_id === t.callback.display_id);
-                if (cbRow) {
-                    const dk   = domainKey(cbRow);
-                    const host = (cbRow.host || `C${cbRow.display_id}`).toUpperCase();
-                    setSelHost(`${dk}::${host}`);
-                }
-            }
-        },
-    });
-
-    useEffect(() => {
-        if (initId) fetchById({ variables: { display_id: initId } });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initId]);
+    }, [effectiveHost, callbacks]);
 
     const totalMachines = useMemo(() => {
         const s = new Set(callbacks.map(cb => `${domainKey(cb)}::${(cb.host||`C${cb.display_id}`).toUpperCase()}`));
@@ -114,7 +129,7 @@ export default function SingleTaskView() {
                         {cbLoading && !callbacks.length ? (
                             <div className="flex-1 flex items-center justify-center font-mono text-[12px] animate-pulse" style={{ color: '#666' }}>loading…</div>
                         ) : (
-                            <HostTree callbacks={callbacks} selectedKey={selHost} onSelect={handleHostSelect}/>
+                            <HostTree callbacks={callbacks} selectedKey={effectiveHost} onSelect={handleHostSelect}/>
                         )}
                     </div>
 
@@ -124,17 +139,17 @@ export default function SingleTaskView() {
                         <div className="shrink-0 px-3 py-2 border-b border-white/[0.08] flex items-center gap-1.5">
                             <Hash size={12} style={{ color: '#777' }}/>
                             <span className="font-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: '#888' }}>tasks</span>
-                            {selHost && (
+                            {effectiveHost && (
                                 <span className="ml-auto font-mono text-[11px] font-bold truncate max-w-[120px]"
                                     style={{ color: '#00ffd1cc' }}>
-                                    {selHost.split('::')[1]}
+                                    {effectiveHost.split('::')[1]}
                                 </span>
                             )}
                         </div>
                         {selCbs.length ? (
                             <TaskList
                                 sessionCbs={selCbs}
-                                selectedId={(selTask?.display_id ?? null) as number | null}
+                                selectedId={((effectiveTask as any)?.display_id ?? null) as number | null}
                                 initialId={initId}
                                 onSelect={handleTaskSelect}
                             />
@@ -148,9 +163,9 @@ export default function SingleTaskView() {
 
                     {/* ── RIGHT: detail ── */}
                     <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-                        {selTask ? (
-                            <div key={selTask.id as string} className="mv-slide-in-right h-full">
-                                <TaskDetail task={selTask}/>
+                        {effectiveTask ? (
+                            <div key={(effectiveTask as any).id} className="mv-slide-in-right h-full">
+                                <TaskDetail task={effectiveTask}/>
                             </div>
                         ) : (
                             <div className="mv-fade-in flex flex-col items-center justify-center h-full gap-3" style={{ color: '#666' }}>

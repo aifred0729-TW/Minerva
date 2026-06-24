@@ -126,14 +126,12 @@ export const GET_TASK_BY_DISPLAY_ID = gql`
       timestamp
       completed
       comment
-      taskinglocation
+      tasking_location
       parameter_group_name
       status_timestamp_submitted
       status_timestamp_preprocessing
       status_timestamp_processing
       status_timestamp_processed
-      completed_at
-      started_at
       opsec_pre_blocked
       opsec_post_blocked
       operator { username }
@@ -164,7 +162,7 @@ export const STREAM_TASK_RESPONSES_BY_ID = gql`
       where: {task_id: {_eq: $task_id}}
     ) {
       id
-      response
+      response: response_text
       timestamp
       is_error
     }

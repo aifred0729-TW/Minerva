@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import {
     Terminal, Loader2, CircleStop, Trash2, RefreshCw, ChevronDown, ChevronRight,
-    Play, Clock, CheckCircle, XCircle, AlertTriangle, Plus, Send, Eye, X
+    Play, Clock, CheckCircle, XCircle, AlertTriangle, Plus, Send, Eye, X,
+    ArrowUpRight,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { MSF_DISPLAY_ID_OFFSET } from '../Callbacks/msfSyntheticCallbacks';
 import {
     consoleCreate, consoleDestroy, consoleWrite, consoleRead, consoleList,
-    getJobs, getJobInfo, getSessions, stopJob,
+    getJobs, getJobInfo, getSessions, stopJob, filterSessionsByOperation,
     type MsfConsole, type MsfConsoleRead, type MsfSession
 } from './msfrpc';
+import { useReactiveVar } from '@apollo/client/react';
+import { meState } from '../../lib/state';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +36,76 @@ interface JobDetail {
     consolePrompt: string;
 }
 
+// ── MSF job-name parser ────────────────────────────────────────────────────
+// `job.list` returns strings like:
+//   "Exploit: auxiliary/server/socks_proxy"
+//   "Auxiliary: scanner/ssh/ssh_login"
+//   "Exploit: exploit/multi/handler"
+// Split into a kind (drives the colored sidebar-style chip) and a module
+// path (drives the breadcrumb display). Falls back to "other" if the
+// string doesn't match — better than rendering raw "Exploit: foo" verbatim.
+type MsfJobKind = 'exploit' | 'auxiliary' | 'post' | 'evasion' | 'other';
+
+interface ParsedMsfJob {
+    kind: MsfJobKind;
+    modulePath: string;
+    moduleSegments: string[];
+    leafName: string;
+    raw: string;
+}
+
+function parseMsfJobName(name: string | undefined | null): ParsedMsfJob {
+    const raw = String(name || '');
+    const m = raw.match(/^\s*(Exploit|Auxiliary|Post|Evasion)\s*:\s*(.+?)\s*$/i);
+    let kind: MsfJobKind = 'other';
+    let modulePath = raw;
+    if (m) {
+        const k = m[1].toLowerCase();
+        if (k === 'exploit' || k === 'auxiliary' || k === 'post' || k === 'evasion') {
+            kind = k as MsfJobKind;
+        }
+        modulePath = m[2];
+    }
+    const segments = modulePath.split('/').filter(Boolean);
+    const leafName = segments[segments.length - 1] || modulePath;
+    return { kind, modulePath, moduleSegments: segments, leafName, raw };
+}
+
+// Colored kind chip — mirrors the "type-selector sidebar" colour table
+// from docs/DESIGN_LANGUAGE.md (exploit-red / aux-yellow / post-purple
+// / evasion-orange) so an operator scanning the job list reads the
+// module category by colour before reading the path.
+function KindChip({ kind }: { kind: MsfJobKind }) {
+    const cfg = (() => {
+        switch (kind) {
+            case 'exploit':   return { label: 'EXP',  cls: 'border-red-500/40    text-red-400' };
+            case 'auxiliary': return { label: 'AUX',  cls: 'border-yellow-500/40 text-yellow-400' };
+            case 'post':      return { label: 'POST', cls: 'border-purple-500/40 text-purple-400' };
+            case 'evasion':   return { label: 'EVA',  cls: 'border-orange-500/40 text-orange-400' };
+            default:          return { label: 'MOD',  cls: 'border-signal/30     text-signal' };
+        }
+    })();
+    return (
+        <span
+            className={cn(
+                'rounded-sm border px-2 py-0.5 font-mono text-[10px] tracking-[0.2em] font-bold shrink-0',
+                cfg.cls,
+            )}
+        >
+            {cfg.label}
+        </span>
+    );
+}
+
+function ParamChip({ k, v }: { k: string; v: string }) {
+    return (
+        <span className="inline-flex items-center gap-1.5 rounded-sm border border-signal/20 bg-signal/[0.04] px-2 py-0.5 font-mono text-[10px]">
+            <span className="tracking-[0.15em] uppercase text-signal">{k}</span>
+            <span className="tabular-nums text-signal font-bold truncate max-w-[120px]">{v}</span>
+        </span>
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // OPERATIONS PAGE
 // ═══════════════════════════════════════════════════════════════════════════
@@ -47,6 +122,8 @@ export default function Operations() {
     const [jobs, setJobs] = useState<Record<string, string>>({});
     const [jobDetails, setJobDetails] = useState<Record<string, Record<string, unknown>>>({});
     const [sessions, setSessions] = useState<Record<string, MsfSession>>({});
+    const me = useReactiveVar(meState);
+    const currentOpId = me.user?.current_operation_id ?? 0;
     const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
     const [inputValue, setInputValue] = useState('');
@@ -86,7 +163,12 @@ export default function Operations() {
             });
 
             setJobs(jobList);
-            setSessions(sessList);
+            // Scope sessions to the operator's current Mythic operation
+            // — MSF's session.list is global across the daemon but each
+            // session carries the `workspace` field that bootstrap pins
+            // to `mythic-op-{id}` per operation. Filter so other
+            // operations' sessions don't show up in this tab.
+            setSessions(filterSessionsByOperation(sessList, currentOpId));
 
             const details: Record<string, Record<string, unknown>> = {};
             for (const id of Object.keys(jobList)) {
@@ -95,7 +177,7 @@ export default function Operations() {
             setJobDetails(details);
         } catch { /* ignore */ }
         finally { setLoading(false); }
-    }, []);
+    }, [currentOpId]);
 
     useEffect(() => { refresh(); }, [refresh]);
 
@@ -281,65 +363,111 @@ export default function Operations() {
 
     return (
         <div className="space-y-6">
-            {/* ── Active Jobs ────────────────────────────────────────── */}
-            <div className="border border-ghost/30 bg-void/50">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-ghost/15">
-                    <div className="flex items-center gap-2 text-xs font-mono text-gray-400 uppercase tracking-widest">
-                        <Play size={14} /> RUNNING JOBS ({jobEntries.length})
+            {/* ── Running Jobs ─────────────────────────────────────────── */}
+            <div className="rounded-md border border-signal/20 bg-machine/30 overflow-hidden">
+                {/* Step-intro style header per design language */}
+                <div className="flex items-center justify-between px-5 py-3 border-b border-signal/15 bg-black/30">
+                    <div className="flex items-center gap-2.5">
+                        <Play size={14} strokeWidth={1.8} className="text-signal" />
+                        <span className="font-mono text-sm font-bold tracking-[0.25em] uppercase text-signal">
+                            Running Jobs
+                        </span>
+                        <span className="font-mono text-xs tabular-nums tracking-[0.15em] text-signal">
+                            {String(jobEntries.length).padStart(2, '0')}
+                        </span>
                     </div>
-                    <button onClick={refresh} className="text-gray-500 hover:text-signal transition-colors" title="Refresh">
-                        <RefreshCw size={14} />
+                    <button
+                        onClick={refresh}
+                        className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.25em] text-signal hover:text-accent transition-colors"
+                        title="Refresh"
+                    >
+                        <RefreshCw size={12} strokeWidth={2} />
+                        Refresh
                     </button>
                 </div>
                 {jobEntries.length === 0 ? (
-                    <div className="text-center py-8 text-gray-600 font-mono text-xs">NO_RUNNING_JOBS</div>
+                    <div className="py-10 text-center font-mono text-xs tracking-[0.3em] uppercase text-signal">
+                        No Running Jobs
+                    </div>
                 ) : (
-                    <div className="divide-y divide-ghost/10">
+                    <div className="divide-y divide-signal/10">
                         {jobEntries.map(([id, name]) => {
                             const detail = jobDetails[id] || {};
-                            const ds = (detail.datastore != null && typeof detail.datastore === 'object') ? detail.datastore as Record<string, unknown> : null;
+                            const ds = (detail.datastore != null && typeof detail.datastore === 'object')
+                                ? detail.datastore as Record<string, unknown>
+                                : null;
+                            const parsed = parseMsfJobName(name);
                             const isExpanded = expandedJobId === id;
                             const jc = jobConsoles[id];
+                            const dsFields = ds
+                                ? Object.entries(ds).filter(([, v]) => v != null && v !== '' && v !== false)
+                                : [];
 
                             return (
                                 <div key={id}>
-                                    {/* Job Row */}
+                                    {/* Row */}
                                     <button
                                         onClick={() => handleExpandJob(id)}
                                         className={cn(
-                                            "w-full px-5 py-3 text-left transition-colors",
-                                            isExpanded ? "bg-signal/5" : "hover:bg-signal/3"
+                                            'w-full px-5 py-3 text-left transition-colors',
+                                            isExpanded ? 'bg-signal/[0.06]' : 'hover:bg-signal/[0.04]',
                                         )}
                                     >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <ChevronRight size={14} className={cn("text-gray-500 transition-transform shrink-0", isExpanded && "rotate-90")} />
-                                                <span className="text-signal font-mono text-xs font-bold w-8">[{id}]</span>
-                                                <div className="min-w-0">
-                                                    <div className="text-xs font-mono text-gray-300">{name}</div>
-                                                    {ds && (
-                                                        <div className="text-[10px] font-mono text-gray-600 mt-0.5">
-                                                            {ds.RHOSTS ? `RHOSTS: ${String(ds.RHOSTS)}` : ''}
-                                                            {ds.RPORT ? ` | RPORT: ${String(ds.RPORT)}` : ''}
-                                                            {ds.PAYLOAD ? ` | ${String(ds.PAYLOAD)}` : ''}
-                                                            {ds.Proxies ? ` | Proxy: ${String(ds.Proxies)}` : ''}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-2 shrink-0">
-                                                <span className="flex items-center gap-1 text-[10px] font-mono text-yellow-400">
-                                                    <Loader2 size={10} className="animate-spin" /> RUNNING
+                                        <div className="flex items-center gap-3">
+                                            <ChevronRight
+                                                size={14}
+                                                strokeWidth={2}
+                                                className={cn(
+                                                    'text-signal transition-transform shrink-0',
+                                                    isExpanded && 'rotate-90',
+                                                )}
+                                            />
+                                            <span className="rounded-sm border border-signal/30 px-2 py-0.5 font-mono text-[10px] tracking-[0.2em] tabular-nums text-signal shrink-0">
+                                                JOB {String(id).padStart(2, '0')}
+                                            </span>
+                                            <KindChip kind={parsed.kind} />
+                                            {/* Parsed breadcrumb — non-leaf segments quieter than the leaf */}
+                                            <div className="flex-1 min-w-0 flex items-baseline gap-1 font-mono">
+                                                {parsed.moduleSegments.length > 1 && (
+                                                    <span className="text-xs text-signal whitespace-nowrap truncate">
+                                                        {parsed.moduleSegments.slice(0, -1).join('/')}
+                                                        <span className="px-1 text-signal">/</span>
+                                                    </span>
+                                                )}
+                                                <span className="text-sm text-signal font-bold tracking-[0.05em] truncate">
+                                                    {parsed.leafName}
                                                 </span>
-                                                <button onClick={(e) => handleStopJob(id, e)} className="text-red-400/60 hover:text-red-400 transition-colors" title="Stop">
-                                                    <CircleStop size={14} />
+                                            </div>
+                                            {/* Inline-summary chips for the most-common datastore keys */}
+                                            {ds && (
+                                                <div className="hidden md:flex items-center gap-1.5 shrink-0">
+                                                    {ds.RHOSTS != null && ds.RHOSTS !== '' && <ParamChip k="rhosts" v={String(ds.RHOSTS)} />}
+                                                    {ds.LPORT != null && ds.LPORT !== '' && <ParamChip k="lport" v={String(ds.LPORT)} />}
+                                                    {ds.SRVPORT != null && ds.SRVPORT !== '' && <ParamChip k="srvport" v={String(ds.SRVPORT)} />}
+                                                    {ds.PAYLOAD != null && ds.PAYLOAD !== '' && <ParamChip k="payload" v={String(ds.PAYLOAD)} />}
+                                                </div>
+                                            )}
+                                            <div className="flex items-center gap-3 shrink-0">
+                                                <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
+                                                    <span className="relative flex items-center justify-center w-2 h-2">
+                                                        <span className="absolute inset-0 rounded-full bg-accent/40 animate-ping" />
+                                                        <span className="relative h-1.5 w-1.5 rounded-full bg-accent" />
+                                                    </span>
+                                                    Running
+                                                </span>
+                                                <button
+                                                    onClick={(e) => handleStopJob(id, e)}
+                                                    className="text-signal hover:text-red-500 transition-colors p-0.5"
+                                                    title="Stop job"
+                                                >
+                                                    <CircleStop size={14} strokeWidth={2} />
                                                 </button>
                                             </div>
                                         </div>
                                     </button>
 
-                                    {/* Expanded Detail Panel */}
-                                    <AnimatePresence>
+                                    {/* Expanded detail */}
+                                    <AnimatePresence initial={false}>
                                         {isExpanded && (
                                             <motion.div
                                                 initial={{ height: 0, opacity: 0 }}
@@ -348,77 +476,96 @@ export default function Operations() {
                                                 transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
                                                 className="overflow-hidden"
                                             >
-                                                <div className="border-t border-ghost/15 bg-black/30">
-                                                    {/* Job Info Grid */}
-                                                    {ds && (
-                                                        <div className="px-5 py-4 border-b border-ghost/10">
-                                                            <div className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mb-3">JOB PARAMETERS</div>
-                                                            <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5 max-h-[200px] overflow-y-auto cyber-scrollbar">
-                                                                {Object.entries(ds)
-                                                                    .filter(([, v]) => v != null && v !== '' && v !== false)
-                                                                    .map(([k, v]) => (
-                                                                        <div key={k} className="flex items-baseline gap-2 text-xs font-mono py-0.5">
-                                                                            <span className="text-gray-500 shrink-0">{k}:</span>
-                                                                            <span className="text-signal truncate">{String(v)}</span>
-                                                                        </div>
-                                                                    ))
-                                                                }
+                                                <div className="border-t border-signal/15 bg-black/40">
+                                                    {/* Full module path breadcrumb */}
+                                                    <div className="flex items-center gap-3 px-5 py-3 border-b border-signal/10">
+                                                        <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-signal shrink-0">
+                                                            Module Path
+                                                        </span>
+                                                        <span className="font-mono text-xs text-signal truncate">
+                                                            {parsed.modulePath}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Datastore — parsed into a 2-col label/value grid */}
+                                                    {ds && dsFields.length > 0 && (
+                                                        <div className="px-5 py-4 border-b border-signal/10">
+                                                            <div className="flex items-center justify-between mb-3">
+                                                                <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-signal">
+                                                                    Job Parameters
+                                                                </span>
+                                                                <span className="font-mono text-[10px] tabular-nums tracking-[0.15em] text-signal">
+                                                                    {String(dsFields.length).padStart(2, '0')} FIELDS
+                                                                </span>
+                                                            </div>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5 max-h-[220px] overflow-y-auto cyber-scrollbar pr-2">
+                                                                {dsFields.map(([k, v]) => (
+                                                                    <div key={k} className="flex items-center gap-2 font-mono py-0.5 min-w-0">
+                                                                        <span className="text-[10px] tracking-[0.15em] uppercase text-signal shrink-0 w-24 truncate">
+                                                                            {k}
+                                                                        </span>
+                                                                        <span className="text-xs text-signal font-bold tabular-nums truncate">
+                                                                            {String(v)}
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
                                                             </div>
                                                         </div>
                                                     )}
 
-                                                    {/* Live Console */}
-                                                    <div className="bg-black">
-                                                        <div className="flex items-center justify-between px-4 py-2 border-b border-ghost/15">
-                                                            <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 uppercase tracking-widest">
-                                                                <Terminal size={11} />
-                                                                CONSOLE OUTPUT
+                                                    {/* Live console */}
+                                                    <div className="bg-black/60">
+                                                        <div className="flex items-center justify-between px-5 py-2.5 border-b border-signal/10">
+                                                            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.3em] text-signal">
+                                                                <Terminal size={11} strokeWidth={2} />
+                                                                Console Output
                                                                 {jc && (
-                                                                    <span className="text-gray-700">#{jc.consoleId}</span>
+                                                                    <span className="tracking-[0.1em] tabular-nums text-signal">
+                                                                        #{jc.consoleId}
+                                                                    </span>
                                                                 )}
                                                             </div>
                                                             {jc && (
-                                                                <div className="flex items-center gap-2">
-                                                                    {jc.busy ? (
-                                                                        <span className="flex items-center gap-1 text-[10px] font-mono text-yellow-400">
-                                                                            <Loader2 size={10} className="animate-spin" /> BUSY
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="flex items-center gap-1 text-[10px] font-mono text-green-400">
-                                                                            <CheckCircle size={10} /> READY
-                                                                        </span>
-                                                                    )}
-                                                                </div>
+                                                                jc.busy ? (
+                                                                    <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-accent">
+                                                                        <Loader2 size={10} strokeWidth={2} className="animate-spin" />
+                                                                        Busy
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-signal">
+                                                                        <CheckCircle size={10} strokeWidth={2} />
+                                                                        Ready
+                                                                    </span>
+                                                                )
                                                             )}
                                                         </div>
                                                         <div
                                                             ref={isExpanded ? jobOutputRef : undefined}
-                                                            className="p-4 font-mono text-xs text-gray-300 h-[300px] overflow-y-auto cyber-scrollbar whitespace-pre-wrap leading-relaxed"
+                                                            className="p-4 font-mono text-xs text-signal h-[300px] overflow-y-auto cyber-scrollbar whitespace-pre-wrap leading-relaxed"
                                                         >
                                                             {jc?.output || (
-                                                                <span className="text-gray-600">Loading job info...</span>
+                                                                <span className="text-signal">Loading job info…</span>
                                                             )}
-                                                            {jc?.busy && <span className="text-yellow-400 animate-pulse">█</span>}
+                                                            {jc?.busy && <span className="text-accent animate-pulse">█</span>}
                                                         </div>
-                                                        {/* Input for the job console */}
                                                         {jc && (
-                                                            <div className="flex items-center border-t border-ghost/20 bg-black/80">
-                                                                <span className="px-3 text-xs font-mono text-signal shrink-0">
+                                                            <div className="flex items-center border-t border-signal/15 bg-black/80">
+                                                                <span className="px-3 font-mono text-xs text-signal shrink-0">
                                                                     {jc.prompt || 'msf >'}
                                                                 </span>
                                                                 <input
                                                                     value={jobInputValue}
                                                                     onChange={e => setJobInputValue(e.target.value)}
                                                                     onKeyDown={e => { if (e.key === 'Enter') handleJobCommand(); }}
-                                                                    placeholder="Enter command..."
-                                                                    className="flex-1 bg-transparent text-signal font-mono text-xs py-2.5 focus:outline-none"
+                                                                    placeholder="Enter command…"
+                                                                    className="flex-1 bg-transparent text-signal font-mono text-xs py-2.5 focus:outline-none placeholder:text-signal placeholder:opacity-50"
                                                                 />
                                                                 <button
                                                                     onClick={handleJobCommand}
                                                                     disabled={!jobInputValue.trim() || jc.busy}
-                                                                    className="px-3 text-gray-500 hover:text-signal disabled:opacity-30 transition-colors"
+                                                                    className="px-3 text-signal hover:text-accent disabled:opacity-30 transition-colors"
                                                                 >
-                                                                    <Send size={14} />
+                                                                    <Send size={14} strokeWidth={2} />
                                                                 </button>
                                                             </div>
                                                         )}
@@ -434,12 +581,16 @@ export default function Operations() {
                 )}
             </div>
 
-            {/* ── Recent Sessions ─────────────────────────────────────── */}
+            {/* ── Sessions (linked to unified Callbacks view) ───────────────────── */}
             <div className="border border-ghost/30 bg-void/50">
-                <div className="px-5 py-3 border-b border-ghost/15">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-ghost/15">
                     <div className="flex items-center gap-2 text-xs font-mono text-gray-400 uppercase tracking-widest">
                         <CheckCircle size={14} /> SESSIONS ({sessionEntries.length})
                     </div>
+                    <Link to="/callbacks"
+                        className="flex items-center gap-1 text-[10px] font-mono text-signal/70 hover:text-signal border border-signal/30 px-2 py-1 transition-colors">
+                        INTERACT IN CALLBACKS <ArrowUpRight size={11} />
+                    </Link>
                 </div>
                 {sessionEntries.length === 0 ? (
                     <div className="text-center py-8 text-gray-600 font-mono text-xs">NO_ACTIVE_SESSIONS</div>
@@ -456,12 +607,13 @@ export default function Operations() {
                                     <th className="text-left py-2 px-4">VIA EXPLOIT</th>
                                     <th className="text-left py-2 px-4">VIA PAYLOAD</th>
                                     <th className="text-left py-2 px-4">ARCH</th>
+                                    <th className="text-right py-2 px-4">ACTION</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {sessionEntries.map(([id, s]) => (
                                     <tr key={id} className="border-b border-ghost/10 hover:bg-signal/5 transition-colors">
-                                        <td className="py-2 px-4 text-signal font-bold">{id}</td>
+                                        <td className="py-2 px-4 text-red-400 font-bold">MSF-{id}</td>
                                         <td className="py-2 px-4">
                                             <span className={cn("px-1.5 py-0.5 text-[10px]",
                                                 s.type === 'meterpreter' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
@@ -473,6 +625,12 @@ export default function Operations() {
                                         <td className="py-2 px-4 text-gray-400 max-w-[160px] truncate">{s.via_exploit || '-'}</td>
                                         <td className="py-2 px-4 text-gray-400 max-w-[160px] truncate">{s.via_payload || '-'}</td>
                                         <td className="py-2 px-4 text-gray-400">{s.arch || '-'}/{s.platform || '-'}</td>
+                                        <td className="py-2 px-4 text-right">
+                                            <Link to={`/console/${MSF_DISPLAY_ID_OFFSET + (parseInt(id, 10) || 0)}`}
+                                                className="inline-flex items-center gap-1 text-[10px] font-mono text-signal hover:text-white border border-signal/30 hover:border-signal/60 px-2 py-0.5 transition-colors">
+                                                <Terminal size={10} /> INTERACT
+                                            </Link>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

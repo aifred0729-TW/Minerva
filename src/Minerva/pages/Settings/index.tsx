@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '../../store';
+import { useShallow } from 'zustand/shallow';
 import {
     GET_GLOBAL_SETTINGS, UPDATE_GLOBAL_SETTINGS,
     GET_OPERATOR_SECRETS, UPDATE_OPERATOR_SECRETS,
@@ -29,7 +30,7 @@ export { DEFAULT_SIDEBAR_SHORTCUTS };
 
 /* ─────────── Operator Settings ─────────── */
 const LoginNotificationToggle = () => {
-    const {hideLoginNotifications,setHideLoginNotifications}=useAppStore();
+    const {hideLoginNotifications,setHideLoginNotifications}=useAppStore(useShallow(s=>({hideLoginNotifications:s.hideLoginNotifications,setHideLoginNotifications:s.setHideLoginNotifications})));
     return <ToggleRow icon={Bell} title="Hide Login Notifications" description="Suppress toast notifications when operators log in" value={hideLoginNotifications} onChange={v=>setHideLoginNotifications(v)}/>;
 };
 
@@ -208,7 +209,7 @@ const GlobalSettingsSection = () => {
 
 /* ─────────── Main Page ─────────── */
 const SettingsPage = () => {
-    const {isSidebarCollapsed}=useAppStore();
+    const isSidebarCollapsed=useAppStore(s=>s.isSidebarCollapsed);
     const [activeSection,setActiveSection]=useState<'operator'|'secrets'|'tokens'|'palette'|'audio'|'sidebar'|'global'>('operator');
     const sections=[
         {id:'operator' as const,label:'OPERATOR PREFS',icon:SlidersHorizontal},

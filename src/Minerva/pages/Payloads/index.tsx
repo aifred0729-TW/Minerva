@@ -13,7 +13,7 @@ import { PayloadsQuery } from '../../lib/api';
 import { meState } from '../../lib/state';
 
 const Payloads = () => {
-    const { isSidebarCollapsed } = useAppStore();
+    const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [searchParams, setSearchParams] = useSearchParams();
     const me = useReactiveVar(meState);
     

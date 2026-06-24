@@ -46,6 +46,15 @@ query GetCallbacks($limit: Int = 50, $offset: Int = 0) {
         is_p2p
       }
     }
+    # Most-recent task whose status Mythic has already processed —
+    # used as the "real last contact" timestamp for P2P-routed
+    # callbacks where the parent agent's beacons keep bumping the
+    # child's last_checkin even though the child itself never
+    # acknowledged anything. Limit 1, ordered desc, nulls-last so a
+    # callback with no completed tasks falls back to init_callback.
+    tasks(order_by: {status_timestamp_processed: desc_nulls_last}, where: {status_timestamp_processed: {_is_null: false}}, limit: 1) {
+      status_timestamp_processed
+    }
     tags {
       id
       tagtype { name color }
@@ -93,6 +102,11 @@ subscription SubscribeCallbacks {
     }
     callbackc2profiles {
       c2profile { name is_p2p }
+    }
+    # See comment on the GET_CALLBACKS variant — used to display
+    # "time since last real response" for P2P-routed callbacks.
+    tasks(order_by: {status_timestamp_processed: desc_nulls_last}, where: {status_timestamp_processed: {_is_null: false}}, limit: 1) {
+      status_timestamp_processed
     }
     tags {
       id

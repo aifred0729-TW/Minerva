@@ -13,6 +13,30 @@ import type { PayloadTypeData, C2Profile, C2ProfileInstance, Payload } from '../
 import { getAnimDuration, getOSInfo, getOSIcon, PAYLOAD_STEPS, CommandTooltip } from './utils';
 import { CyberDropdown } from '../../components/CyberDropdown';
 import { CreateWrapperWizard } from '../CreateWrapper';
+import { CreateMsfPayloadEmbed } from './CreateMsfPayloadEmbed';
+
+/** Quick hint shown on the METASPLOIT agent tile. Mirrors the prefix mapping
+ *  in CreateMsfPayloadEmbed so the tile text stays accurate. */
+const OS_TO_MSF_HINT: Record<string, string> = {
+    Windows: 'windows', Linux: 'linux', macOS: 'osx', OSX: 'osx',
+    Mac: 'osx', Android: 'android', iOS: 'apple_ios',
+    FreeBSD: 'freebsd', OpenBSD: 'openbsd', NetBSD: 'netbsd',
+    Solaris: 'solaris', AIX: 'aix', 'HP-UX': 'hpux', UNIX: 'unix',
+};
+
+/** Operating systems that Metasploit supports but Mythic typically doesn't.
+ *  These appear in the Step 0 TARGET SYSTEM list alongside Mythic-supported
+ *  OSes so the operator can see the full reach without leaving the page. */
+const MSF_ONLY_OS_LIST = [
+    'Android',
+    'iOS',
+    'FreeBSD',
+    'OpenBSD',
+    'NetBSD',
+    'Solaris',
+    'AIX',
+    'HP-UX',
+] as const;
 
 export const CreatePayloadEmbed: React.FC<{
     onComplete: () => void;
@@ -21,6 +45,10 @@ export const CreatePayloadEmbed: React.FC<{
     const [currentStep, setCurrentStep] = useState(0);
     const [selectedOS, setSelectedOS] = useState<string>('');
     const [selectedPayloadType, setSelectedPayloadType] = useState<PayloadTypeData | null>(null);
+    // Source picker — Mythic (default) or Metasploit. When 'msf' is chosen on
+    // Step 0, the wizard hands off to CreateMsfPayloadEmbed for that OS.
+    const [createSource, setCreateSource] = useState<'mythic' | 'msf'>('mythic');
+    const [showMsfEmbed, setShowMsfEmbed] = useState(false);
     const [buildParams, setBuildParams] = useState<Record<string, any>>({});
     const [selectedCommands, setSelectedCommands] = useState<string[]>([]);
     const [c2ProfileInstances, setC2ProfileInstances] = useState<C2ProfileInstance[]>([]);
@@ -41,23 +69,34 @@ export const CreatePayloadEmbed: React.FC<{
     const { data: payloadTypesData, loading: loadingTypes } = useQuery<any>(GET_PAYLOAD_TYPES);
     const [createPayload] = useMutation<any>(CREATE_PAYLOAD);
 
-    // Group payload types by OS
-    const { availableOS, payloadTypesByOS } = React.useMemo(() => {
-        if (!payloadTypesData?.payloadtype) return { availableOS: [], payloadTypesByOS: {} };
-        
+    // Group payload types by OS. Then append MSF-only OSes (no Mythic agents
+    // for them, but operators can still generate MSF payloads targeting those
+    // platforms). The `mythicOSes` Set lets the renderer distinguish the two.
+    const { availableOS, payloadTypesByOS, mythicOSes } = React.useMemo(() => {
         const osSet = new Set<string>();
         const osMap: Record<string, PayloadTypeData[]> = {};
-        
-        payloadTypesData.payloadtype.forEach((pt: PayloadTypeData) => {
-            const osArray = Array.isArray(pt.supported_os) ? pt.supported_os : [];
-            osArray.forEach((os: string) => {
-                osSet.add(os);
-                if (!osMap[os]) osMap[os] = [];
-                osMap[os].push(pt);
+
+        if (payloadTypesData?.payloadtype) {
+            payloadTypesData.payloadtype.forEach((pt: PayloadTypeData) => {
+                const osArray = Array.isArray(pt.supported_os) ? pt.supported_os : [];
+                osArray.forEach((os: string) => {
+                    osSet.add(os);
+                    if (!osMap[os]) osMap[os] = [];
+                    osMap[os].push(pt);
+                });
             });
+        }
+
+        const mythicOS = new Set(osSet);
+        for (const o of MSF_ONLY_OS_LIST) osSet.add(o);
+        // Sort: Mythic-supported first (so the most common targets head the
+        // list), then MSF-only block.
+        const sorted = Array.from(osSet).sort((a, b) => {
+            const aMythic = mythicOS.has(a) ? 0 : 1;
+            const bMythic = mythicOS.has(b) ? 0 : 1;
+            return aMythic !== bMythic ? aMythic - bMythic : a.localeCompare(b);
         });
-        
-        return { availableOS: Array.from(osSet).sort(), payloadTypesByOS: osMap };
+        return { availableOS: sorted, payloadTypesByOS: osMap, mythicOSes: mythicOS };
     }, [payloadTypesData]);
 
     // Initialize build params when payload type is selected
@@ -318,7 +357,7 @@ export const CreatePayloadEmbed: React.FC<{
 
     const canProceed = () => {
         switch (currentStep) {
-            case 0: return selectedOS && selectedPayloadType;
+            case 0: return Boolean(selectedOS && (createSource === 'msf' || selectedPayloadType));
             case 1: return true;
             case 2: return selectedCommands.length > 0;
             case 3: return c2ProfileInstances.length > 0 || selectedPayloadType?.payloadtypec2profiles.length === 0;
@@ -326,6 +365,20 @@ export const CreatePayloadEmbed: React.FC<{
             default: return false;
         }
     };
+
+    // When the operator picks METASPLOIT in Step 0 and advances NEXT, hand off
+    // to the MSF wizard. It manages its own steps + storage + agentstorage sync.
+    if (showMsfEmbed && selectedOS) {
+        return (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <CreateMsfPayloadEmbed
+                    os={selectedOS}
+                    onBack={() => setShowMsfEmbed(false)}
+                    onComplete={onComplete}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -394,8 +447,13 @@ export const CreatePayloadEmbed: React.FC<{
                                 <div className="space-y-4">
                                     <h3 className="text-lg font-mono text-signal flex items-center gap-2">
                                         <span className="text-gray-600">01.</span> TARGET SYSTEM
+                                        <span className="ml-auto text-xs font-mono text-signal/70">
+                                            {availableOS.length} OS · {MSF_ONLY_OS_LIST.length} via MSF
+                                        </span>
                                     </h3>
-                                    <div className="space-y-2">
+                                    {/* OS list scrolls internally so the page chrome stays put even
+                                        with MSF's full OS coverage stacked into the list. */}
+                                    <div className="space-y-2 max-h-[55vh] overflow-y-auto cyber-scrollbar pr-2">
                                         {loadingTypes ? (
                                             <div className="flex items-center justify-center py-8">
                                                 <Loader2 className="animate-spin text-signal" size={24} />
@@ -404,45 +462,63 @@ export const CreatePayloadEmbed: React.FC<{
                                             availableOS.map(os => {
                                                 const osInfo = getOSInfo(os);
                                                 const agentCount = payloadTypesByOS[os]?.length || 0;
+                                                const isMsfOnly = !mythicOSes.has(os);
                                                 return (
                                                     <button
                                                         key={os}
-                                                        onClick={() => { setSelectedOS(os); setSelectedPayloadType(null); }}
+                                                        onClick={() => {
+                                                            setSelectedOS(os);
+                                                            setSelectedPayloadType(null);
+                                                            // MSF-only OSes have no Mythic agents — auto-pick MSF source.
+                                                            if (isMsfOnly) setCreateSource('msf');
+                                                        }}
                                                         className={cn(
                                                             "w-full p-4 border text-left transition-all group",
                                                             selectedOS === os
-                                                                ? `${osInfo.border} ${osInfo.bg}`
-                                                                : "border-gray-700 hover:border-gray-500 hover:bg-white/5"
+                                                                ? (isMsfOnly ? "border-accent bg-accent/10" : `${osInfo.border} ${osInfo.bg}`)
+                                                                : (isMsfOnly
+                                                                    ? "border-accent/30 hover:border-accent/60 hover:bg-accent/5"
+                                                                    : "border-gray-700 hover:border-gray-500 hover:bg-white/5")
                                                         )}
                                                     >
                                                         <div className="flex items-start gap-4">
                                                             <div className={cn(
                                                                 "p-3 border transition-colors",
-                                                                selectedOS === os 
-                                                                    ? `${osInfo.border} ${osInfo.bg} ${osInfo.color}` 
-                                                                    : "border-gray-600 text-gray-500 group-hover:text-gray-300"
+                                                                selectedOS === os
+                                                                    ? (isMsfOnly ? "border-accent bg-accent/10 text-accent" : `${osInfo.border} ${osInfo.bg} ${osInfo.color}`)
+                                                                    : (isMsfOnly ? "border-accent/40 text-accent/70 group-hover:text-accent" : "border-gray-600 text-gray-500 group-hover:text-gray-300")
                                                             )}>
                                                                 {getOSIcon(os)}
                                                             </div>
                                                             <div className="flex-1 min-w-0">
-                                                                <div className="flex items-center justify-between mb-1">
+                                                                <div className="flex items-center justify-between mb-1 gap-2">
                                                                     <span className={cn(
                                                                         "font-mono font-bold text-lg",
-                                                                        selectedOS === os ? osInfo.color : "text-white"
+                                                                        selectedOS === os ? (isMsfOnly ? "text-accent" : osInfo.color) : "text-white"
                                                                     )}>
                                                                         {os}
                                                                     </span>
-                                                                    <span className="text-xs bg-gray-800 px-2 py-0.5 text-gray-400 font-mono">
-                                                                        {agentCount} AGENT{agentCount !== 1 ? 'S' : ''}
-                                                                    </span>
+                                                                    {isMsfOnly ? (
+                                                                        <span className="text-[10px] font-mono tracking-[0.2em] border border-accent/60 bg-accent/10 px-1.5 py-px text-accent">
+                                                                            MSF ONLY
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-xs bg-gray-800 px-2 py-0.5 text-gray-400 font-mono">
+                                                                            {agentCount} AGENT{agentCount !== 1 ? 'S' : ''}
+                                                                        </span>
+                                                                    )}
                                                                 </div>
-                                                                <p className="text-xs text-gray-500 leading-relaxed">
-                                                                    {osInfo.desc}
+                                                                <p className="text-xs text-signal/70 leading-relaxed">
+                                                                    {isMsfOnly
+                                                                        ? `Reachable via Metasploit only — no native Mythic agent.`
+                                                                        : osInfo.desc}
                                                                 </p>
                                                             </div>
                                                             <ChevronRight className={cn(
                                                                 "transition-all mt-2",
-                                                                selectedOS === os ? `opacity-100 ${osInfo.color}` : "opacity-0 group-hover:opacity-50 text-gray-500"
+                                                                selectedOS === os
+                                                                    ? (isMsfOnly ? 'opacity-100 text-accent' : `opacity-100 ${osInfo.color}`)
+                                                                    : "opacity-0 group-hover:opacity-50 text-gray-500"
                                                             )} size={18} />
                                                         </div>
                                                     </button>
@@ -479,21 +555,21 @@ export const CreatePayloadEmbed: React.FC<{
                                                 animate={{ opacity: 1 }}
                                                 exit={{ opacity: 0 }}
                                                 transition={{ duration: getAnimDuration(0.3, isCombat) }}
-                                                className="space-y-2 max-h-[400px] overflow-y-auto cyber-scrollbar pr-2"
+                                                className="space-y-2 max-h-[55vh] overflow-y-auto cyber-scrollbar pr-2"
                                             >
                                                 {payloadTypesByOS[selectedOS]?.map((pt: PayloadTypeData, index: number) => (
                                                     <motion.button
                                                         key={pt.id}
                                                         initial={{ opacity: 0, y: 20 }}
                                                         animate={{ opacity: 1, y: 0 }}
-                                                        transition={{ 
+                                                        transition={{
                                                             duration: getAnimDuration(0.3, isCombat),
                                                             delay: getAnimDuration(index * 0.05, isCombat)
                                                         }}
-                                                        onClick={() => setSelectedPayloadType(pt)}
+                                                        onClick={() => { setSelectedPayloadType(pt); setCreateSource('mythic'); }}
                                                         className={cn(
                                                             "w-full p-4 border text-left transition-all group",
-                                                            selectedPayloadType?.id === pt.id
+                                                            (selectedPayloadType?.id === pt.id && createSource === 'mythic')
                                                                 ? "border-signal bg-signal/10"
                                                                 : "border-gray-700 hover:border-gray-500 hover:bg-white/5"
                                                         )}
@@ -530,6 +606,55 @@ export const CreatePayloadEmbed: React.FC<{
                                                         )}
                                                     </motion.button>
                                                 ))}
+
+                                                {/* ── METASPLOIT entry — additive sibling of every Mythic
+                                                       agent tile. Picking it switches the wizard into MSF
+                                                       mode for this OS without disturbing existing Mythic
+                                                       payload types. ──────────────────────────────────── */}
+                                                <motion.button
+                                                    key="__msf__"
+                                                    initial={{ opacity: 0, y: 20 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{
+                                                        duration: getAnimDuration(0.3, isCombat),
+                                                        delay: getAnimDuration((payloadTypesByOS[selectedOS]?.length ?? 0) * 0.05, isCombat),
+                                                    }}
+                                                    onClick={() => { setCreateSource('msf'); setSelectedPayloadType(null); }}
+                                                    className={cn(
+                                                        'w-full p-4 border text-left transition-all group relative overflow-hidden',
+                                                        createSource === 'msf'
+                                                            ? 'border-accent bg-accent/10'
+                                                            : 'border-accent/30 hover:border-accent/60 hover:bg-accent/5',
+                                                    )}
+                                                >
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[9px] font-mono tracking-[0.25em] border border-accent/60 bg-accent/10 px-1.5 py-px text-accent">
+                                                                EXTERNAL
+                                                            </span>
+                                                            <span className={cn(
+                                                                'font-mono font-bold',
+                                                                createSource === 'msf' ? 'text-accent' : 'text-white',
+                                                            )}>
+                                                                METASPLOIT
+                                                            </span>
+                                                            <span className="w-2 h-2 rounded-full bg-accent animate-pulse shadow-[0_0_5px_currentColor] text-accent" />
+                                                        </div>
+                                                        <span className="text-xs bg-gray-800 px-2 py-0.5 text-signal font-mono">
+                                                            MSF · RPC
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-signal/80 line-clamp-2 mb-2">
+                                                        msfvenom-style payload generator — pick any
+                                                        <span className="text-accent"> payload/{(OS_TO_MSF_HINT[selectedOS] ?? 'multi')}/* </span>
+                                                        module, configure options, build &amp; deploy.
+                                                    </p>
+                                                    <div className="flex items-center gap-4 text-[10px] text-signal/80 font-mono">
+                                                        <span>1500+ modules</span>
+                                                        <span>multi-format output</span>
+                                                        <span>shared via agentstorage</span>
+                                                    </div>
+                                                </motion.button>
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
@@ -1227,7 +1352,14 @@ export const CreatePayloadEmbed: React.FC<{
                     
                     {currentStep < PAYLOAD_STEPS.length - 1 && (
                         <motion.button
-                            onClick={() => setCurrentStep(currentStep + 1)}
+                            onClick={() => {
+                                // Branch off the Mythic wizard when MSF was chosen on Step 0.
+                                if (currentStep === 0 && createSource === 'msf' && selectedOS) {
+                                    setShowMsfEmbed(true);
+                                } else {
+                                    setCurrentStep(currentStep + 1);
+                                }
+                            }}
                             disabled={!canProceed()}
                             whileHover={{ scale: canProceed() ? 1.02 : 1 }}
                             whileTap={{ scale: canProceed() ? 0.98 : 1 }}
