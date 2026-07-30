@@ -138,11 +138,18 @@ function ingestLibraryRows(
 ): void {
     const next = new Map<string, MythicLibraryEntry>();
 
+    // filesRows is ordered newest-first (order_by: {id: desc}); with the
+    // task_id filter gone, the same filename can legitimately appear many
+    // times (re-uploaded for different hosts). Keep the first (= newest)
+    // hit per name so `upload <name>` resolves to the latest copy instead
+    // of whichever row happens to be processed last.
     for (const f of filesRows) {
         try {
             const name = b64DecodeUnicode(f.filename_text);
             if (!name) continue;
-            next.set(name.toLowerCase(), {
+            const key = name.toLowerCase();
+            if (next.has(key)) continue;
+            next.set(key, {
                 uuid: f.agent_file_id,
                 name,
                 size: f.size,

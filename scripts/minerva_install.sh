@@ -11,26 +11,15 @@ err()   { echo -e "${RED}[-]${NC} $1"; }
 die()   { err "$1"; exit 1; }
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
+# Minerva runs as its OWN docker stack, fully separate from Mythic. We only ever
+# touch Mythic's backend (idempotent Go patches, .env reachability, Hasura perms)
+# — never its UI container or MythicReactUI directory.
 MINERVA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="$MINERVA_DIR/scripts"
 MYTHIC_DIR="${MYTHIC_DIR:-/opt/Mythic}"
 MSF_COMPOSE="$MINERVA_DIR/docker-compose.metasploit.yml"
-REACT_UI="$MYTHIC_DIR/MythicReactUI"
-REACT_BAK="$MYTHIC_DIR/MythicReactUI.bak"
 HASURA_METADATA="$MYTHIC_DIR/hasura-docker/metadata"
-
-# Files/dirs unique to Minerva that need copying
 MINERVA_SRC="$MINERVA_DIR/src"
-MINERVA_CONFIGS=(
-    ".env"
-    "tailwind.config.js"
-    "postcss.config.js"
-    "tsconfig.json"
-    "config-overrides.js"
-    "package.json"
-    "package-lock.json"
-    "Dockerfile"
-)
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 preflight() {
@@ -40,69 +29,24 @@ preflight() {
     command -v python3 &>/dev/null || die "Python3 not installed (needed for Hasura config)"
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# INSTALL
-# ══════════════════════════════════════════════════════════════════════════════
-do_install() {
-    preflight
-    info "Installing Minerva into $MYTHIC_DIR ..."
-
-    # 1. Backup original MythicReactUI if not already backed up
-    if [ -d "$REACT_UI" ] && [ ! -d "$REACT_BAK" ]; then
-        info "Backing up original MythicReactUI -> MythicReactUI.bak"
-        cp -a "$REACT_UI" "$REACT_BAK"
-        ok "Backup created"
-    elif [ -d "$REACT_BAK" ]; then
-        ok "Backup already exists at MythicReactUI.bak"
-    fi
-
-    # 2. Copy Minerva source tree
-    info "Copying Minerva source into MythicReactUI ..."
-    # Copy src/ (merge — Minerva adds src/Minerva/ and modifies src/index.js, src/components/App.js)
-    rsync -a --delete "$MINERVA_SRC/" "$REACT_UI/src/"
-    ok "Source copied"
-
-    # 2b. Copy public/ (audio files, index.html, etc.)
-    info "Copying public/ assets ..."
-    rsync -a "$MINERVA_DIR/public/" "$REACT_UI/public/"
-    ok "Public assets copied"
-
-    # 3. Copy config files
-    info "Copying config files ..."
-    for f in "${MINERVA_CONFIGS[@]}"; do
-        if [ -f "$MINERVA_DIR/$f" ]; then
-            cp "$MINERVA_DIR/$f" "$REACT_UI/$f"
-        fi
-    done
-    ok "Config files copied"
-
-    # 4. Copy scripts
-    info "Copying helper scripts ..."
-    for script in configure-hasura-agentstorage.sh debug-custom-nodes.sh clear-custom-nodes.sh; do
-        [ -f "$SCRIPTS_DIR/$script" ] && cp "$SCRIPTS_DIR/$script" "$REACT_UI/$script"
-    done
-    [ -f "$SCRIPTS_DIR/clear-nodes.sql" ] && cp "$SCRIPTS_DIR/clear-nodes.sql" "$REACT_UI/clear-nodes.sql"
-    ok "Scripts copied"
-
-    # 5. Configure Hasura (agentstorage permissions for custom graph nodes)
-    info "Configuring Hasura agentstorage permissions ..."
-    if [ -f "$REACT_UI/configure-hasura-agentstorage.sh" ] && [ -d "$HASURA_METADATA" ]; then
-        bash "$REACT_UI/configure-hasura-agentstorage.sh" || warn "Hasura config had issues (non-fatal)"
-    else
-        warn "Skipping Hasura config (metadata dir not found or script missing)"
-    fi
-
-    # 6. Apply Mythic source patches (array-type parameter fix) and rebuild mythic_server
-    info "Applying Mythic source patches ..."
+# ── Shared Mythic-side preparation (needed by BOTH deployment models) ──────────
+# .env cross-container reachability + Go source patches + agent patches + Hasura
+# agentstorage permissions. All steps are idempotent.
+prepare_mythic() {
+    # 1. Mythic .env reachability config + Go source patches + rebuild mythic_server.
+    #    mythic_change.sh is the single idempotent record of every Mythic-side
+    #    mutation (per the workspace rules). It configures the .env FIRST so a
+    #    fresh Mythic comes up with the right port bindings.
+    info "Configuring Mythic .env + applying source patches ..."
     if [ -f "$SCRIPTS_DIR/mythic_change.sh" ]; then
         MYTHIC_DIR="$MYTHIC_DIR" bash "$SCRIPTS_DIR/mythic_change.sh"
-        ok "Mythic patches applied and mythic_server rebuilt"
+        ok "Mythic .env configured, source patched, mythic_server rebuilt"
     else
-        warn "mythic_change.sh not found — skipping Mythic source patches"
+        warn "mythic_change.sh not found — Mythic .env NOT configured and patches skipped!"
         warn "Manually run: bash $SCRIPTS_DIR/mythic_change.sh"
     fi
 
-    # 6b. Apply Mythic-agent source patches (Apollo SOCKS/TCP fixes, IPC buffers)
+    # 2. Mythic-agent source patches (Apollo SOCKS/TCP fixes, IPC buffers)
     info "Applying Mythic agent patches ..."
     if [ -f "$SCRIPTS_DIR/MythicAgentPatch.sh" ]; then
         MYTHIC_DIR="$MYTHIC_DIR" bash "$SCRIPTS_DIR/MythicAgentPatch.sh"
@@ -112,23 +56,54 @@ do_install() {
         warn "Manually run: bash $SCRIPTS_DIR/MythicAgentPatch.sh"
     fi
 
-    # 7. Rebuild mythic_react container
-    info "Rebuilding mythic_react container ..."
-    cd "$MYTHIC_DIR"
-    if [ -f "./mythic-cli" ]; then
-        sudo ./mythic-cli build mythic_react
-        ok "mythic_react rebuilt and started"
+    # 3. Hasura agentstorage permissions (custom graph nodes). Runs straight from
+    #    scripts/ — the script now honors MYTHIC_DIR to locate the metadata dir.
+    info "Configuring Hasura agentstorage permissions ..."
+    if [ -f "$SCRIPTS_DIR/configure-hasura-agentstorage.sh" ] && [ -d "$HASURA_METADATA" ]; then
+        MYTHIC_DIR="$MYTHIC_DIR" bash "$SCRIPTS_DIR/configure-hasura-agentstorage.sh" \
+            || warn "Hasura config had issues (non-fatal)"
     else
-        die "mythic-cli not found at $MYTHIC_DIR/mythic-cli"
+        warn "Skipping Hasura config (metadata dir not found or script missing)"
     fi
+}
+
+# ── Bring the Minerva standalone stack up / down ───────────────────────────────
+compose_up() {
+    info "Building & starting the Minerva standalone stack (nginx :443 + minerva-dev) ..."
+    cd "$MINERVA_DIR"
+    docker compose build
+    docker compose up -d
+    ok "minerva + minerva-dev started"
+}
+
+compose_down() {
+    info "Stopping the Minerva standalone stack ..."
+    cd "$MINERVA_DIR"
+    docker compose down
+    ok "minerva + minerva-dev stopped"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INSTALL — default: Standalone Docker deployment (the official runtime).
+# Minerva runs as its own two containers and proxies the Mythic API over
+# host.docker.internal. Mythic's own UI (mythic_react) is left untouched.
+# ══════════════════════════════════════════════════════════════════════════════
+do_install() {
+    preflight
+    info "Installing Minerva — Standalone Docker deployment"
+    info "Mythic dir: $MYTHIC_DIR"
+
+    prepare_mythic
+    compose_up
 
     echo ""
     ok "========================================="
-    ok "  Minerva installed successfully!"
+    ok "  Minerva installed (Standalone Docker)!"
     ok "========================================="
     echo ""
-    info "Wait ~2 minutes for webpack to compile, then visit:"
-    echo "  https://127.0.0.1:7443/new/login"
+    info "First webpack compile takes ~1-2 min. Watch: docker logs -f minerva-dev"
+    info "Then browse to  https://<host>/  (redirects to /new/login)."
+    info "API is proxied to: https://host.docker.internal:7443 (override via MYTHIC_ADDRESS in docker-compose.yml)"
     echo ""
     info "Run './minerva_install.sh verify' to check status"
 }
@@ -137,74 +112,60 @@ do_install() {
 # VERIFY
 # ══════════════════════════════════════════════════════════════════════════════
 do_verify() {
-    info "Verifying Minerva installation ..."
+    info "Verifying Minerva (Standalone Docker) installation ..."
     local errors=0
 
-    # Check Minerva source in MythicReactUI
-    if [ -d "$REACT_UI/src/Minerva" ]; then
-        ok "Minerva source found in MythicReactUI"
+    # 1. Mythic .env cross-container reachability keys (the fresh-install killer)
+    local env="$MYTHIC_DIR/.env"
+    if [ -f "$env" ]; then
+        for key in NGINX_BIND_LOCALHOST_ONLY MYTHIC_SERVER_DYNAMIC_PORTS_BIND_LOCALHOST_ONLY; do
+            if grep -qE "^${key}=\"?false\"?$" "$env"; then
+                ok "$key = false"
+            else
+                err "$key is not false in .env — containers can't reach host.docker.internal ports"
+                err "  Fix: bash $SCRIPTS_DIR/mythic_change.sh  (then 'cd $MYTHIC_DIR && sudo ./mythic-cli start')"
+                ((errors++))
+            fi
+        done
     else
-        err "Minerva source NOT found in MythicReactUI/src/Minerva"
-        ((errors++))
+        warn "$env not found — is Mythic initialized? (run its install first)"
     fi
 
-    # Check key files
-    for f in tailwind.config.js postcss.config.js tsconfig.json; do
-        if [ -f "$REACT_UI/$f" ]; then
-            ok "$f present"
+    # 2. Minerva containers
+    for c in minerva minerva-dev; do
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${c}$"; then
+            ok "$c container is running"
         else
-            err "$f missing"
+            err "$c container is NOT running — run './minerva_install.sh up'"
             ((errors++))
         fi
     done
 
-    # Check App.js has MinervaApp import
-    if grep -q "MinervaApp" "$REACT_UI/src/components/App.js" 2>/dev/null; then
-        ok "App.js routes to MinervaApp"
+    # 3. Mythic backend present
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^mythic_nginx$'; then
+        ok "mythic_nginx is running (proxy backend)"
     else
-        err "App.js does not reference MinervaApp"
-        ((errors++))
+        warn "mythic_nginx not running — Minerva has no Mythic backend to proxy to"
     fi
 
-    # Check index.js has MinervaApp import
-    if grep -q "MinervaApp" "$REACT_UI/src/index.js" 2>/dev/null; then
-        ok "index.js imports MinervaApp"
-    else
-        err "index.js does not import MinervaApp"
-        ((errors++))
-    fi
-
-    # Check backup exists
-    if [ -d "$REACT_BAK" ]; then
-        ok "Original MythicReactUI backup exists"
-    else
-        warn "No backup found (MythicReactUI.bak)"
-    fi
-
-    # Check container
-    if sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "mythic_react"; then
-        ok "mythic_react container is running"
-
-        # Check if webpack compiled
+    # 4. webpack compiled?
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^minerva-dev$"; then
         local last_log
-        last_log=$(sudo docker logs mythic_react --tail 3 2>&1)
+        last_log=$(docker logs minerva-dev --tail 5 2>&1)
         if echo "$last_log" | grep -q "webpack compiled"; then
-            if echo "$last_log" | grep -q "error"; then
-                warn "webpack compiled with errors — run './minerva_install.sh fix'"
+            if echo "$last_log" | grep -qi "error"; then
+                warn "webpack compiled with errors — check 'docker logs minerva-dev'"
             else
                 ok "webpack compiled successfully"
             fi
         else
             info "webpack still compiling (may need a minute)"
         fi
-    else
-        err "mythic_react container is NOT running"
-        ((errors++))
     fi
 
-    # Check HTTP
+    # 5. UI responding on 443
     local http_code
-    http_code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7443/new/login 2>/dev/null || echo "000")
+    http_code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/new/login 2>/dev/null || echo "000")
     if [ "$http_code" = "200" ]; then
         ok "UI responding (HTTP 200)"
     else
@@ -224,42 +185,49 @@ do_verify() {
 # ══════════════════════════════════════════════════════════════════════════════
 do_fix() {
     preflight
-    info "Attempting to fix Minerva installation ..."
+    info "Re-applying Minerva standalone stack ..."
 
-    # Re-sync source
-    info "Re-syncing Minerva source ..."
-    rsync -a --delete "$MINERVA_SRC/" "$REACT_UI/src/"
-    rsync -a "$MINERVA_DIR/public/" "$REACT_UI/public/"
-    for f in "${MINERVA_CONFIGS[@]}"; do
-        [ -f "$MINERVA_DIR/$f" ] && cp "$MINERVA_DIR/$f" "$REACT_UI/$f"
-    done
-    ok "Source, public assets, and configs re-synced"
+    # Re-assert Mythic .env reachability (idempotent; source patches already built)
+    if [ -f "$SCRIPTS_DIR/mythic_change.sh" ]; then
+        info "Re-checking Mythic .env reachability keys ..."
+        # Only the .env portion is cheap; the full script also rebuilds the Go
+        # server (skip that here — 'install' owns the rebuild). We re-run the
+        # whole script only if the reachability keys are wrong.
+        local env="$MYTHIC_DIR/.env"
+        if ! grep -qE '^NGINX_BIND_LOCALHOST_ONLY="?false"?$' "$env" 2>/dev/null \
+           || ! grep -qE '^MYTHIC_SERVER_DYNAMIC_PORTS_BIND_LOCALHOST_ONLY="?false"?$' "$env" 2>/dev/null; then
+            warn ".env reachability keys wrong — running mythic_change.sh to fix"
+            MYTHIC_DIR="$MYTHIC_DIR" bash "$SCRIPTS_DIR/mythic_change.sh" || warn "mythic_change.sh reported issues"
+        else
+            ok ".env reachability keys already correct"
+        fi
+    fi
 
-    # Restart container
-    info "Restarting mythic_react ..."
-    sudo docker restart mythic_react 2>/dev/null || {
-        warn "Restart failed, rebuilding ..."
-        cd "$MYTHIC_DIR" && sudo ./mythic-cli build mythic_server mythic_react
-    }
-    ok "mythic_react restarted"
+    # Rebuild & restart the standalone stack. Source is volume-mounted, so a
+    # restart of minerva-dev forces a fresh webpack compile.
+    cd "$MINERVA_DIR"
+    docker compose up -d --build
+    docker restart minerva-dev >/dev/null 2>&1 || true
+    ok "Standalone stack rebuilt and restarted"
 
     echo ""
-    info "Wait ~2 minutes for webpack, then run './minerva_install.sh verify'"
+    info "Wait ~1-2 minutes for webpack, then run './minerva_install.sh verify'"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STATUS
 # ══════════════════════════════════════════════════════════════════════════════
 do_status() {
-    info "Mythic container status:"
+    info "Minerva + Mythic container status:"
     echo ""
-    sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | grep mythic || warn "No Mythic containers found"
+    docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null \
+        | grep -E 'minerva|mythic|NAMES' || warn "No Minerva/Mythic containers found"
     echo ""
 
-    if sudo docker ps --format '{{.Names}}' 2>/dev/null | grep -q "mythic_react"; then
-        info "mythic_react recent logs:"
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^minerva-dev$"; then
+        info "minerva-dev recent logs:"
         echo "---"
-        sudo docker logs mythic_react --tail 5 2>&1
+        docker logs minerva-dev --tail 6 2>&1
         echo "---"
     fi
 }
@@ -292,27 +260,15 @@ except: print('Failed to parse response')
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# UNINSTALL (restore original)
+# UNINSTALL — tear down Minerva's own stack. Mythic is never touched at the UI
+# level, so there is nothing to "restore" there. The idempotent backend patches
+# in mythic_change.sh keep their own .minerva.bak files if you want to revert
+# Mythic itself (see that script).
 # ══════════════════════════════════════════════════════════════════════════════
 do_uninstall() {
-    info "Restoring original MythicReactUI ..."
-
-    if [ ! -d "$REACT_BAK" ]; then
-        die "No backup found at $REACT_BAK — cannot restore"
-    fi
-
-    # Swap
-    if [ -d "$REACT_UI" ]; then
-        mv "$REACT_UI" "${REACT_UI}.minerva"
-        info "Current Minerva UI saved as MythicReactUI.minerva"
-    fi
-    mv "$REACT_BAK" "$REACT_UI"
-    ok "Original MythicReactUI restored"
-
-    # Rebuild
-    info "Rebuilding mythic_react with original UI ..."
-    cd "$MYTHIC_DIR" && sudo ./mythic-cli build mythic_server mythic_react
-    ok "Original Mythic UI restored and running"
+    info "Stopping & removing the Minerva standalone stack ..."
+    ( cd "$MINERVA_DIR" && docker compose down 2>/dev/null ) && ok "Standalone stack stopped" || warn "Nothing to stop"
+    ok "Minerva removed. Mythic (its containers, UI, and network) is untouched."
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -329,6 +285,8 @@ do_msf_start() {
         warn "Mythic file dir not found: $mythic_files_dir (file-library upload will be unavailable until Mythic creates it)"
         mkdir -p "$mythic_files_dir" 2>/dev/null || true
     fi
+    # Point the compose bind-mount at THIS Mythic (respects a non-default MYTHIC_DIR)
+    export MINERVA_MYTHIC_FILES="$mythic_files_dir"
     docker compose -f "$MSF_COMPOSE" up -d
     ok "minerva_msf container started (mythic files mounted RO at /mythic_files)"
     ok "MSF SOCKS tunnel range exposed: host 7100-7131 → container 7100-7131"
@@ -388,13 +346,18 @@ usage() {
     echo ""
     echo "Usage: $0 [command]"
     echo ""
+    echo "Minerva runs as its own Docker stack, fully separate from Mythic."
+    echo ""
     echo "Commands:"
-    echo "  (none)      Full install (backup + copy + build)"
-    echo "  verify      Verify installation is correct"
-    echo "  fix         Re-sync source and restart container"
-    echo "  status      Show container status and logs"
+    echo "  (none)      Full install: Mythic .env config + backend patches + Hasura,"
+    echo "              then bring up the minerva + minerva-dev containers (nginx :443)."
+    echo "  up          Build & start the Minerva stack"
+    echo "  down        Stop the Minerva stack"
+    echo "  verify      Verify the installation is correct"
+    echo "  fix         Re-assert .env + rebuild/restart the stack"
+    echo "  status      Show Minerva + Mythic container status and logs"
     echo "  clean       Remove custom graph nodes from database"
-    echo "  uninstall   Restore original MythicReactUI"
+    echo "  uninstall   Stop & remove the Minerva stack (Mythic left untouched)"
     echo ""
     echo "Metasploit:"
     echo "  msf-start   Deploy & start Metasploit RPC container"
@@ -405,11 +368,15 @@ usage() {
     echo "  help        Show this message"
     echo ""
     echo "Environment:"
-    echo "  MYTHIC_DIR  Path to Mythic (default: /home/kali/Mythic)"
+    echo "  MYTHIC_DIR    Path to Mythic (default: /opt/Mythic)"
+    echo "  MYTHIC_ADDRESS  Nginx upstream for Mythic API (set in docker-compose.yml;"
+    echo "                  default: https://host.docker.internal:7443)"
 }
 
 case "${1:-install}" in
     install|"")   do_install ;;
+    up)           preflight; compose_up ;;
+    down)         compose_down ;;
     verify)       do_verify ;;
     fix)          do_fix ;;
     status)       do_status ;;

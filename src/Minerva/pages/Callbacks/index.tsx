@@ -108,9 +108,18 @@ export default function Callbacks() {
         onError: (err) => { console.error('[SUBSCRIPTION_CALLBACKS] subscription error:', err); },
     });
     const data = useMemo(() => subData ? { callback: subData.callback } : queryData, [subData, queryData]);
+    // Header stat counts — derive once per data change instead of scanning the
+    // full callback array inline in JSX on every render.
+    const totalAgents = data?.callback?.length || 0;
+    const highIntegrityCount = useMemo(
+        () => (data?.callback || []).filter((c: Callback) => c.integrity_level > 2).length,
+        [data],
+    );
     const { data: edgesData } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES, { pollInterval: pageVisible ? 10000 : 0 });
     const { data: customBrowsersData } = useQuery<any>(GET_CUSTOM_BROWSERS);
-    const customBrowsers = customBrowsersData?.custombrowser || [];
+    // Stable reference so an absent result doesn't hand the column defs a fresh
+    // [] each render (which would ripple into the un-memoized column closures).
+    const customBrowsers = useMemo(() => customBrowsersData?.custombrowser || [], [customBrowsersData]);
 
     // ── MSF session injection ─────────────────────────────────────────────
     // MSF sessions are surfaced through a shared hook so the 2D CallbackGraph
@@ -1000,11 +1009,11 @@ export default function Callbacks() {
                         </button>
                         <div className="text-right border-l border-ghost/20 pl-6">
                             <div className="text-gray-400">TOTAL_AGENTS</div>
-                            <div className="text-xl text-signal">{data?.callback?.length || 0}</div>
+                            <div className="text-xl text-signal">{totalAgents}</div>
                         </div>
                         <div className="text-right">
                             <div className="text-gray-400">HIGH_INTEGRITY</div>
-                            <div className="text-xl text-yellow-500">{data?.callback?.filter((c: Callback) => c.integrity_level > 2).length || 0}</div>
+                            <div className="text-xl text-yellow-500">{highIntegrityCount}</div>
                         </div>
                     </div>
                 </header>

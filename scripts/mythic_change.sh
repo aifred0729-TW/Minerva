@@ -1,6 +1,13 @@
 #!/bin/bash
 # mythic_change.sh — Apply Minerva-required patches to Mythic source code and rebuild mythic_server
 #
+# Patch 0 (config, not source) — Mythic .env cross-container reachability:
+#   Force NGINX_BIND_LOCALHOST_ONLY="false" and
+#   MYTHIC_SERVER_DYNAMIC_PORTS_BIND_LOCALHOST_ONLY="false" so Minerva's nginx
+#   container (and agents) can reach Mythic's 7443 + C2 ports 7000-7010 over
+#   host.docker.internal. Idempotent; leaves postgres/rabbitmq/hasura/jupyter
+#   localhost-only. See the "Patch 0" block below for the full rationale.
+#
 # Changes made to Mythic source:
 #   File: mythic-docker/src/rabbitmq/utils.go
 #
@@ -102,6 +109,59 @@ if [ ! -f "$BACKUP" ]; then
     ok "Backup created: $BACKUP"
 else
     ok "Backup already exists: $BACKUP"
+fi
+
+# ── Patch 0: Mythic .env cross-container reachability ──────────────────────────
+# Minerva does NOT share Mythic's docker network. Its nginx container reaches
+# Mythic through the host gateway (host.docker.internal → host-gateway IP):
+#   • https://host.docker.internal:7443   — Mythic nginx (GraphQL / API / auth)
+#   • host.docker.internal:7000-7010      — Mythic C2 dynamic ports (agents)
+# A *_BIND_LOCALHOST_ONLY="true" makes the host publish that port on 127.0.0.1
+# ONLY, so every container → host.docker.internal:<port> connection is refused.
+# That is the single most common "fresh install has a hundred errors" cause.
+# We force the two keys Minerva's architecture depends on to "false"; the
+# security-sensitive internal services (postgres / rabbitmq / hasura / jupyter)
+# are left localhost-only because Minerva reaches Hasura via the /graphql proxy
+# through 7443, never directly.
+#
+# Idempotent: only rewrites a key whose value differs, and reports what changed.
+MYTHIC_ENV="$MYTHIC_DIR/.env"
+
+# set_env_kv <file> <KEY> <value> — in-place update or append. Returns 0 if the
+# file was changed, 1 if it already held the desired value.
+set_env_kv() {
+    local file="$1" key="$2" val="$3"
+    local desired="${key}=\"${val}\""
+    if grep -qE "^${key}=" "$file" 2>/dev/null; then
+        [ "$(grep -E "^${key}=" "$file" | head -1)" = "$desired" ] && return 1
+        sed -i "s|^${key}=.*|${desired}|" "$file"
+        return 0
+    fi
+    printf '%s\n' "$desired" >> "$file"
+    return 0
+}
+
+info "Configuring Mythic .env for Minerva cross-container reachability ..."
+if [ ! -f "$MYTHIC_ENV" ]; then
+    warn "$MYTHIC_ENV not found — creating a stub (mythic-cli fills the rest on first start)"
+    touch "$MYTHIC_ENV"
+fi
+ENV_CHANGED=0
+for kv in \
+    'NGINX_BIND_LOCALHOST_ONLY=false' \
+    'MYTHIC_SERVER_DYNAMIC_PORTS_BIND_LOCALHOST_ONLY=false' ; do
+    k="${kv%%=*}"; v="${kv#*=}"
+    if set_env_kv "$MYTHIC_ENV" "$k" "$v"; then
+        ok "  set ${k}=\"${v}\""
+        ENV_CHANGED=1
+    else
+        ok "  ${k} already \"${v}\""
+    fi
+done
+if [ "$ENV_CHANGED" = "1" ] && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^mythic_nginx$'; then
+    warn "Mythic is already running with the old port map."
+    warn "Run 'cd $MYTHIC_DIR && sudo ./mythic-cli start' to rebind ports (a plain"
+    warn "restart keeps the previous bindings — port publishing is set at create time)."
 fi
 
 # ── Apply patches via Python (reliable multi-line replacement) ─────────────────

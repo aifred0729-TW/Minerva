@@ -140,6 +140,21 @@ export const GetNewToken = async (): Promise<boolean> => {
 export const isFetchingNewToken = () => fetchingNewToken;
 export const setFetchingNewToken = (v: boolean) => { fetchingNewToken = v; };
 
+// ── Single-flight token refresh ────────────────────────────────────
+//
+// Concurrent GraphQL operations that all observe an expired / half-life
+// token would otherwise each fire their own POST /refresh (a TOCTOU race
+// producing duplicate refreshes). Sharing one in-flight promise collapses
+// them into a single network round-trip, and lets callers `await` the
+// result directly instead of polling `isFetchingNewToken()` on a timer.
+let refreshInFlight: Promise<boolean> | null = null;
+
+export const refreshTokenSingleFlight = (): Promise<boolean> => {
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = GetNewToken().finally(() => { refreshInFlight = null; });
+    return refreshInFlight;
+};
+
 // ── Session expiration detection ───────────────────────────────────
 
 export const isSessionExpiredError = (code?: string, message?: string): boolean => {

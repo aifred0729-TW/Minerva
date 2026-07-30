@@ -32,7 +32,9 @@ services:
       # read-only so MSF can `upload /mythic_files/<uuid> <target_path>`
       # without needing a copy. See `scripts/minerva_install.sh` for the
       # one-time `docker compose up -d` after editing this file.
-      - /opt/Mythic/mythic-docker/src/files:/mythic_files:ro
+      # Path is overridable so a non-default Mythic location still works:
+      # minerva_install.sh exports MINERVA_MYTHIC_FILES=$MYTHIC_DIR/mythic-docker/src/files.
+      - ${MINERVA_MYTHIC_FILES:-/opt/Mythic/mythic-docker/src/files}:/mythic_files:ro
     restart: unless-stopped
 
 volumes:

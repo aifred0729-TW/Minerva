@@ -27,12 +27,10 @@ import { snackActions } from './snackbar';
 import { dbg } from './utils';
 import {
     isJWTValid,
-    GetNewToken,
     FailedRefresh,
     isSessionExpiredError,
     handleSessionExpired,
-    isFetchingNewToken,
-    setFetchingNewToken,
+    refreshTokenSingleFlight,
     getAccessToken,
     getAuthHeaders,
 } from './auth';
@@ -53,12 +51,7 @@ const httpLink = new HttpLink({
 // to prevent duplicate concurrent refresh requests.
 
 const authLink = setContext(async (_, { headers }) => {
-    // Wait for any in-flight refresh to finish
-    while (isFetchingNewToken()) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-
-    let access_token = getAccessToken();
+    const access_token = getAccessToken();
     if (access_token) {
         const decoded: { exp: number } = jwtDecode(access_token);
         const diff = (decoded.exp * 1000) - getSkewedNow().getTime();
@@ -66,9 +59,9 @@ const authLink = setContext(async (_, { headers }) => {
 
         if (!isJWTValid()) {
             dbg('apollo', 'token is no longer valid, refreshing');
-            setFetchingNewToken(true);
-            const updated = await GetNewToken();
-            setFetchingNewToken(false);
+            // Single-flight: concurrent operations share one /refresh POST
+            // instead of each firing their own and polling on a timer.
+            const updated = await refreshTokenSingleFlight();
             if (updated) {
                 return { headers: getAuthHeaders() };
             }
@@ -76,9 +69,7 @@ const authLink = setContext(async (_, { headers }) => {
             FailedRefresh();
         } else if (diff < thirtyMinutes && diff > 0) {
             dbg('apollo', 'token at half-life, refreshing');
-            setFetchingNewToken(true);
-            const updated = await GetNewToken();
-            setFetchingNewToken(false);
+            const updated = await refreshTokenSingleFlight();
             if (updated) {
                 return { headers: getAuthHeaders() };
             }

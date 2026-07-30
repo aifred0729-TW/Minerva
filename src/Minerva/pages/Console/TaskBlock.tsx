@@ -234,7 +234,7 @@ export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot
     );
 };
 
-export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReveal, myUsername, collapseAllEpoch, expandAllEpoch, defaultCollapsed }: {
+const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal, myUsername, collapseAllEpoch, expandAllEpoch, defaultCollapsed }: {
     task: Task;
     callbackHost?: string;
     onFileAction?: (action: string, path: string, name: string, isDir: boolean) => void;
@@ -403,11 +403,26 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         if (commandId) fetchBrowserScript({ variables: { command_id: commandId } });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [commandId, isMsf]);
+    // Per-response decode cache. A task that streams N chunks re-runs this
+    // effect N times; without caching every already-decoded response would be
+    // base64-decoded again on each chunk (O(N²) over the task's lifetime).
+    // Keyed by response id, guarded by the raw string so an in-place response
+    // update (see the stream handler above) re-decodes only that row. Unchanged
+    // rows keep the same string reference, so the `=== r.response` check is O(1).
+    const decodeCacheRef = useRef<Map<number, { raw: string; decoded: string }>>(new Map());
     // Run browserScript on new responses — OldReactUI calling convention: script(task, rawResponseArray)
     useEffect(() => {
         if (!browserScriptFn || liveResponses.length === 0) { setBrowserScriptData(null); return; }
         try {
-            const rawResponseArray = liveResponses.map((r: TaskResponse) => b64DecodeUnicode(r.response || ''));
+            const cache = decodeCacheRef.current;
+            const rawResponseArray = liveResponses.map((r: TaskResponse) => {
+                const raw = r.response || '';
+                const hit = cache.get(r.id);
+                if (hit && hit.raw === raw) return hit.decoded;
+                const decoded = b64DecodeUnicode(raw);
+                cache.set(r.id, { raw, decoded });
+                return decoded;
+            });
             const result = browserScriptFn(task, rawResponseArray);
             setBrowserScriptData(result && typeof result === 'object' && Object.keys(result).length > 0 ? result : null);
         } catch { setBrowserScriptData(null); }
@@ -1609,6 +1624,13 @@ export const TaskBlock = ({ task, callbackHost, onFileAction, scrollRoot, onReve
         </>
     );
 };
+
+// Memoized: the console input's per-keystroke state lives in ConsoleTerminal,
+// so without this every mounted TaskBlock (each carrying a subscription and
+// several setting hooks) re-rendered on every character typed. All callback
+// props here are stable (useCallback / refs / state), so shallow-equal props
+// let non-streaming task blocks skip the render entirely.
+export const TaskBlock = React.memo(TaskBlockImpl);
 
 // ============================================
 // Console Terminal

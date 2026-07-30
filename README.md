@@ -60,7 +60,7 @@
   <img src="docs/screenshots/login.png" alt="Minerva Login" width="100%">
 </p>
 
-**Minerva** is a modern, cyberpunk-themed web interface for the [Mythic C2 Framework](https://github.com/its-a-feature/Mythic). It is a drop-in replacement for Mythic's built-in `MythicReactUI`, designed from the ground up for operators who run long red-team engagements and need a dense, low-friction operational console.
+**Minerva** is a modern, cyberpunk-themed web interface for the [Mythic C2 Framework](https://github.com/its-a-feature/Mythic). It runs as a standalone stack alongside Mythic (a separate front-end to Mythic's built-in `MythicReactUI`, not a swap-in for it), designed from the ground up for operators who run long red-team engagements and need a dense, low-friction operational console.
 
 Compared to the stock Mythic UI, Minerva adds:
 
@@ -74,10 +74,11 @@ Compared to the stock Mythic UI, Minerva adds:
 - **Battle Mode** &mdash; Tactical UI mode (Combat / Recon / Normal) that re-tunes density, animation speed, and ambient sound for active operations.
 - **Theming &amp; audio** &mdash; CSS-variable driven dark/light themes, custom background image, JetBrains Mono / Inter typography, IndexedDB-backed music library, and per-event SFX.
 
-Minerva can run two ways:
+Minerva runs as **its own Docker stack, fully separate from Mythic** — it is never copied into Mythic's `MythicReactUI` directory or baked into the `mythic_react` container. `scripts/minerva_install.sh` (or `docker compose up -d`) brings up two containers: `minerva-dev` (the React app served by `react-app-rewired`, the same way Mythic serves its own UI) behind a `minerva` Nginx container that terminates TLS on **443** and proxies `/graphql`, `/auth`, `/refresh`, `/msf-rpc`, `/direct` to an existing Mythic instance over `host.docker.internal`. Self-signs a TLS cert on first run and leaves Mythic's own UI untouched.
 
-1. **Standalone Docker** &mdash; `docker compose up -d` brings up two containers: `minerva-dev` (the React app served by `react-app-rewired`, the same way Mythic serves its own UI) behind a `minerva` Nginx container that terminates TLS on **443** and proxies `/graphql`, `/auth`, `/refresh`, `/msf-rpc`, `/direct` to an existing Mythic instance. Self-signs a TLS cert on first run.
-2. **Replace `mythic_react`** &mdash; Use `scripts/minerva_install.sh` to swap Minerva into Mythic's own `MythicReactUI` directory so it ships through Mythic's normal lifecycle (`./mythic-cli ...`).
+`minerva_install.sh` also does the one-time Mythic-side prep a vanilla Mythic needs: configures its `.env` (see below), applies the required Go patches (`mythic_change.sh`), and sets up Hasura. These touch Mythic's *backend* only — Minerva itself stays in its own containers.
+
+> **Cross-container reachability (`.env`):** because the `minerva` container is not on Mythic's docker network, it reaches Mythic through the host gateway (`host.docker.internal`). For that to work Mythic must publish its ports on all interfaces, not just loopback — so `NGINX_BIND_LOCALHOST_ONLY` (port 7443) and `MYTHIC_SERVER_DYNAMIC_PORTS_BIND_LOCALHOST_ONLY` (C2 ports 7000-7010) **must be `"false"`** in Mythic's `.env`. `minerva_install.sh` sets these automatically and idempotently; if you install by hand, set them yourself and run `./mythic-cli start` to rebind. Leaving them `"true"` is the most common cause of a fresh install failing with connection-refused errors.
 
 ---
 
@@ -444,6 +445,7 @@ The whole UI is mounted under `/new/...` (so it can co-exist with stock `mythic_
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
 - A running [Mythic C2](https://github.com/its-a-feature/Mythic) instance reachable from the host (default: `https://host.docker.internal:7443`)
 - Open port **443** on the host
+- Mythic's `.env` must publish its ports beyond loopback so the Minerva container can reach them over `host.docker.internal`: `NGINX_BIND_LOCALHOST_ONLY="false"` and `MYTHIC_SERVER_DYNAMIC_PORTS_BIND_LOCALHOST_ONLY="false"`. `scripts/minerva_install.sh` sets these for you.
 
 ### Standalone Container
 
@@ -474,18 +476,20 @@ docker compose down
 
 > The default `docker-compose.yml` exposes only Minerva (port 443). `MYTHIC_ADDRESS` is passed into Nginx as a template variable and used for `/graphql`, `/auth`, `/refresh`, `/invite`, `/direct` upstreams. Drop your own `minerva.crt` / `minerva.key` into `nginx/ssl/` to replace the auto-generated self-signed cert.
 
-### Replacing `mythic_react` (Recommended for Operators)
+### One-command install (`minerva_install.sh`)
 
-If you want Minerva to *be* Mythic's web UI (handled by `./mythic-cli`), use the bundled setup script:
+The bundled setup script is the supported path onto a vanilla Mythic. It deploys Minerva's own stack and leaves Mythic's UI and containers untouched:
 
 ```bash
 # From /opt/Minerva
-./scripts/minerva_install.sh         # full install (backup + copy + build + apply patches)
-./scripts/minerva_install.sh verify  # verify install
-./scripts/minerva_install.sh status  # show container status & logs
-./scripts/minerva_install.sh fix     # re-sync src and rebuild
-./scripts/minerva_install.sh clean   # clean custom graph nodes from DB
-./scripts/minerva_install.sh uninstall  # restore original MythicReactUI from backup
+./scripts/minerva_install.sh          # full install (see steps below)
+./scripts/minerva_install.sh up       # (re)build & start minerva + minerva-dev only
+./scripts/minerva_install.sh down     # stop the Minerva stack
+./scripts/minerva_install.sh verify   # verify install (.env keys, containers, HTTP 200)
+./scripts/minerva_install.sh status   # show Minerva + Mythic container status & logs
+./scripts/minerva_install.sh fix      # re-assert .env + rebuild/restart the stack
+./scripts/minerva_install.sh clean    # clean custom graph nodes from DB
+./scripts/minerva_install.sh uninstall  # stop & remove the Minerva stack (Mythic untouched)
 
 # Metasploit:
 ./scripts/minerva_install.sh msf-start    # start MSF-RPC container
@@ -494,15 +498,15 @@ If you want Minerva to *be* Mythic's web UI (handled by `./mythic-cli`), use the
 ./scripts/minerva_install.sh msf-verify   # Python connectivity check
 ```
 
-The script:
+The install:
 
-1. Backs up the original `MythicReactUI` to `MythicReactUI.bak`.
-2. Copies Minerva's `src/`, config files, `Dockerfile`, and `package*.json` into `MythicReactUI`.
-3. Runs `mythic_change.sh` to patch Mythic's Go source (see below).
+1. Configures Mythic's `.env` for cross-container reachability (idempotent; the two `*_BIND_LOCALHOST_ONLY` keys above).
+2. Runs `mythic_change.sh` to patch Mythic's Go source and rebuild `mythic_server` (see below).
+3. Applies the Mythic-agent patches (Apollo SOCKS/TCP, IPC buffers).
 4. Configures the Hasura `agentstorage` table so custom graph nodes can sync between operators.
-5. Rebuilds the `mythic_react` container.
+5. Builds and starts the `minerva` + `minerva-dev` containers (nginx on **443**).
 
-Set `MYTHIC_DIR` env var if your Mythic install is not at `/opt/Mythic`.
+Steps 1–4 are the only things that touch Mythic, and all of them are backend-only and idempotent. Minerva's UI never enters Mythic's file tree or containers. Set `MYTHIC_DIR` env var if your Mythic install is not at `/opt/Mythic`.
 
 ---
 
@@ -622,12 +626,14 @@ Unified entry point for installing Minerva into Mythic, managing the optional MS
 Usage: ./scripts/minerva_install.sh [command]
 
 Commands:
-  (none)      Full install (backup + copy + build + patches)
-  verify      Verify installation is correct
-  fix         Re-sync source and rebuild mythic_react
-  status      Show container status and logs
+  (none)      Full install (.env + backend patches + Hasura + bring up stack)
+  up          Build & start the minerva + minerva-dev containers
+  down        Stop the Minerva stack
+  verify      Verify the installation is correct
+  fix         Re-assert .env + rebuild/restart the stack
+  status      Show Minerva + Mythic container status and logs
   clean       Remove custom graph nodes from the database
-  uninstall   Restore original MythicReactUI from backup
+  uninstall   Stop & remove the Minerva stack (Mythic left untouched)
 
 Metasploit:
   msf-start   Deploy & start Metasploit RPC container
@@ -638,10 +644,12 @@ Metasploit:
   help        Show this message
 
 Environment:
-  MYTHIC_DIR  Path to Mythic (default: /opt/Mythic)
+  MYTHIC_DIR      Path to Mythic (default: /opt/Mythic)
+  MYTHIC_ADDRESS  Nginx upstream for Mythic (set in docker-compose.yml;
+                  default: https://host.docker.internal:7443)
 ```
 
-The script is idempotent &mdash; re-running `install` is safe and will skip steps that are already complete.
+The script is idempotent &mdash; re-running `install` is safe and will skip steps that are already complete. It configures Mythic's `.env` for cross-container reachability, patches Mythic's Go source, sets up Hasura, and brings up the standalone stack.
 
 ---
 

@@ -13,9 +13,11 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Get the Mythic root directory (parent of MythicReactUI)
+# Get the Mythic root directory. Honor an explicit MYTHIC_DIR (set by
+# minerva_install.sh so this can run straight from scripts/) and otherwise fall
+# back to the parent dir — the legacy behavior when copied into MythicReactUI/.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MYTHIC_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+MYTHIC_ROOT="${MYTHIC_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 HASURA_METADATA_DIR="$MYTHIC_ROOT/hasura-docker/metadata"
 
 echo -e "${YELLOW}📁 Mythic Root: $MYTHIC_ROOT${NC}"

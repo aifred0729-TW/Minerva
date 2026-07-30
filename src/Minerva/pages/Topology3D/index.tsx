@@ -530,6 +530,16 @@ export default function Topology3D() {
         setCtxMenu(null);
     }, [nodePickingFor, nodes]);
 
+    // Drag handlers only mutate the userPositions ref, so keep them identity-
+    // stable — passing fresh lambdas would defeat NodeSphere's React.memo and
+    // re-render every sphere on each poll / hover tick.
+    const handleNodeDragMove = useCallback((id: string, pos: Vector3) => {
+        userPositions.current.set(id, pos.clone());
+    }, []);
+    const handleNodeDragEnd = useCallback((id: string, pos: Vector3) => {
+        userPositions.current.set(id, pos.clone());
+    }, []);
+
     const handleContextMenu = useCallback((e: ThreeEvent<MouseEvent>, nodeId: string) => {
         const nativeEvent = e.nativeEvent || (e as unknown as MouseEvent);
         setSubnetCtxMenu(null);
@@ -1831,8 +1841,8 @@ export default function Topology3D() {
                             onContextMenu={handleContextMenu}
                             dragNodeId={dragNodeId}
                             setDragNodeId={setDragNodeId}
-                            onDragMove={(id, pos) => userPositions.current.set(id, pos.clone())}
-                            onDragEnd={(id, pos) => userPositions.current.set(id, pos.clone())}
+                            onDragMove={handleNodeDragMove}
+                            onDragEnd={handleNodeDragEnd}
                             showSubnets={showSubnets}
                             pickingDimNodes={pickingDimNodes}
                             onSubnetContextMenu={handleSubnetContextMenu}

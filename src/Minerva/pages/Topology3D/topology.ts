@@ -202,9 +202,15 @@ export function buildTopology(
             if (il === 2 || il === 'Medium') return 2;
             return 1;
         };
+        // Precompute liveness once per callback — isCallbackAlive runs a
+        // JSON.parse(sleep_info) plus a full edge scan, so calling it inside
+        // the comparator would recompute it O(k·log k) times per host, and
+        // `anyAlive` below would repeat it a final time.
+        const aliveById = new Map<unknown, boolean>();
+        for (const c of cbs) aliveById.set(c.id, c.active !== false && isCallbackAlive(c, edges));
         const sorted = [...cbs].sort((a, b) => {
-            const aAlive = a.active !== false && isCallbackAlive(a, edges) ? 1 : 0;
-            const bAlive = b.active !== false && isCallbackAlive(b, edges) ? 1 : 0;
+            const aAlive = aliveById.get(a.id) ? 1 : 0;
+            const bAlive = aliveById.get(b.id) ? 1 : 0;
             if (bAlive !== aAlive) return bAlive - aAlive;
             const aPriv = privOrder(a), bPriv = privOrder(b);
             if (bPriv !== aPriv) return bPriv - aPriv;
@@ -219,7 +225,7 @@ export function buildTopology(
             return (a.display_id || 0) - (b.display_id || 0);
         });
         const rep = sorted[0];
-        const anyAlive = sorted.some(c => c.active !== false && isCallbackAlive(c, edges));
+        const anyAlive = sorted.some(c => aliveById.get(c.id));
         const primaryIP = extractPrimaryIP(rep.ip);
         const subnet = ipToSubnet(primaryIP) || 'unknown';
         const os = getOSLabel(rep);

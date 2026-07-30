@@ -944,16 +944,19 @@ export function AutoTable({ rows, title }: { rows: any[]; title?: string }) {
         });
         return [...keys];
     }, [rows]);
-    const normalised = rows.map(r => {
+    const normalised = useMemo(() => rows.map(r => {
         const row: any = {};
         headers.forEach(h => {
             row[h] = { plaintext: r[h] !== null && r[h] !== undefined ? String(r[h]) : '' };
         });
         return row;
-    });
+    }), [rows, headers]);
+    // Stable `tbl` reference so MythicTable's internal [tbl.headers]/[tbl.rows]
+    // memos (headerInfo, numericCols, rows) don't recompute on every render.
+    const tbl = useMemo(() => ({ title: title ?? '', headers, rows: normalised }), [title, headers, normalised]);
     return (
         <MythicTable
-            tbl={{ title: title ?? '', headers, rows: normalised }}
+            tbl={tbl}
             showPanel={false}
         />
     );

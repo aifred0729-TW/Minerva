@@ -309,7 +309,7 @@ export function BrowserScriptOutput({ bsd }: { bsd: any }) {
                         </OutputPanel>
                     );
                 }
-                return <GraphPanel nodes={gnodes} edges={gedges} rankDir={bsd.graph.rankDir || bsd.graph.group_by ? 'TB' : 'LR'} />;
+                return <GraphPanel nodes={gnodes} edges={gedges} rankDir={bsd.graph.rankDir || (bsd.graph.group_by ? 'TB' : 'LR')} />;
             })()}
 
             {/* #20 — tabs[] — full-featured tab switcher with all nested types */}

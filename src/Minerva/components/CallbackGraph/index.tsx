@@ -84,6 +84,17 @@ interface GraphNodeData {
     [key: string]: unknown;
 }
 
+// Static ReactFlow options — hoisted to module scope so their identity is
+// stable across renders (fresh literals would make ReactFlow re-reconcile
+// every pan/zoom frame).
+const RF_PRO_OPTIONS = { hideAttribution: true } as const;
+const RF_DEFAULT_EDGE_OPTIONS = {
+    type: 'straight',
+    style: { stroke: '#ffffff', strokeWidth: 2, opacity: 0.95, zIndex: 200 },
+    animated: false,
+} as const;
+const RF_FIT_VIEW_OPTIONS = { padding: 0.5, minZoom: 0.1, maxZoom: 1 } as const;
+
 export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     const pageVisible = usePageVisible();
 
@@ -1532,18 +1543,16 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
                 onEdgesChange={onEdgesChange}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
-                proOptions={{ hideAttribution: true }}
-                defaultEdgeOptions={{
-                    type: 'straight',
-                    style: { stroke: '#ffffff', strokeWidth: 2, opacity: 0.95, zIndex: 200 },
-                    animated: false
-                }}
+                proOptions={RF_PRO_OPTIONS}
+                defaultEdgeOptions={RF_DEFAULT_EDGE_OPTIONS}
                 defaultViewport={viewportRef.current}
                 onMove={(_, viewport) => {
-                    // Update both ref (used by camera-restoration logic) and the
-                    // live state that drives flow-anchored panels (e.g. LINK_TO_PARENT).
+                    // Always keep the ref current (camera-restoration reads it).
                     viewportRef.current = viewport;
-                    setLiveViewport(viewport);
+                    // Only push to state while the flow-anchored LINK_TO_PARENT
+                    // panel is open — otherwise this would re-render the whole
+                    // graph ~60×/sec during a pan for a value nothing consumes.
+                    if (setParentModal) setLiveViewport(viewport);
                 }}
                 onNodeClick={onNodeClick}
                 onNodeDoubleClick={onNodeDoubleClick}
@@ -1552,7 +1561,7 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
                 onPaneClick={onPaneClick}
                 onNodeDragStop={onNodeDragStop}
                 fitView
-                fitViewOptions={{ padding: 0.5, minZoom: 0.1, maxZoom: 1 }}
+                fitViewOptions={RF_FIT_VIEW_OPTIONS}
                 className="bg-transparent"
                 minZoom={0.1}
                 maxZoom={4}

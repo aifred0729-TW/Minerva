@@ -496,6 +496,15 @@ export const CallbackFileBrowser = ({ host, callbackId }: { host: string, callba
                 command: cmd,
                 params: JSON.stringify({ remote_path: path, file_id: agentFileId })
             }});
+            // Not every payload type reports `full_path` back on the upload
+            // chunk response, which is what Mythic needs to auto-create the
+            // mythictree row for the new file — when it doesn't, the upload
+            // itself succeeds but the file never appears in this browser.
+            // Tasking `ls` on the destination right after (agents process
+            // tasks in order) forces a directory listing, which reliably
+            // populates the tree regardless of the upload command's own
+            // tracking behavior.
+            doTask('ls', path, path, true);
             snackActions.success(`Upload tasked: ${uploadFile.name} → ${path}`);
             setUploadDialogOpen(false);
             setUploadFile(null);

@@ -183,7 +183,6 @@ export const GET_UPLOADED_FILES = gql`
                 is_payload: {_eq: false}
                 deleted: {_eq: false}
                 complete: {_eq: true}
-                task_id: {_is_null: true}
             }
             order_by: {id: desc}
             limit: 300

@@ -73,9 +73,13 @@ export function buildGraphData(params: BuildGraphDataParams): { nodes: Node[]; e
         }
         mergedCallbacks = [];
         for (const [, group] of byHost) {
+            // isCallbackAlive parses sleep_info; precompute once per callback
+            // so the comparator does Map lookups instead of re-parsing.
+            const aliveById = new Map<unknown, boolean>();
+            for (const c of group) aliveById.set(c.id, isCallbackAlive(c));
             group.sort((a: Callback, b: Callback) => {
-                const aAlive = isCallbackAlive(a) ? 1 : 0;
-                const bAlive = isCallbackAlive(b) ? 1 : 0;
+                const aAlive = aliveById.get(a.id) ? 1 : 0;
+                const bAlive = aliveById.get(b.id) ? 1 : 0;
                 if (bAlive !== aAlive) return bAlive - aAlive;
                 const ap = privLevel(a), bp = privLevel(b);
                 if (bp !== ap) return bp - ap;
