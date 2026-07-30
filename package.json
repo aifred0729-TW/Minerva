@@ -3,12 +3,15 @@
   "version": "2.1.2",
   "private": true,
   "homepage": "/new",
+  "main": "electron/main.js",
   "author": "@its_a_feature_",
   "description": "React UI for Mythic C2 Framework",
   "devDependencies": {
     "autoprefixer": "^10.4.17",
     "buffer": "^6.0.3",
     "crypto-browserify": "^3.12.1",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.4.35",
     "react-app-rewired": "^2.2.1",
     "react-scripts": "^5.0.1",
@@ -41,6 +44,7 @@
     "graphql": "^16.10.0",
     "graphql-ws": "^6.0.4",
     "html-to-image": "^1.11.11",
+    "http-proxy": "^1.18.1",
     "ip6": "^0.2.10",
     "json5": "^2.2.3",
     "jwt-decode": "^4.0.0",
@@ -74,7 +78,13 @@
     "react-test": "react-app-rewired test",
     "react-eject": "react-scripts eject",
     "build": "npm run react-build",
-    "start": "BROWSER=none CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true FAST_REFRESH=true WDS_POLLING=true PORT=3000 npm run react-start"
+    "start": "BROWSER=none CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true FAST_REFRESH=true WDS_POLLING=true PORT=3000 npm run react-start",
+    "electron": "electron .",
+    "electron:dev": "MINERVA_DEV_SERVER=http://127.0.0.1:3000 electron .",
+    "electron:build-ui": "DISABLE_ESLINT_PLUGIN=true TSC_COMPILE_ON_ERROR=true react-app-rewired build",
+    "electron:start": "npm run electron:build-ui && electron .",
+    "dist": "npm run electron:build-ui && electron-builder",
+    "dist:dir": "npm run electron:build-ui && electron-builder --dir"
   },
   "eslintConfig": {
     "extends": [
@@ -122,5 +132,38 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "build": {
+    "appId": "tw.redmeow.minerva",
+    "productName": "Minerva",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "electron/**/*",
+      "build/**/*"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   }
 }

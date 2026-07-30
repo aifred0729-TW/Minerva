@@ -143,3 +143,6 @@ vite.config.ts.timestamp-*
 
 # Security: Do not push SSL certificates
 nginx/ssl/
+
+# Electron desktop build output
+dist_electron/
