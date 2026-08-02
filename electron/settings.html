@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+    <title>Minerva — Server Settings</title>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+            background: #0a0a0f;
+            color: #d5d9e0;
+            padding: 28px 30px;
+        }
+        h1 {
+            font-size: 15px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #5eead4;
+            margin: 0 0 4px;
+        }
+        p.sub { margin: 0 0 22px; font-size: 12px; color: #8b93a7; line-height: 1.5; }
+        label { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b93a7; margin: 16px 0 6px; }
+        input {
+            width: 100%;
+            padding: 9px 11px;
+            background: #12121b;
+            border: 1px solid #2a2a3a;
+            border-radius: 6px;
+            color: #eef1f6;
+            font: inherit;
+            font-size: 13px;
+        }
+        input:focus { outline: none; border-color: #5eead4; }
+        .hint { font-size: 11px; color: #667085; margin-top: 5px; }
+        .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 26px; }
+        button {
+            font: inherit;
+            font-size: 12px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 9px 18px;
+            border-radius: 6px;
+            border: 1px solid #2a2a3a;
+            background: #16161f;
+            color: #d5d9e0;
+            cursor: pointer;
+        }
+        button.primary { background: #0d9488; border-color: #0d9488; color: #04120f; font-weight: 700; }
+        button:hover { filter: brightness(1.15); }
+        .status { font-size: 11px; color: #5eead4; min-height: 14px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Connect to Mythic</h1>
+    <p class="sub">Minerva talks to a running Mythic C2 server. Enter its address — a self-signed TLS certificate is accepted automatically.</p>
+
+    <label for="mythic">Mythic address</label>
+    <input id="mythic" type="text" placeholder="https://10.0.0.5:7443" autocomplete="off" spellcheck="false" />
+    <div class="hint">Usually https://&lt;host&gt;:7443</div>
+
+    <label for="msf">Metasploit RPC address (optional)</label>
+    <input id="msf" type="text" placeholder="http://127.0.0.1:55553" autocomplete="off" spellcheck="false" />
+
+    <div class="row">
+        <button id="cancel">Cancel</button>
+        <button id="save" class="primary">Save &amp; Connect</button>
+    </div>
+    <div class="status" id="status"></div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        (async () => {
+            try {
+                const cfg = await window.minerva.getConfig();
+                $('mythic').value = cfg.mythicAddress || '';
+                $('msf').value = cfg.msfAddress || '';
+            } catch (_e) { /* ignore */ }
+            $('mythic').focus();
+        })();
+
+        $('save').addEventListener('click', async () => {
+            const mythicAddress = $('mythic').value.trim();
+            if (!/^https?:\/\//i.test(mythicAddress)) {
+                $('status').textContent = 'Enter a full URL, e.g. https://10.0.0.5:7443';
+                return;
+            }
+            $('status').textContent = 'Saving…';
+            await window.minerva.saveConfig({ mythicAddress, msfAddress: $('msf').value.trim() });
+        });
+        $('cancel').addEventListener('click', () => window.close());
+        $('mythic').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('save').click(); });
+        $('msf').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('save').click(); });
+    </script>
+</body>
+</html>
