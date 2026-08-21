@@ -150,3 +150,4 @@ nginx/runtime/server-info.json
 # Generated msfrpcd credential, served to authenticated operators via nginx.
 # Contains a secret — never commit it.
 nginx/runtime/msf-config.json
+desktop/webroot/

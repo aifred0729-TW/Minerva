@@ -108,8 +108,11 @@ npm run dist         # whatever the current host can produce
 
 Installers land in `desktop/dist/`.
 
-`npm run dist` refuses to start if `../build/index.html` is missing, rather than
-producing an installer whose window renders a "bundle not found" page.
+`npm run dist` stages `../build` into `desktop/webroot` first, and refuses to
+start if `../build/index.html` is missing rather than producing an installer
+whose window renders a "bundle not found" page — which is exactly what v2.2.0
+shipped, because the bundle was referenced across the project boundary at pack
+time instead of being staged inside it.
 
 > **macOS installers require a macOS host.** A `.dmg` cannot be cross-built from
 > Linux or Windows. Use the bundled CI workflow if you do not have a Mac —

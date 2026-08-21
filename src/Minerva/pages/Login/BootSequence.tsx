@@ -355,7 +355,7 @@ const IntroSequence = ({ onComplete, onDissolve }: { onComplete: () => void; onD
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <span className="w-12 shrink-0">SCHEMA</span>
-                                                    <span className="truncate">MVX-2.2.0 / GQL-1</span>
+                                                    <span className="truncate">MVX-2.2.1 / GQL-1</span>
                                                 </div>
                                             </div>
 
@@ -419,7 +419,7 @@ const IntroSequence = ({ onComplete, onDissolve }: { onComplete: () => void; onD
                             </div>
 
                             <div className="flex flex-col justify-center pl-2 pr-1 border-l border-white/60 text-[7px] tracking-[0.15em] text-right leading-[1.5] text-gray-300 whitespace-nowrap">
-                                <div>BUILD 2.2.0</div>
+                                <div>BUILD 2.2.1</div>
                                 <div>REV 22.0</div>
                             </div>
                         </div>

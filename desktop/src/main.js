@@ -47,10 +47,16 @@ let consoleWindow = null;
 
 const log = (line) => process.stdout.write(`[minerva] ${line}\n`);
 
-/** Where the built React bundle lives, packaged vs. run from the repo. */
+/**
+ * Where the built React bundle lives, packaged vs. run from the repo.
+ *
+ * `webroot`, not `app`: Electron treats resources/app as a place an
+ * application can live, so a resource directory of that name competes with
+ * app.asar. v2.2.0 used `app` and shipped an empty one.
+ */
 function resolveAppDir() {
     return app.isPackaged
-        ? path.join(process.resourcesPath, 'app')
+        ? path.join(process.resourcesPath, 'webroot')
         : path.resolve(__dirname, '..', '..', 'build');
 }
 

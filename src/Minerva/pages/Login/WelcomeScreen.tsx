@@ -280,7 +280,7 @@ const TransitionScreen = ({ username, onComplete }: { username: string; onComple
                     <span className="text-signal">MINERVA C2</span>
                 </div>
                 <div className="absolute bottom-6 left-6">{CONN.protocol} · {CONN.port}</div>
-                <div className="absolute bottom-6 right-6">BUILD 2.2.0</div>
+                <div className="absolute bottom-6 right-6">BUILD 2.2.1</div>
             </div>
 
             <div className="relative z-10 w-full flex justify-center px-6">

@@ -33,10 +33,10 @@ jobs:
         include:
           - os: macos-latest
             label: macOS (universal dmg + zip)
-            args: --mac
+            script: dist:mac
           - os: windows-latest
             label: Windows (nsis + portable, x64 & arm64)
-            args: --win
+            script: dist:win
 
     steps:
       - name: Checkout
@@ -74,10 +74,13 @@ jobs:
         working-directory: desktop
         run: npm install
 
+      # Through the npm script, not electron-builder directly: the script also
+      # stages the web bundle into desktop/webroot. Calling the binary straight
+      # skipped that in v2.2.0 and shipped installers with no bundle in them.
       - name: Package (and upload to the draft release on a tag)
         working-directory: desktop
         run: >-
-          npx electron-builder ${{ matrix.args }}
+          npm run ${{ matrix.script }} --
           --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

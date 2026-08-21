@@ -21,9 +21,13 @@ files:
   - src/**/*
   - package.json
 
+# Staged into the project by scripts/prepare-bundle.js. Neither the source
+# nor the destination may be clever here: `../build` escapes the project
+# directory and `app` collides with app.asar. v2.2.0 shipped with both and
+# every window rendered "bundle not found".
 extraResources:
-  - from: ../build
-    to: app
+  - from: webroot
+    to: webroot
     filter:
       - "**/*"
 

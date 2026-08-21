@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/minerva-2.2.0-22C55E?style=flat-square" alt="Minerva Version">
+  <img src="https://img.shields.io/badge/minerva-2.2.1-22C55E?style=flat-square" alt="Minerva Version">
   <img src="https://img.shields.io/badge/mythic-0.3.106-lightgrey?style=flat-square" alt="Mythic Compatibility">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/react-19.2-61DAFB?style=flat-square&logo=react" alt="React">

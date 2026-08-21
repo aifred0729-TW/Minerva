@@ -318,7 +318,7 @@ export default function Login() {
 
                             <div className="absolute bottom-6 right-6 flex items-center gap-6">
                                 <LiveClock />
-                                <span className="text-[10px] font-bold tracking-[0.2em] text-signal opacity-70">BUILD 2.2.0</span>
+                                <span className="text-[10px] font-bold tracking-[0.2em] text-signal opacity-70">BUILD 2.2.1</span>
                             </div>
                         </div>
 
@@ -542,7 +542,7 @@ export default function Login() {
                             </div>
                             <div className="absolute bottom-6 right-6 flex items-center gap-6">
                                 <LiveClock />
-                                <span className="text-[10px] font-bold tracking-[0.2em] text-signal opacity-70">BUILD 2.2.0</span>
+                                <span className="text-[10px] font-bold tracking-[0.2em] text-signal opacity-70">BUILD 2.2.1</span>
                             </div>
                         </div>
 

@@ -1231,7 +1231,7 @@ export default function C2Profiles() {
                             <span className="text-signal opacity-60">Feed</span>
                             <StatusWord tone={feedTone}>{feedWord}</StatusWord>
                         </span>
-                        <span className="text-[13px] text-signal opacity-60">Build 2.2.0</span>
+                        <span className="text-[13px] text-signal opacity-60">Build 2.2.1</span>
                     </div>
                 </div>
             </div>
