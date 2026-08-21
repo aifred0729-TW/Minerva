@@ -15,8 +15,10 @@ gh release download <version> --repo aifred0729-TW/Minerva
 |----------|------|
 | **macOS** — Apple Silicon (M1 and later) | `Minerva-*-macOS-arm64.dmg` |
 | **macOS** — Intel | `Minerva-*-macOS-x64.dmg` |
-| **Windows** (installer) | `Minerva-*-Windows-x64-setup.exe` · `…-arm64-setup.exe` |
-| **Windows** (no install) | `Minerva-*-Windows-x64-portable.exe` |
+| **Windows** — Intel/AMD 64-bit | `Minerva-*-Windows-x64-setup.exe` |
+| **Windows** — ARM64 | `Minerva-*-Windows-arm64-setup.exe` |
+| **Windows** — either architecture | `Minerva-*-Windows-setup.exe` (larger, contains both) |
+| **Windows** — no install | `Minerva-*-Windows-x64-portable.exe` |
 
 `SHA256SUMS.txt` covers every file above — check it before running anything:
 

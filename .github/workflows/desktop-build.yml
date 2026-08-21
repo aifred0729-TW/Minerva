@@ -93,11 +93,15 @@ jobs:
       # Through the npm script, not electron-builder directly: the script also
       # stages the web bundle into desktop/webroot. Calling the binary straight
       # skipped that in v2.2.0 and shipped installers with no bundle in them.
-      - name: Package (and upload to the draft release on a tag)
+      #
+      # `--publish never` on purpose. Both matrix jobs finish at different times
+      # and two electron-builder instances publishing to one draft race each
+      # other: v2.2.1 lost every macOS artifact that way and kept a stray
+      # blockmap, while reporting success. The release job below is the single
+      # publisher, and it runs once both builds are done.
+      - name: Package
         working-directory: desktop
-        run: >-
-          npm run ${{ matrix.script }} --
-          --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        run: npm run ${{ matrix.script }} -- --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ── Signing ───────────────────────────────────────────────────────
@@ -154,9 +158,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Checksums come from the workflow artifacts, not from the draft release.
-      # A draft's assets are awkward to fetch back reliably, whereas the build
-      # jobs have already uploaded exactly these files as artifacts.
       - name: Download built installers
         uses: actions/download-artifact@v4
         with:
@@ -164,28 +165,27 @@ jobs:
           merge-multiple: true
           path: assets
 
-      - name: Checksum and attach
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          cd assets
-          if ! compgen -G "*" > /dev/null; then
-            echo "no installers were produced — check the build jobs"
-            exit 1
-          fi
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-          gh release upload "${GITHUB_REF_NAME}" SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --clobber
-
-      - name: Write install notes and publish
+      - name: Checksum, then publish everything at once
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --title "Minerva ${TAG}" \
-            --notes-file .github/RELEASE_NOTES.md \
-            --draft=false --latest
+          cd assets
+          if ! compgen -G "*" > /dev/null; then
+            echo "::error::no installers were produced — check the build jobs"
+            exit 1
+          fi
+          sha256sum * > SHA256SUMS.txt
+          echo "publishing:"
+          ls -la
+
+          # One create, one upload, one publisher. Deleting any partial release
+          # from an earlier attempt keeps a re-run from half-updating assets;
+          # the tag itself is left alone.
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+          gh release create "$TAG" ./* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Minerva $TAG" \
+            --notes-file ../.github/RELEASE_NOTES.md \
+            --latest

@@ -63,10 +63,11 @@ mac:
   # mean trusting that afterPack fires on the universal pass; if it did not,
   # the result is an unsigned app that fails to launch on Apple Silicon with
   # nothing to explain it. Two clearly-named downloads is the cheaper trade.
+  # dmg only. The zip target exists to feed electron-updater, and this app
+  # deliberately has no updater — shipping it would double the macOS download
+  # size on the release page for a format nothing consumes.
   target:
     - target: dmg
-      arch: [arm64, x64]
-    - target: zip
       arch: [arm64, x64]
   extendInfo:
     # No camera, mic, or location. Declared so the absence is deliberate.
