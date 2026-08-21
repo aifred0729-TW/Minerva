@@ -51,8 +51,16 @@ jobs:
       # ── The web bundle ────────────────────────────────────────────────────
       # The desktop app does not build its own UI; it ships the same bundle the
       # container serves. Built once here, copied in by extraResources.
+      # `npm install`, not `npm ci`: package-lock.json is out of sync with
+      # package.json (react-window and react-virtualized-auto-sizer were pinned
+      # back to v1 and ajv raised to 8 without regenerating the lock), and
+      # `npm ci` refuses rather than resolving. The Docker image installs the
+      # same way, so this matches how the app is actually built today.
+      #
+      # Fix properly by running `npm install` locally and committing the
+      # refreshed package-lock.json, then restore `npm ci` here.
       - name: Install web dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build web bundle
         run: npm run build
