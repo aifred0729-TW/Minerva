@@ -102,7 +102,7 @@ npm run build
 cd desktop
 npm install
 npm run dist:win     # Windows: NSIS installer + portable, x64 & arm64
-npm run dist:mac     # macOS:   dmg + zip, arm64 & x64
+npm run dist:mac     # macOS:   dmg + zip, arm64 and x64 separately
 npm run dist         # whatever the current host can produce
 ```
 
@@ -240,8 +240,12 @@ the way to check a packaging change before committing to a tag.
 These builds are unsigned, and the release notes say so plainly rather than
 letting people conclude the download is corrupt:
 
-- **macOS** — `scripts/adhoc-sign.js` applies an ad-hoc signature during
-  packaging, without which Apple Silicon refuses to execute the app at all.
+- **macOS** — ships as two per-arch downloads rather than one universal file.
+  A universal build merges the per-arch apps and requires every non-binary file
+  to hash identically across them, which an ad-hoc signature breaks. The
+  signature is the part that cannot be dropped: `scripts/adhoc-sign.js` applies
+  it during packaging, and without it Apple Silicon refuses to execute the app
+  at all.
   Gatekeeper still quarantines the download, so the first launch needs
   `xattr -dr com.apple.quarantine /Applications/Minerva.app`.
 - **Windows** — SmartScreen warns; **More info → Run anyway** clears it.

@@ -33,6 +33,15 @@ exports.default = async function adhocSign(context) {
         return;
     }
 
+    // A universal build stages each arch in dist/mac-universal-<arch>-temp and
+    // then merges them, and the merge requires every non-binary file to hash
+    // identically across the two. Signing a staging copy breaks that: each arch
+    // gets its own _CodeSignature. Leave the staging dirs alone.
+    if (context.appOutDir.endsWith('-temp')) {
+        console.log(`[minerva] ${context.appOutDir} is universal staging — not signing it`);
+        return;
+    }
+
     const appName = `${context.packager.appInfo.productFilename}.app`;
     const appPath = path.join(context.appOutDir, appName);
 

@@ -13,7 +13,8 @@ gh release download <version> --repo aifred0729-TW/Minerva
 
 | Platform | File |
 |----------|------|
-| **macOS** (Apple Silicon + Intel) | `Minerva-*-macOS.dmg` |
+| **macOS** — Apple Silicon (M1 and later) | `Minerva-*-macOS-arm64.dmg` |
+| **macOS** — Intel | `Minerva-*-macOS-x64.dmg` |
 | **Windows** (installer) | `Minerva-*-Windows-x64-setup.exe` · `…-arm64-setup.exe` |
 | **Windows** (no install) | `Minerva-*-Windows-x64-portable.exe` |
 

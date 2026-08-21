@@ -52,21 +52,25 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # `universal` rather than separate arm64/x64 artifacts: the Release page then
-  # has one macOS download instead of two that people pick wrongly. It costs
-  # roughly double the file size, which is the cheaper problem to have.
+  # Per-arch, not universal. A universal build merges the two per-arch apps
+  # with @electron/universal, which requires every non-binary file to hash
+  # identically across them — and an ad-hoc signature does not, because each
+  # arch gets its own _CodeSignature. Signing after the merge instead would
+  # mean trusting that afterPack fires on the universal pass; if it did not,
+  # the result is an unsigned app that fails to launch on Apple Silicon with
+  # nothing to explain it. Two clearly-named downloads is the cheaper trade.
   target:
     - target: dmg
-      arch: [universal]
+      arch: [arm64, x64]
     - target: zip
-      arch: [universal]
+      arch: [arm64, x64]
   extendInfo:
     # No camera, mic, or location. Declared so the absence is deliberate.
     NSHighResolutionCapable: true
 
 dmg:
   title: Minerva ${version}
-  artifactName: Minerva-${version}-macOS.${ext}
+  artifactName: Minerva-${version}-macOS-${arch}.${ext}
   contents:
     - x: 140
       y: 200
