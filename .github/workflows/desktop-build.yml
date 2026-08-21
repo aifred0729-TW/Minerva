@@ -123,6 +123,30 @@ jobs:
           #            Signing, which works in CI without a hardware token.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
+      # The one assertion that actually covers what shipped. Everything before
+      # this checks an input — the bundle was built, the bundle was staged —
+      # and v2.2.0 proved inputs can all look right while the packaged app
+      # contains no application. This looks inside the packaged .app / unpacked
+      # tree, which is the artifact users run.
+      #
+      # The `*esources` glob matches Windows' `resources/` and macOS'
+      # `Contents/Resources/` in one expression.
+      - name: Assert the packaged app contains the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t found < <(find desktop/dist -path '*esources/webroot/index.html' 2>/dev/null || true)
+          if [ ${#found[@]} -eq 0 ]; then
+            echo "::error::no packaged app contains resources/webroot/index.html"
+            echo "Packaged trees present:"
+            find desktop/dist -maxdepth 1 -type d
+            exit 1
+          fi
+          for f in "${found[@]}"; do
+            n=$(find "$(dirname "$f")" -type f | wc -l)
+            echo "  ok: $f  ($n files in webroot)"
+          done
+
       - name: Attest build provenance
         if: startsWith(github.ref, 'refs/tags/')
         # Artifact attestations are not available on every private-repository
