@@ -134,16 +134,19 @@ jobs:
       - name: Assert the packaged app contains the bundle
         shell: bash
         run: |
-          set -euo pipefail
-          mapfile -t found < <(find desktop/dist -path '*esources/webroot/index.html' 2>/dev/null || true)
-          if [ ${#found[@]} -eq 0 ]; then
+          set -eu
+          # No mapfile, no arrays: the macOS runner's /bin/bash is 3.2, where
+          # both are absent. This has to run identically on all three shells
+          # in the matrix, so it stays POSIX-shaped.
+          hits=$(find desktop/dist -path '*esources/webroot/index.html' 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$hits" -eq 0 ]; then
             echo "::error::no packaged app contains resources/webroot/index.html"
             echo "Packaged trees present:"
-            find desktop/dist -maxdepth 1 -type d
+            find desktop/dist -maxdepth 1 -type d 2>/dev/null || true
             exit 1
           fi
-          for f in "${found[@]}"; do
-            n=$(find "$(dirname "$f")" -type f | wc -l)
+          find desktop/dist -path '*esources/webroot/index.html' 2>/dev/null | while read -r f; do
+            n=$(find "$(dirname "$f")" -type f | wc -l | tr -d ' ')
             echo "  ok: $f  ($n files in webroot)"
           done
 
