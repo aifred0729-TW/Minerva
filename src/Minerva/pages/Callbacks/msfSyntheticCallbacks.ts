@@ -17,10 +17,6 @@
  * session is detected purely by `display_id >= MSF_DISPLAY_ID_OFFSET`
  * (or the legacy `_isMsfSession`/agent_callback_id checks).
  */
-/** Numeric offset that separates MSF synthetic display_ids from Mythic ones.
- *  Mythic display_ids start at 1 per operation and rarely reach 5 figures,
- *  so 100000 is a safe partition. */
-export const MSF_DISPLAY_ID_OFFSET = 100000;
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useReactiveVar } from '@apollo/client/react';
 import type { Callback } from '../../types';
@@ -28,6 +24,11 @@ import { usePageVisible } from '../../lib/usePageVisible';
 import { getSessions as getMsfSessions, workspaceForOperation, type MsfSession } from '../Metasploit/msfrpc';
 import * as mythicKV from '../../lib/mythicKVStore';
 import { meState } from '../../lib/state';
+
+/** Numeric offset that separates MSF synthetic display_ids from Mythic ones.
+ *  Mythic display_ids start at 1 per operation and rarely reach 5 figures,
+ *  so 100000 is a safe partition. */
+export const MSF_DISPLAY_ID_OFFSET = 100000;
 
 const POLL_INTERVAL_MS = 8_000;
 const LEDGER_KEY = 'minerva_msf_session_ledger';

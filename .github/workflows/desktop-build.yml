@@ -65,6 +65,22 @@ jobs:
       - name: Build web bundle
         run: npm run build
 
+      # react-scripts can print its errors, emit nothing, and still exit 0 —
+      # `.env` sets TSC_COMPILE_ON_ERROR, and an eslint error came out the same
+      # door. v2.2.0 shipped installers containing no bundle because of exactly
+      # that, and every step in this workflow reported success. Assert the
+      # artifact instead of trusting the exit code.
+      - name: Assert the bundle was emitted
+        shell: bash
+        run: |
+          if [ ! -f build/index.html ]; then
+            echo "::error::npm run build exited 0 but produced no build/index.html."
+            echo "Check the build log above for eslint or type errors — react-scripts"
+            echo "reports some of them without failing and without emitting."
+            exit 1
+          fi
+          echo "bundle ok: $(find build -type f | wc -l) files"
+
       # ── The shell ─────────────────────────────────────────────────────────
       # `npm install`, not `npm ci`: desktop/ has no committed lockfile yet and
       # `npm ci` hard-fails without one. Run `npm install` in desktop/ once,

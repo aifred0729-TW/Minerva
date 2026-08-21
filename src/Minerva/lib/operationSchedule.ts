@@ -8,6 +8,8 @@
 //  thanks to `stripScheduleMarker()`.
 // ═════════════════════════════════════════════════════════════════════
 
+import { getSkewedNow } from './time';
+
 const MARKER_RE = /<<MS:([^>]+)>>$/;
 
 export interface Schedule {
@@ -37,8 +39,6 @@ export function withSchedule(bannerText: string, startMs: number | null): string
 }
 
 // ── Countdown formatting ────────────────────────────────────────────
-
-import { getSkewedNow } from './time';
 
 function pad2(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
 
