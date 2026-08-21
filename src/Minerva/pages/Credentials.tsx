@@ -616,7 +616,7 @@ export default function Credentials() {
                     </div>
 
                     {/* ── Type filter chips (multi-select) ───────────────── */}
-                    <div className="basis-full flex items-center flex-wrap gap-2 pt-1 border-t border-white/8">
+                    <div className="basis-full flex items-center flex-wrap gap-2 pt-1 border-t border-white/10">
                         <span className="text-[10px] font-mono text-white/55 uppercase tracking-[0.2em] shrink-0">Type:</span>
                         {CREDENTIAL_TYPES.map(t => {
                             const c = TYPE_COLORS[t] ?? TYPE_COLORS.plaintext;

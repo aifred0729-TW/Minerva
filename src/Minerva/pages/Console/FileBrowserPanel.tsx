@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation } from "@apollo/client/react";
 import {
     Folder,
@@ -308,7 +308,7 @@ export const UploadToAgentModal = ({ targetPath, callbackId, onClose }: {
                                         ? 'border-signal bg-signal/10 scale-[1.01]'
                                         : localFile
                                             ? 'border-signal/40 bg-signal/5'
-                                            : 'border-gray-700 hover:border-gray-500 hover:bg-white/3'
+                                            : 'border-gray-700 hover:border-gray-500 hover:bg-white/[0.03]'
                                 )}>
                                 {localFile ? (
                                     <>
@@ -398,6 +398,11 @@ export const UploadToAgentModal = ({ targetPath, callbackId, onClose }: {
     );
 };
 
+// Folder-listing poll rates. See the comment on the poller in FileTreeItem.
+const FOLDER_POLL_FAST_MS = 4000;
+const FOLDER_POLL_SLOW_MS = 30000;
+const FOLDER_POLL_FAST_WINDOW_MS = 60000;
+
 // Single tree node component
 export const FileTreeItem = ({ 
     node, host, callbackId, level, selectedFile, onSelectFile, expandedPaths, onToggleExpand, onFileAction, showDeletedFiles
@@ -419,11 +424,27 @@ export const FileTreeItem = ({
     // Auto-fetch (and poll) folder contents whenever this node is expanded.
     // pollInterval keeps the listing fresh after an `ls` task completes without
     // requiring the user to manually collapse+re-expand.
+    //
+    // This is one poller PER EXPANDED FOLDER, and the tree keeps every folder
+    // the operator ever opened expanded. At a flat 4s that was 15 network-only
+    // requests a minute each — a browsed tree with eight folders open sat at
+    // 120 req/min forever, long after the `ls` that motivated the polling had
+    // landed. So the fast rate is now a window: 4s for the first minute after
+    // this folder is expanded (which covers the `ls` round-trip the comment
+    // above is about), then a 30s steady state. Collapsing and re-expanding
+    // opens a fresh fast window.
+    const [pollMs, setPollMs] = useState(FOLDER_POLL_FAST_MS);
+    useEffect(() => {
+        if (!isExpanded || !isFolder) return;
+        setPollMs(FOLDER_POLL_FAST_MS);
+        const id = setTimeout(() => setPollMs(FOLDER_POLL_SLOW_MS), FOLDER_POLL_FAST_WINDOW_MS);
+        return () => clearTimeout(id);
+    }, [isExpanded, isFolder]);
     const { data, loading } = useQuery<any>(GET_FILE_TREE_FOLDER, {
         variables: { parent_path_text: node.full_path_text, host },
         skip: !isExpanded || !isFolder,
         fetchPolicy: 'network-only',
-        pollInterval: pageVisible && isExpanded && isFolder ? 4000 : 0,
+        pollInterval: pageVisible && isExpanded && isFolder ? pollMs : 0,
     });
 
     const handleClick = () => {

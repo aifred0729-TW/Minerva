@@ -29,10 +29,17 @@ import {
 } from './msfSocks';
 import { ensureMsfWorkspace, workspaceForOperation } from './msfrpc';
 import { extractAllIPs } from '../../lib/quickhacks';
+import { refreshAllocations } from '../../lib/msfSocksAllocator';
 
 const RETRY_BACKOFF_MS = 15_000;
 
 export function MsfSocksBootstrap() {
+    // Seed the SOCKS port ledger once per mount. The readers used by the
+    // Tunnels rows are synchronous (they resolve an operation inside a click
+    // handler), so the shared agentstorage ledger has to be in the cache before
+    // the operator can click anything.
+    useEffect(() => { void refreshAllocations(); }, []);
+
     const me = useReactiveVar(meState);
     const opId = me.user?.current_operation_id ?? 0;
     const callbacks = useMsfSyntheticCallbacks();

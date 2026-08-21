@@ -49,7 +49,7 @@ import { cn, b64DecodeUnicode, downloadBlob, downloadDataUrl } from '../../lib/u
 import { fileDownloadUrl } from '../../lib/urls';
 import { operatorSettingDefaults } from '../../lib/state';
 import { snackActions } from '../../lib/snackbar';
-import { useGetMythicSetting } from '../../components/MythicSavedUserSetting';
+import { useGetMythicSettings } from '../../components/MythicSavedUserSetting';
 import {
     MythicTable, TerminalPanel, ProcessPanel,
     FilesPanel, DownloadPanel, ScreenshotPanel,
@@ -162,6 +162,20 @@ const BrowserScriptTabs = ({ tabs, showMediaSetting, setExpandedScreenshot, navi
     );
 };
 
+// Stable defaults for the nine operator settings TaskBlock reads. Module-level
+// so the memo inside useGetMythicSettings has a constant dependency.
+const TASK_BLOCK_SETTING_DEFAULTS = {
+    hideUsernames: (operatorSettingDefaults.hideUsernames ?? false) as boolean,
+    showIP: (operatorSettingDefaults.showIP ?? false) as boolean,
+    showHostname: (operatorSettingDefaults.showHostname ?? false) as boolean,
+    showCallbackGroups: (operatorSettingDefaults.showCallbackGroups ?? false) as boolean,
+    showOPSECBypassUsername: (operatorSettingDefaults.showOPSECBypassUsername ?? false) as boolean,
+    taskTimestampDisplayField: (operatorSettingDefaults.taskTimestampDisplayField ?? 'timestamp') as string,
+    'experiment-responseStreamLimit': (operatorSettingDefaults['experiment-responseStreamLimit'] ?? 50) as number,
+    _useDisplayParamsForCLIHistory: (operatorSettingDefaults._useDisplayParamsForCLIHistory ?? true) as boolean,
+    showMedia: (operatorSettingDefaults.showMedia ?? true) as boolean,
+};
+
 export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot }: {
     parentTaskId: number;
     depth?: number;
@@ -170,6 +184,9 @@ export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot
 }) => {
     const [subTaskMap, setSubTaskMap] = useState<Map<number, any>>(new Map());
     useSubscription<any>(STREAM_SUBTASKS, {
+        // TASK_FRAGMENT inlines every response row of every subtask; none of it
+        // is ever read back through the cache, so don't normalise it.
+        fetchPolicy: 'no-cache',
         variables: { parent_task_id: parentTaskId },
         onData: ({ data: d }: any) => {
             const incoming: Task[] = (d?.data?.task_stream as Task[]) || [];
@@ -194,7 +211,7 @@ export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot
                 else if (subStatus === 'completed' || subStatus === 'success') { subStatusColor = 'text-signal'; subBorderColor = 'border-signal/30'; }
                 const responses = sub.responses || [];
                 return (
-                    <div key={sub.id} className={cn('border-l-2 pl-3 py-1 bg-white/3 rounded-r', subBorderColor)}>
+                    <div key={sub.id} className={cn('border-l-2 pl-3 py-1 bg-white/[0.03] rounded-r', subBorderColor)}>
                         <div className="flex items-center gap-2 text-[10px] font-mono text-gray-500 mb-1">
                             <span className="text-blue-400/70">{sub.operator?.username || '?'}</span>
                             <span className="mx-1">|</span>
@@ -232,6 +249,46 @@ export const SubTaskBlock = ({ parentTaskId, depth = 0, callbackHost, scrollRoot
             })}
         </div>
     );
+};
+
+// ── Pure output helpers (module scope) ──────────────────────────────────────
+// These were defined INSIDE the output render block, so all three closures were
+// rebuilt on every render of every TaskBlock, and detectMimikatz ran twice per
+// response. They close over nothing, so they belong here.
+// ── Mimikatz detection ──
+// Strip ANSI so console-mode mimikatz (Win10 VT) and
+// raw shell-mode pipes both match the same patterns.
+// The detector accepts any of:
+//   • bare prompt `mimikatz(commandline) #`
+//   • Mythic execute-assembly preamble + the word "mimikatz"
+//   • a banner line (`mimikatz 2.`, `Benjamin DELPY`)
+//   • LSASS dump signatures (`Authentication Id :`, `* NTLM`)
+// Any of these are enough to trigger MimikatzBlock rendering.
+const stripAnsi = (s: string): string =>
+    // eslint-disable-next-line no-control-regex
+    s.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+const detectMimikatz = (text: string): boolean => {
+    const t = stripAnsi(text);
+    if (t.includes('mimikatz(commandline) #')) return true;
+    if (t.includes('mimikatz') && t.includes('[*] Calling PE entry point')) return true;
+    if (/\bmimikatz\s+2\./i.test(t)) return true;
+    if (t.includes('Benjamin DELPY')) return true;
+    // LSASS dump signature — operator may have only landed
+    // on the response chunk *after* the prompt was printed.
+    if (/\bAuthentication\s+Id\s*:/.test(t)) return true;
+    if (/\*\s+NTLM\s+:/.test(t)) return true;
+    return false;
+};
+const isStructuredParsed = (parsed: unknown, text: string): boolean => {
+    if (Array.isArray(parsed) && parsed.length > 0) {
+        if ((parsed[0] as any)?.AdapterName !== undefined) return true;
+        if ((parsed[0] as any)?.local_port !== undefined && (parsed[0] as any)?.protocol !== undefined) return true;
+        if ((parsed[0] as any)?.process_id !== undefined) return true;
+        if ((parsed[0] as any)?.share_name !== undefined && (parsed[0] as any)?.computer_name !== undefined) return true;
+        if ((parsed[0] as any)?.computer_name !== undefined && (parsed[0] as any)?.forest !== undefined) return true;
+    }
+    if (!parsed && detectMimikatz(text)) return true;
+    return false;
 };
 
 const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal, myUsername, collapseAllEpoch, expandAllEpoch, defaultCollapsed }: {
@@ -276,15 +333,21 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
     // ── Output pagination ── (default true = console always shows all output, matching OldReactUI selectAllOutput={true})
     const [showAllOutput, setShowAllOutput] = useState(true);
     // ── Operator settings ──
-    const hideUsernames: boolean = useGetMythicSetting({setting_name: 'hideUsernames', default_value: operatorSettingDefaults.hideUsernames ?? false});
-    const showIPSetting: boolean = useGetMythicSetting({setting_name: 'showIP', default_value: operatorSettingDefaults.showIP ?? false});
-    const showHostnameSetting: boolean = useGetMythicSetting({setting_name: 'showHostname', default_value: operatorSettingDefaults.showHostname ?? false});
-    const showCallbackGroupsSetting: boolean = useGetMythicSetting({setting_name: 'showCallbackGroups', default_value: operatorSettingDefaults.showCallbackGroups ?? false});
-    const showOPSECBypassUsernameSetting: boolean = useGetMythicSetting({setting_name: 'showOPSECBypassUsername', default_value: operatorSettingDefaults.showOPSECBypassUsername ?? false});
-    const taskTimestampField: string = useGetMythicSetting({setting_name: 'taskTimestampDisplayField', default_value: operatorSettingDefaults.taskTimestampDisplayField ?? 'timestamp'});
-    const responseStreamLimit: number = useGetMythicSetting({setting_name: 'experiment-responseStreamLimit', default_value: operatorSettingDefaults['experiment-responseStreamLimit'] ?? 50});
-    const _useDisplayParamsForCLIHistory: boolean = useGetMythicSetting({setting_name: '_useDisplayParamsForCLIHistory', default_value: operatorSettingDefaults._useDisplayParamsForCLIHistory ?? true});
-    const showMediaSetting: boolean = useGetMythicSetting({setting_name: 'showMedia', default_value: operatorSettingDefaults.showMedia ?? true});
+    // One reactive-var subscription, not nine. `useGetMythicSetting` registers a
+    // listener per call, and the console mounts one TaskBlock per task in the
+    // callback's history — 104 tasks on callback 203 meant 936 listeners, every
+    // one of them notified on every preference write.
+    const {
+        hideUsernames,
+        showIP: showIPSetting,
+        showHostname: showHostnameSetting,
+        showCallbackGroups: showCallbackGroupsSetting,
+        showOPSECBypassUsername: showOPSECBypassUsernameSetting,
+        taskTimestampDisplayField: taskTimestampField,
+        'experiment-responseStreamLimit': responseStreamLimit,
+        _useDisplayParamsForCLIHistory,
+        showMedia: showMediaSetting,
+    } = useGetMythicSettings(TASK_BLOCK_SETTING_DEFAULTS);
     // effectiveStreamLimit: 0 means "no limit" (show all), otherwise use the setting value
     const effectiveStreamLimit = responseStreamLimit > 0 ? responseStreamLimit : 0;
     // ── Server-side search / pagination state ──
@@ -339,6 +402,28 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
         fetchPagedResponses({ variables: { task_id: task.id, fetchLimit: limit, offset: limit * (page - 1), search: searchParam } });
         setCurrentPage(page);
     };
+    // ── Lazy-reveal gate ──
+    // Declared above the streams because it now decides whether they open at
+    // all. The console mounts one TaskBlock per task in the callback's history
+    // and each one used to open STREAM_TASK_RESPONSES + STREAM_SUBTASKS on
+    // mount, unconditionally — 208 live subscriptions replaying 11.9 MB from
+    // cursor 1970 for the 104 tasks on callback 203, almost all of them for
+    // output scrolled a thousand pixels off screen.
+    //
+    // `outputRevealed` is one-way: once a task has been looked at its stream
+    // stays open, so live tailing and re-scrolling cost nothing extra.
+    const taskRef = useRef<HTMLDivElement>(null);
+    const [outputRevealed, setOutputRevealed] = useState(false);
+    // A task that is still running streams even when scrolled away — the
+    // operator scrolls back to a finished block, not a frozen one. Terminal
+    // states match the status pill's own test further down the file.
+    const taskStatus = (task.status || '').toLowerCase();
+    const isTaskSettled = taskStatus === 'completed' || taskStatus === 'success' || taskStatus.includes('error');
+    // Interactive tasks bypass lazy-reveal entirely (they render a live
+    // terminal), so they must never have their stream withheld.
+    const isInteractive = !!(task.is_interactive_task || task.command?.supported_ui_features?.includes('task_response:interactive'));
+    const streamsActive = outputRevealed || isInteractive || !isTaskSettled;
+
     // ── Live response streaming ──
     // Seed with initial snapshot; subscription incrementally merges newer/updated responses.
     const [liveResponses, setLiveResponses] = useState<any[]>(() => task.responses || []);
@@ -354,9 +439,14 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
         }
     }, [task.id, task.responses]);
     useSubscription<any>(STREAM_TASK_RESPONSES, {
+        // no-cache, not network-only: every row is raw agent output that this
+        // component keeps in `liveResponses` and never reads back through the
+        // cache. Normalising it wrote 21 MB of hashdumps and directory listings
+        // into an InMemoryCache with no typePolicies and no eviction, where it
+        // stayed for the rest of the session.
+        fetchPolicy: 'no-cache',
         variables: { task_id: task.id },
-        fetchPolicy: 'network-only',
-        skip: isMsf,
+        skip: isMsf || !streamsActive,
         onData: ({ data: d }: any) => {
             const incoming: TaskResponse[] = (d?.data?.response_stream as TaskResponse[]) || [];
             if (incoming.length === 0) return;
@@ -409,7 +499,40 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
     // Keyed by response id, guarded by the raw string so an in-place response
     // update (see the stream handler above) re-decodes only that row. Unchanged
     // rows keep the same string reference, so the `=== r.response` check is O(1).
-    const decodeCacheRef = useRef<Map<number, { raw: string; decoded: string }>>(new Map());
+    const decodeCacheRef = useRef<Map<number, { raw: string; decoded: string; mimikatz?: boolean }>>(new Map());
+
+    /** Decode one response, reusing the cached result while its raw text is unchanged.
+     *
+     *  The output block below used to call b64DecodeUnicode() directly for every
+     *  retained response on EVERY render — and a render happens on each stream
+     *  batch, so a long task re-decoded its whole backlog per chunk. Measured on
+     *  V8: 17 ms for a 393 KB response and 508 ms for the real 11.6 MB `cat`,
+     *  i.e. ~1 s of frozen main thread on first render and ~6-7 s cumulative
+     *  across a 400-chunk task. The cache already existed for the browserScript
+     *  path a few hundred lines up; this just uses it on the hot path too. */
+    const decodeResponse = useCallback((r: TaskResponse): string => {
+        const raw = r.response || '';
+        const cache = decodeCacheRef.current;
+        const hit = cache.get(r.id);
+        if (hit && hit.raw === raw) return hit.decoded;
+        const decoded = b64DecodeUnicode(raw);
+        cache.set(r.id, { raw, decoded });
+        return decoded;
+    }, []);
+
+    /** detectMimikatz is an ANSI strip plus six regexes over the whole response,
+     *  and it was run twice per response per render. Memoise per cache entry. */
+    // Takes `{ id }` rather than TaskResponse: the second call site iterates the
+    // mapped { id, content, parsed, isError } rows, and the id is all that is
+    // needed to key the cache.
+    const isMimikatzResponse = useCallback((r: { id: number }, content: string): boolean => {
+        const cache = decodeCacheRef.current;
+        const hit = cache.get(r.id);
+        if (hit && hit.mimikatz !== undefined) return hit.mimikatz;
+        const verdict = detectMimikatz(content);
+        if (hit) hit.mimikatz = verdict;
+        return verdict;
+    }, []);
     // Run browserScript on new responses — OldReactUI calling convention: script(task, rawResponseArray)
     useEffect(() => {
         if (!browserScriptFn || liveResponses.length === 0) { setBrowserScriptData(null); return; }
@@ -430,9 +553,6 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
     // ── Output ref for screenshot ──
     const outputRef = useRef<HTMLDivElement>(null);
 
-    // Lazy-reveal output when the task scrolls into the visible area of the terminal
-    const taskRef = useRef<HTMLDivElement>(null);
-    const [outputRevealed, setOutputRevealed] = useState(false);
     const onRevealRef = useRef(onReveal);
     useEffect(() => { onRevealRef.current = onReveal; }, [onReveal]);
     useEffect(() => {
@@ -454,10 +574,15 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
         observer.observe(el);
         return () => observer.disconnect();
     }, [outputRevealed, scrollRoot]);
-    // Fire the reveal callback AFTER the DOM has expanded (useLayoutEffect runs post-mutation)
+    // Fire the reveal callback AFTER the DOM has expanded (useLayoutEffect runs post-mutation).
+    // Also re-fires as responses land: the stream now opens on reveal rather
+    // than on mount, so the DOM grows after the reveal rather than with it, and
+    // a running task's output has to keep the view pinned as it arrives.
+    // `handleTaskReveal` only re-pins when the operator is already at the
+    // bottom, so this cannot steal a scroll position.
     useLayoutEffect(() => {
         if (outputRevealed) onRevealRef.current?.();
-    }, [outputRevealed]);
+    }, [outputRevealed, liveResponses.length]);
 
     // Kill task: find the job_kill command then createTask
     const [killConfirmOpen, setKillConfirmOpen] = useState(false);
@@ -537,12 +662,35 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
 
     let statusColor = "text-yellow-500";
     let borderColor = "border-yellow-500/50";
-    const status = (task.status || "").toLowerCase();
+    const status = taskStatus;
     if (status.includes("error")) { statusColor = "text-red-500"; borderColor = "border-red-500/50"; }
     else if (status === "completed" || status === "success") { statusColor = "text-signal"; borderColor = "border-signal/50"; }
     else if (status === "cleared") { statusColor = "text-orange-400"; borderColor = "border-orange-400/50"; }
 
-    const tryParseJSON = (str: string) => { try { return JSON.parse(str); } catch { return null; } };
+    // Sibling of decodeCacheRef above, for the same reason. The render body
+    // re-derives directoryMap/otherResponses from every retained response on
+    // every render, and this used to be a bare `JSON.parse` — so a task holding
+    // a multi-megabyte structured response re-parsed all of it on each stream
+    // chunk. Keyed by response id; the identity check is a pointer compare
+    // because decodeResponse hands back the same string reference when the row
+    // has not changed.
+    const parseCacheRef = useRef<Map<number, { raw: string; parsed: any }>>(new Map());
+    const parseResponse = useCallback((id: number, str: string): any => {
+        const cache = parseCacheRef.current;
+        const hit = cache.get(id);
+        if (hit && hit.raw === str) return hit.parsed;
+        // Only `{`/`[` can open a JSON object or array. Everything else is
+        // plain agent output, and this skips handing it to the parser at all.
+        let i = 0;
+        while (i < str.length && i < 16 && (str.charCodeAt(i) === 32 || str.charCodeAt(i) === 9 || str.charCodeAt(i) === 10 || str.charCodeAt(i) === 13)) i++;
+        const c = str.charCodeAt(i);
+        let parsed: any = null;
+        if (c === 123 /* { */ || c === 91 /* [ */) {
+            try { parsed = JSON.parse(str); } catch { parsed = null; }
+        }
+        cache.set(id, { raw: str, parsed });
+        return parsed;
+    }, []);
     const fmtBytes = (bytes: number) => {
         if (!bytes || bytes < 0) return "0 B";
         const units = ["B", "KB", "MB", "GB", "TB"];
@@ -916,7 +1064,7 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
             </div>
             {/* Output box — interactive tasks bypass lazy-reveal and get a live terminal */}
             <div className="relative">
-            {(task.is_interactive_task || task.command?.supported_ui_features?.includes('task_response:interactive')) ? (
+            {isInteractive ? (
                 <InteractiveTaskBlock
                     taskId={task.id}
                     task={task}
@@ -1101,45 +1249,10 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
                         : (effectiveLimit === 0 || showAllOutput ? liveResponses : liveResponses.slice(-effectiveLimit));
                     const directoryMap = new Map<string, { directory: string; host: string; files: Map<string, any> }>();
                     const otherResponses: { id: number; content: string; parsed: unknown; isError: boolean }[] = [];
-                    // ── Mimikatz detection ──
-                    // Strip ANSI so console-mode mimikatz (Win10 VT) and
-                    // raw shell-mode pipes both match the same patterns.
-                    // The detector accepts any of:
-                    //   • bare prompt `mimikatz(commandline) #`
-                    //   • Mythic execute-assembly preamble + the word "mimikatz"
-                    //   • a banner line (`mimikatz 2.`, `Benjamin DELPY`)
-                    //   • LSASS dump signatures (`Authentication Id :`, `* NTLM`)
-                    // Any of these are enough to trigger MimikatzBlock rendering.
-                    const stripAnsi = (s: string): string =>
-                        // eslint-disable-next-line no-control-regex
-                        s.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
-                    const detectMimikatz = (text: string): boolean => {
-                        const t = stripAnsi(text);
-                        if (t.includes('mimikatz(commandline) #')) return true;
-                        if (t.includes('mimikatz') && t.includes('[*] Calling PE entry point')) return true;
-                        if (/\bmimikatz\s+2\./i.test(t)) return true;
-                        if (t.includes('Benjamin DELPY')) return true;
-                        // LSASS dump signature — operator may have only landed
-                        // on the response chunk *after* the prompt was printed.
-                        if (/\bAuthentication\s+Id\s*:/.test(t)) return true;
-                        if (/\*\s+NTLM\s+:/.test(t)) return true;
-                        return false;
-                    };
-                    const isStructuredParsed = (parsed: unknown, text: string): boolean => {
-                        if (Array.isArray(parsed) && parsed.length > 0) {
-                            if ((parsed[0] as any)?.AdapterName !== undefined) return true;
-                            if ((parsed[0] as any)?.local_port !== undefined && (parsed[0] as any)?.protocol !== undefined) return true;
-                            if ((parsed[0] as any)?.process_id !== undefined) return true;
-                            if ((parsed[0] as any)?.share_name !== undefined && (parsed[0] as any)?.computer_name !== undefined) return true;
-                            if ((parsed[0] as any)?.computer_name !== undefined && (parsed[0] as any)?.forest !== undefined) return true;
-                        }
-                        if (!parsed && detectMimikatz(text)) return true;
-                        return false;
-                    };
                     responsesToRender.forEach(
 (r: TaskResponse) => {
-                        let content = b64DecodeUnicode(r.response);
-                        const parsed = tryParseJSON(content);
+                        let content = decodeResponse(r);
+                        const parsed = parseResponse(r.id, content);
                         if (parsed && parsed.files && Array.isArray(parsed.files)) {
                             // Build the full absolute directory path from parent_path + name.
                             // e.g. parent_path="/home", name="david" → "/home/david"
@@ -1472,7 +1585,7 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
                                 // parsed. `taskCommand` is what MimikatzBlock uses
                                 // to synthesise a section header for shell-mode
                                 // captures that lack the leading prompt.
-                                if (!parsed && detectMimikatz(content)) {
+                                if (!parsed && isMimikatzResponse(r, content)) {
                                     return <MimikatzBlock
                                         key={id}
                                         content={content}
@@ -1563,7 +1676,9 @@ const TaskBlockImpl = ({ task, callbackHost, onFileAction, scrollRoot, onReveal,
                 </div>
             )}
             {/* Sub-tasks — Mythic only (MSF tasks are flat). */}
-            {!isMsf && <SubTaskBlock parentTaskId={task.id} callbackHost={callbackHost} scrollRoot={scrollRoot} />}
+            {/* Mounted only once the block is in play — SubTaskBlock's stream uses
+                TASK_FRAGMENT, which inlines every response row of every subtask. */}
+            {!isMsf && streamsActive && <SubTaskBlock parentTaskId={task.id} callbackHost={callbackHost} scrollRoot={scrollRoot} />}
             </motion.div>
             )}
             </AnimatePresence>

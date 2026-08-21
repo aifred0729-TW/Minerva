@@ -5,11 +5,11 @@ import { useLazyQueryCompat as useLazyQuery } from "../../lib/useQueryCompat";
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     AlertCircle, ArrowLeftRight, Ban, Bell, BellOff,
-    Bot, CheckCircle, Copy, Download, FileJson,
+    Bot, CheckCircle, Download, FileJson,
     FileText, Fingerprint, FlaskConical, GitCompare, Info, Link,
     ListCheck, MessageSquare, MoreVertical, Package, PhoneCall,
     RefreshCw, RotateCcw, Settings, Sliders,
-    Zap, Tag as TagIcon, Edit3, Globe2, Trash2, X } from 'lucide-react';
+    Zap, Tag as TagIcon, Edit3, Globe2, Trash2 } from 'lucide-react';
 import { cn, b64DecodeUnicode, downloadDataUrl } from '../../lib/utils';
 import { directDownloadUrl, absoluteDownloadUrl } from '../../lib/urls';
 import { snackActions } from '../../lib/snackbar';
@@ -26,7 +26,7 @@ import {
 }from '../../lib/api/payloads';
 import type { Payload } from '../../types/payloads';
 import { getAnimDuration } from './utils';
-import { BuildStatusBadge, C2StatusIndicator, TagsDisplay, BuildProgressSteps } from './components';
+import { BuildStatusBadge, C2StatusIndicator, TagsDisplay, BuildProgressSteps, CHIP, chipTone, EmDash, buildState } from './components';
 import {
     ConfirmDialog,
     CreateNewCallbackDialog,
@@ -40,6 +40,32 @@ import {
 import { PayloadDetailsModal } from './PayloadDetailsModal';
 
 const MENU_MIN_SPACE_BELOW = 300;
+
+/* ── Row furniture ────────────────────────────────────────────────────────
+ *
+ * The cells that open the payload's configuration all share one affordance,
+ * and the icon buttons all share one hit area, so a row cannot end up with
+ * three slightly different versions of the same gesture.
+ */
+
+/** A cell that opens the details modal. */
+const CELL_OPEN = 'cursor-pointer transition-colors hover:bg-signal/[0.06]';
+
+/** 32px square icon button — the console's secondary control size. */
+const ICON_BTN =
+    'inline-flex h-8 w-8 items-center justify-center rounded-sm text-signal transition-colors ' +
+    'hover:bg-signal/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal';
+
+/** One menu row. */
+const MENU_ITEM =
+    'flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-signal transition-colors ' +
+    'hover:bg-signal/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal';
+
+/** A menu section strip. The strip is what separates the sections, so the
+ *  label itself does not have to be dimmed to stay out of the way. */
+const MENU_SECTION =
+    'border-y border-signal/10 bg-signal/[0.04] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-signal';
+
 
 interface PayloadRowProps {
     payload: Payload;
@@ -183,6 +209,10 @@ export const PayloadRow = ({
         ? b64DecodeUnicode(payload.filemetum.filename_text) 
         : 'N/A';
 
+    // One tone per row, read once: the identity square, the PROGRESS chip and
+    // the details modal all have to agree about what this build is doing.
+    const buildTone = buildState(payload.build_phase).tone;
+
     const handleDownload = () => {
         if (payload.filemetum?.agent_file_id) {
             downloadDataUrl(directDownloadUrl(payload.filemetum.agent_file_id), filename);
@@ -229,13 +259,13 @@ export const PayloadRow = ({
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: getAnimDuration(0.15, isCombat) }}
                 className={cn(
-                    "border-b border-gray-800 hover:bg-white/5 transition-colors",
-                    payload.deleted && "opacity-50"
+                    "border-b border-signal/10 transition-colors hover:bg-signal/[0.03]",
+                    payload.deleted && "opacity-45",
                 )}
             >
                 {/* Actions */}
-                <td className="px-3 py-4">
-                    <div className="flex items-center gap-1">
+                <td className="px-3 py-3 align-top">
+                    <div className="flex items-center gap-0.5">
                         <div className="relative">
                             <button
                                 ref={buttonRef}
@@ -267,9 +297,13 @@ export const PayloadRow = ({
                                     setMenuPosition({ top, left });
                                     setShowMenu(!showMenu);
                                 }}
-                                className="p-1.5 rounded hover:bg-signal/10 text-gray-500 hover:text-signal transition-colors"
+                                aria-label="Payload actions"
+                                aria-haspopup="menu"
+                                aria-expanded={showMenu}
+                                title="Payload actions"
+                                className={ICON_BTN}
                             >
-                                <MoreVertical size={16} />
+                                <MoreVertical size={15} strokeWidth={2} />
                             </button>
                             
                             {showMenu && createPortal(
@@ -286,14 +320,16 @@ export const PayloadRow = ({
                                         maxHeight: `calc(100vh - ${menuPosition.top + 20}px)`,
                                         minHeight: '200px'
                                     }}
-                                    className="w-64 bg-void/95 backdrop-blur-md border border-signal/30 shadow-2xl shadow-signal/10 py-1 overflow-y-auto"
+                                    role="menu"
+                                    aria-label="Payload actions"
+                                    className="cyber-scrollbar w-64 overflow-y-auto rounded-md border border-signal/20 bg-void/95 py-1 font-mono shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-sm"
                                 >
                                     {/* File Operations */}
-                                    <div className="px-3 py-1 text-xs font-mono text-signal/50 uppercase tracking-wider border-b border-signal/10 bg-signal/5">File</div>
+                                    <div className={cn(MENU_SECTION, 'border-t-0')}>File</div>
                                         
                                         <button
                                             onClick={() => { setShowRenameDialog(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <Edit3 size={14} />
                                             Rename File
@@ -301,7 +337,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { setShowDescriptionDialog(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <MessageSquare size={14} />
                                             Edit Description
@@ -310,11 +346,11 @@ export const PayloadRow = ({
                                         <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* View Operations */}
-                                        <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">View</div>
+                                        <div className={MENU_SECTION}>View</div>
                                         
                                         <button
                                             onClick={() => { setShowDetails(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <Info size={14} />
                                             View Payload Configuration
@@ -322,7 +358,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { onExportConfig(payload.uuid); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <FileText size={14} />
                                             Export Payload Config
@@ -331,11 +367,11 @@ export const PayloadRow = ({
                                         <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* Build Operations */}
-                                        <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">Build</div>
+                                        <div className={MENU_SECTION}>Build</div>
                                         
                                         <button
                                             onClick={() => { setShowBuildMessageDialog(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <FileText size={14} />
                                             View Build Message/Stdout
@@ -343,7 +379,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { setShowBuildErrorDialog(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <AlertCircle size={14} />
                                             View Build Errors
@@ -351,7 +387,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { onRebuild(payload.uuid); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <RefreshCw size={14} />
                                             Trigger New Build
@@ -359,7 +395,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { setShowRebuildWithEdits(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <FileJson size={14} />
                                             Trigger New Build With Edits
@@ -368,7 +404,7 @@ export const PayloadRow = ({
                                         {payload.build_phase === 'success' && (
                                             <button
                                                 onClick={() => { onRebuildFromConfig(payload); setShowMenu(false); }}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                                className={MENU_ITEM}
                                             >
                                                 <Sliders size={14} />
                                                 Rebuild from Config (Wizard)
@@ -378,11 +414,11 @@ export const PayloadRow = ({
                                         <div className="border-t border-signal/10 my-1" />
 
                                         {/* File Operations - Advanced */}
-                                        <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">Advanced</div>
+                                        <div className={MENU_SECTION}>Advanced</div>
                                         
                                         <button
                                             onClick={() => { setShowComparePayloads(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <GitCompare size={14} />
                                             Compare Payload Configuration
@@ -390,7 +426,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { setShowAddRemoveCommands(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <ListCheck size={14} />
                                             Add / Remove Commands
@@ -399,7 +435,7 @@ export const PayloadRow = ({
                                         {payload.build_phase === 'success' && payload.filemetum && (
                                             <button
                                                 onClick={() => { setShowHostFile(true); setShowMenu(false); }}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                                className={MENU_ITEM}
                                             >
                                                 <Globe2 size={14} />
                                                 Host File via C2 Profile
@@ -408,7 +444,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { setShowTagEdit(true); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <TagIcon size={14} />
                                             Edit Tags
@@ -417,33 +453,33 @@ export const PayloadRow = ({
                                         <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* Callback Settings */}
-                                        <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">Callbacks</div>
+                                        <div className={MENU_SECTION}>Callbacks</div>
                                         
                                         <button
                             onClick={() => { setShowCreateCallbackDialog(true); setShowMenu(false); }}
-                            className="w-full flex items-start gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                            className={cn(MENU_ITEM, 'items-start')}
                         >
                             <PhoneCall size={14} className="mt-0.5 shrink-0" />
                             <div className="text-left">
                                 <div>Manually Create Callback</div>
-                                <div className="text-xs text-ghost/50 font-normal">Full configuration form</div>
+                                <div className="text-[11px] text-signal opacity-60">Full configuration form</div>
                             </div>
                         </button>
 
                         <button
                             onClick={() => { setShowConfirmFakeCallback(true); setShowMenu(false); }}
-                            className="w-full flex items-start gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                            className={cn(MENU_ITEM, 'items-start')}
                         >
                             <Zap size={14} className="mt-0.5 shrink-0" />
                             <div className="text-left">
                                 <div>Quick Fake Callback</div>
-                                <div className="text-xs text-ghost/50 font-normal">Auto-filled with random data</div>
+                                <div className="text-[11px] text-signal opacity-60">Auto-filled with random data</div>
                             </div>
                         </button>
 
                         <button
                                             onClick={() => { onToggleAlert(payload.uuid, !payload.callback_alert); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             {payload.callback_alert ? <BellOff size={14} /> : <Bell size={14} />}
                                             {payload.callback_alert ? 'Disable Callback Alerts' : 'Enable Callback Alerts'}
@@ -451,7 +487,7 @@ export const PayloadRow = ({
                                         
                                         <button
                                             onClick={() => { onToggleAllowed(payload.uuid, !payload.callback_allowed); setShowMenu(false); }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             {payload.callback_allowed ? <Ban size={14} /> : <CheckCircle size={14} />}
                                             {payload.callback_allowed ? 'Block New Callbacks' : 'Allow New Callbacks'}
@@ -460,7 +496,7 @@ export const PayloadRow = ({
                                         <div className="border-t border-signal/10 my-1" />
                                         
                                         {/* Generate Operations */}
-                                        <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">Generate</div>
+                                        <div className={MENU_SECTION}>Generate</div>
                                         
                                         <button
                                             onClick={() => { 
@@ -470,7 +506,7 @@ export const PayloadRow = ({
                                                 fetchRedirectRules({ variables: { uuid: payload.uuid } });
                                                 setShowMenu(false);
                                             }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <ArrowLeftRight size={14} />
                                             Generate Redirect Rules
@@ -484,7 +520,7 @@ export const PayloadRow = ({
                                                 fetchConfigCheck({ variables: { uuid: payload.uuid } });
                                                 setShowMenu(false);
                                             }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <Settings size={14} />
                                             Check Agent C2 Configuration
@@ -498,7 +534,7 @@ export const PayloadRow = ({
                                                 fetchIOCs({ variables: { uuid: payload.uuid } });
                                                 setShowMenu(false);
                                             }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <Fingerprint size={14} />
                                             Generate IOCs
@@ -512,7 +548,7 @@ export const PayloadRow = ({
                                                 fetchSampleMessage({ variables: { uuid: payload.uuid } });
                                                 setShowMenu(false);
                                             }}
-                                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-signal/10 hover:text-signal transition-colors"
+                                            className={MENU_ITEM}
                                         >
                                             <FlaskConical size={14} />
                                             Generate Sample Message
@@ -520,12 +556,12 @@ export const PayloadRow = ({
                                         
                                         <div className="border-t border-signal/10 my-1" />
 
-                                        <div className="px-3 py-1 text-xs font-mono text-red-400/50 uppercase tracking-wider border-b border-red-400/10 bg-red-400/5">Danger</div>
+                                        <div className="border-y border-red-400/20 bg-red-400/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-red-400">Danger</div>
                                         
                                         {payload.deleted ? (
                                             <button
                                                 onClick={() => { setShowConfirmDelete(true); setShowMenu(false); }}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-matrix hover:bg-matrix/10 transition-colors"
+                                                className={cn(MENU_ITEM, 'text-accent hover:bg-signal/10')}
                                             >
                                                 <RotateCcw size={14} />
                                                 Restore Payload
@@ -533,7 +569,7 @@ export const PayloadRow = ({
                                         ) : (
                                             <button
                                                 onClick={() => { setShowConfirmDelete(true); setShowMenu(false); }}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                                                className={cn(MENU_ITEM, 'text-red-400 hover:bg-red-400/10')}
                                             >
                                                 <Trash2 size={14} />
                                                 Delete Payload from Disk
@@ -552,55 +588,54 @@ export const PayloadRow = ({
                                         navigator.clipboard.writeText(url);
                                         snackActions.success('Public download link copied to clipboard');
                                     }}
-                                    className="p-1.5 rounded hover:bg-signal/10 text-gray-500 hover:text-signal transition-colors"
+                                    className={ICON_BTN}
                                     title="Copy Public Download Link"
+                                    aria-label="Copy public download link"
                                 >
-                                    <Link size={16} />
+                                    <Link size={15} strokeWidth={2} />
                                 </button>
                                 <button
                                     onClick={handleDownload}
-                                    className="p-1.5 rounded hover:bg-green-400/10 text-gray-500 hover:text-green-400 transition-colors"
+                                    className={cn(ICON_BTN, 'hover:bg-signal/10 hover:text-accent')}
                                     title="Download Payload"
+                                    aria-label="Download payload"
                                 >
-                                    <Download size={16} />
+                                    <Download size={15} strokeWidth={2} />
                                 </button>
                             </>
                         )}
                     </div>
                 </td>
 
-                {/* Agent Type - Color based on build status */}
-                <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                        <div className={cn(
-                            "w-8 h-8 rounded flex items-center justify-center border relative",
-                            payload.build_phase === 'success' 
-                                ? "bg-green-400/10 border-green-400/30" 
-                                : payload.build_phase === 'error' 
-                                    ? "bg-red-400/10 border-red-400/30"
-                                    : "bg-yellow-400/10 border-yellow-400/30"
+                {/* Agent / module — identity, not status.
+                    The tone lives in the square and in the PROGRESS chip; the
+                    agent name stays `signal` and keeps its real casing, so two
+                    rows with different build phases still look like the same
+                    kind of thing. */}
+                <td className="px-3 py-3 align-top">
+                    {/* `items-center`, not `items-start`: the agent name is the
+                        square's label, so it reads centred against it. The
+                        optional "no alerts" line joins the same block, and the
+                        pair centres together rather than the name riding up to
+                        the square's top edge. */}
+                    <div className="flex items-center gap-2.5">
+                        <span className={cn(
+                            "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border",
+                            chipTone(buildTone),
                         )}>
-                            <Package size={16} className={cn(
-                                payload.build_phase === 'success' 
-                                    ? "text-green-400" 
-                                    : payload.build_phase === 'error' 
-                                        ? "text-red-400"
-                                        : "text-yellow-400"
-                            )} />
+                            <Package size={15} strokeWidth={2} aria-hidden="true" />
                             {!payload.callback_allowed && (
-                                <span title="New callbacks blocked" className="absolute -top-1 -right-1 text-red-400 bg-void rounded-full"><Ban size={9} /></span>
+                                <span
+                                    title="New callbacks blocked"
+                                    className="absolute -right-1 -top-1 rounded-full bg-void text-red-400"
+                                >
+                                    <Ban size={10} strokeWidth={2.5} />
+                                </span>
                             )}
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-1.5">
-                                <span className={cn(
-                                    "font-mono text-sm",
-                                    payload.build_phase === 'success' 
-                                        ? "text-green-400" 
-                                        : payload.build_phase === 'error' 
-                                            ? "text-red-400"
-                                            : "text-yellow-400"
-                                )}>
+                        </span>
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="truncate font-mono text-[13px] font-bold text-signal">
                                     {payload.wrapped_payload_id && payload.payload?.payloadtype?.name
                                         ? payload.payload.payloadtype.name
                                         : payload.payloadtype.name}
@@ -608,66 +643,74 @@ export const PayloadRow = ({
                                 {payload.wrapped_payload_id && (
                                     <span
                                         title={`Wrapped by ${payload.payloadtype.name}`}
-                                        className="inline-flex items-center px-1 py-0.5 bg-yellow-400/10 border border-yellow-400/30 text-yellow-400 text-[9px] rounded font-mono gap-0.5 cursor-default"
+                                        className={cn(CHIP, chipTone('range'), 'cursor-default')}
                                     >
-                                        <Package size={9} /> WRAP
+                                        <Package size={9} strokeWidth={2} aria-hidden="true" /> Wrap
                                     </span>
                                 )}
                             </div>
                             {!payload.callback_alert && (
-                                <div className="flex items-center gap-1 mt-0.5">
-                                    <BellOff size={10} className="text-yellow-500" />
-                                    <span className="text-[10px] text-yellow-500/70 font-mono">no alerts</span>
-                                </div>
+                                <span className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-signal">
+                                    <BellOff size={10} strokeWidth={2} aria-hidden="true" className="opacity-70" />
+                                    <span className="opacity-70">no alerts</span>
+                                </span>
                             )}
                         </div>
                     </div>
                 </td>
 
-                {/* Filename - clickable to show details */}
-                <td className="px-4 py-3 cursor-pointer hover:bg-signal/5" onClick={() => setShowDetails(true)}>
-                    <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
+                {/* File — the name keeps its casing because a filename is
+                    recognised by its shape, and the short UUID under it is the
+                    thing operators paste into a search. */}
+                <td className={cn(CELL_OPEN, "px-3 py-3 align-top")} onClick={() => setShowDetails(true)}>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
                             {payload.auto_generated && payload.task && (
                                 <a
                                     href={`/new/task/${payload.task.display_id}`}
                                     target="_blank"
                                     rel="noreferrer"
                                     title="Auto-generated by task"
+                                    aria-label="Open the task that generated this payload"
                                     onClick={(e) => e.stopPropagation()}
-                                    className="text-yellow-400 hover:text-yellow-300 transition-colors shrink-0"
+                                    className="shrink-0 text-amber-400 transition-colors hover:text-amber-300"
                                 >
-                                    <Bot size={14} />
+                                    <Bot size={13} strokeWidth={2} />
                                 </a>
                             )}
                             {payload.auto_generated && !payload.task && (
-                                <span title="Auto-generated payload" className="text-yellow-400/60 shrink-0"><Bot size={14} /></span>
+                                <span title="Auto-generated payload" className="shrink-0 text-amber-400">
+                                    <Bot size={13} strokeWidth={2} aria-hidden="true" />
+                                </span>
                             )}
-                            <span className="font-mono text-sm text-white truncate max-w-[250px] hover:text-signal transition-colors" title={filename}>
+                            <span className="max-w-[250px] truncate font-mono text-[13px] text-signal" title={filename}>
                                 {filename}
                             </span>
                         </div>
-                        <span className="text-xs text-gray-500 font-mono">
-                            {payload.uuid.substring(0, 8)}...
+                        <span className="font-mono text-[11px] tabular-nums text-signal opacity-60">
+                            {payload.uuid.substring(0, 8)}…
                         </span>
                     </div>
                 </td>
 
-                {/* Build Status - clickable to show details */}
-                <td className="px-4 py-3 cursor-pointer hover:bg-signal/5" onClick={() => setShowDetails(true)}>
-                    <div className="flex flex-col">
+                {/* Progress — the phase as a word, then one dot per build
+                    step so a stalled build shows WHERE it stalled. */}
+                <td className={cn(CELL_OPEN, "px-3 py-3 align-top")} onClick={() => setShowDetails(true)}>
+                    <div className="flex flex-col items-start">
                         <BuildStatusBadge phase={payload.build_phase} />
                         <BuildProgressSteps steps={payload.payload_build_steps} buildPhase={payload.build_phase} isCombat={isCombat} />
                     </div>
                 </td>
 
-                {/* Description - clickable to show details */}
-                <td className="px-4 py-3 cursor-pointer hover:bg-signal/5" onClick={() => setShowDetails(true)}>
-                    <span className="text-sm text-gray-400 line-clamp-2">{payload.description || '—'}</span>
+                {/* Description */}
+                <td className={cn(CELL_OPEN, "px-3 py-3 align-top")} onClick={() => setShowDetails(true)}>
+                    {payload.description
+                        ? <span className="line-clamp-2 text-[13px] text-signal">{payload.description}</span>
+                        : <EmDash />}
                 </td>
 
-                {/* C2 Status - clickable to show details */}
-                <td className="px-4 py-3 cursor-pointer hover:bg-signal/5" onClick={() => setShowDetails(true)}>
+                {/* C2 Status */}
+                <td className={cn(CELL_OPEN, "px-3 py-3 align-top")} onClick={() => setShowDetails(true)}>
                     <C2StatusIndicator
                         c2profiles={
                             payload.payloadc2profiles.length > 0
@@ -682,28 +725,30 @@ export const PayloadRow = ({
                     />
                 </td>
 
-                {/* Tags - clickable to show details, with quick edit button */}
-                <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                        <div className="flex-1 cursor-pointer hover:bg-signal/5" onClick={() => setShowDetails(true)}>
+                {/* Tags — payload tags first, then the file's own, labelled,
+                    because they are two different things that look alike. */}
+                <td className="px-3 py-3 align-top">
+                    <div className="flex items-start gap-2">
+                        <div className={cn(CELL_OPEN, "min-w-0 flex-1 rounded-sm")} onClick={() => setShowDetails(true)}>
                             {(payloadTags.length > 0 || fileTags.length > 0) ? (
                                 <div className="space-y-1">
                                     {payloadTags.length > 0 && <TagsDisplay tags={payloadTags} />}
                                     {fileTags.length > 0 && (
-                                        <div className="flex items-center gap-1 flex-wrap">
-                                            <span className="text-[9px] text-ghost/40 font-mono uppercase tracking-wider">file:</span>
+                                        <div className="flex flex-wrap items-center gap-1">
+                                            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-signal opacity-70">file</span>
                                             <TagsDisplay tags={fileTags} />
                                         </div>
                                     )}
                                 </div>
-                            ) : <span className="text-gray-500 text-xs font-mono">—</span>}
+                            ) : <EmDash />}
                         </div>
                         <button
                             onClick={() => setShowTagEdit(true)}
                             title="Edit Tags"
-                            className="p-1 text-gray-600 hover:text-signal transition-colors shrink-0"
+                            aria-label="Edit tags"
+                            className={cn(ICON_BTN, "shrink-0")}
                         >
-                            <Edit3 size={12} />
+                            <Edit3 size={13} strokeWidth={2} />
                         </button>
                     </div>
                 </td>

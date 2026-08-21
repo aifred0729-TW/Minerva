@@ -38,8 +38,21 @@ import {
 // ── Links ──────────────────────────────────────────────────────────
 
 const retryLink = new RetryLink({
-    delay: { initial: 2, max: 10 },
-    attempts: { max: 2, retryIf: (error, _operation) => !!error },
+    // These are MILLISECONDS. `initial: 2` meant a 2ms backoff — roughly 150x
+    // tighter than the library default — so any backend blip turned into an
+    // immediate burst against a service that was already struggling.
+    delay: { initial: 300, max: 5000, jitter: true },
+    attempts: {
+        max: 2,
+        // Never replay an auth failure: authLink sits above this link and owns
+        // token refresh, so retrying a 401/403 here just doubles the traffic
+        // and races the refresh.
+        retryIf: (error: any) => {
+            const status = error?.statusCode ?? error?.response?.status;
+            if (status === 401 || status === 403) return false;
+            return !!error;
+        },
+    },
 });
 
 const httpLink = new HttpLink({

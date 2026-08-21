@@ -56,7 +56,7 @@ const LiveTime = ({ isoStr }: { isoStr: string }) => {
 
 // ── per-type accent palette ──────────────────────────────────────────────
 const ACCENT: Record<string, { stroke: string; soft: string; text: string; cls: string; }> = {
-    socks:       { stroke: '#22c55e', soft: '#22c55e22', text: '#4ade80', cls: 'signal' },
+    socks:       { stroke: '#4ade80', soft: '#4ade8022', text: '#4ade80', cls: 'signal' },
     rpfwd:       { stroke: '#60a5fa', soft: '#60a5fa22', text: '#60a5fa', cls: 'blue-400' },
     interactive: { stroke: '#a78bfa', soft: '#a78bfa22', text: '#a78bfa', cls: 'purple-400' },
 };

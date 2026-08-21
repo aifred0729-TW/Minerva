@@ -168,7 +168,7 @@ export function buildGraphData(params: BuildGraphDataParams): { nodes: Node[]; e
                 type: 'c2label',
                 animated: isActive,
                 style: {
-                    stroke: isActive ? '#22c55e' : '#ef4444',
+                    stroke: isActive ? '#4ade80' : '#ef4444',
                     strokeWidth: 2,
                     strokeDasharray: isActive ? undefined : '6,4',
                     opacity: isActive ? 1 : 0.6,
@@ -176,7 +176,7 @@ export function buildGraphData(params: BuildGraphDataParams): { nodes: Node[]; e
                 label: e.c2profile?.name || 'Linked',
                 data: {
                     origStyle: {
-                        stroke: isActive ? '#22c55e' : '#ef4444',
+                        stroke: isActive ? '#4ade80' : '#ef4444',
                         strokeWidth: 2,
                         strokeDasharray: isActive ? undefined : '6,4',
                         opacity: isActive ? 1 : 0.6,

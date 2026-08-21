@@ -6,7 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 
 // Color definitions (RGB arrays)
 const DARK_SIGNAL  = [255, 255, 255];   // white (dark theme default)
-const DARK_ACCENT  = [34, 197, 94];     // green
+const DARK_ACCENT  = [74, 222, 128];    // green-400 — bright; see index.css
 
 const LIGHT_SIGNAL = [30, 30, 40];      // near-black (light theme default)
 const LIGHT_ACCENT = [22, 163, 74];     // green (slightly darker)

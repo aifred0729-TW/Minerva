@@ -15,9 +15,21 @@ interface AppStore {
   appState: AppState;
   setAppState: (state: AppState) => void;
   // Flag for controlling reverse animation
-  isLoggingOut: boolean; 
+  isLoggingOut: boolean;
   startLogout: () => void;
   reset: () => void;
+  /**
+   * Raised the instant the login screen hands off to the dashboard.
+   *
+   * The route swap unmounts the whole login route in the same commit, so the
+   * welcome screen's own exit animation can never play and the two screens cut
+   * against each other. This flag drives `SessionCurtain`, which is rendered
+   * outside <Routes> and therefore lives across the swap. Transient — kept out
+   * of `partialize` so a reload never restores a closed curtain.
+   */
+  sessionOpening: boolean;
+  beginSessionOpen: () => void;
+  endSessionOpen: () => void;
   // Sidebar state - shared across all pages
   isSidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -68,6 +80,7 @@ export const useAppStore = create<AppStore>()(
     (set) => ({
       appState: 'LOGIN', // Initial State
       isLoggingOut: false,
+      sessionOpening: false,
       isSidebarCollapsed: true, // Default to collapsed
       alertCount: 0,
       consoleTabs: [],
@@ -87,13 +100,26 @@ export const useAppStore = create<AppStore>()(
 
       startLogout: () => set({
         isLoggingOut: true,
-        appState: 'LOGOUT_ANIMATION'
+        appState: 'LOGOUT_ANIMATION',
+        sessionOpening: false,
+        // Persisted, and not scoped to an operator or an operation — so without
+        // this the next operator to sign in on this browser opens the previous
+        // one's console tabs and 3D session picks, pointing at callbacks from an
+        // engagement they may not even be a member of.
+        consoleTabs: [],
+        topologySessionPicks: {},
       }),
 
       reset: () => set({
         appState: 'LOGIN',
-        isLoggingOut: false
+        isLoggingOut: false,
+        sessionOpening: false,
+        consoleTabs: [],
+        topologySessionPicks: {},
       }),
+
+      beginSessionOpen: () => set({ sessionOpening: true }),
+      endSessionOpen: () => set({ sessionOpening: false }),
 
       setSidebarCollapsed: (collapsed) => set({ isSidebarCollapsed: collapsed }),
 

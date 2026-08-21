@@ -1,6 +1,12 @@
 import React from 'react';
 import { useSubscription } from "@apollo/client/react";
-import { SUBSCRIBE_NEW_CALLBACKS, SUBSCRIBE_EVENTS, SUBSCRIBE_ALERT_COUNT } from '../lib/api';
+// Imported from the leaf modules, NOT the `lib/api` barrel. This component is
+// eager (App.tsx mounts it outside the lazy routes), and `lib/api/index.ts`
+// re-exports all 28 api modules — so three symbols were pulling every gql
+// document in the app into the entry bundle and paying graphql's parser for
+// all of them at startup.
+import { SUBSCRIBE_NEW_CALLBACKS, SUBSCRIBE_ALERT_COUNT } from '../lib/api/notifications';
+import { SUBSCRIBE_EVENTS } from '../lib/api/eventFeed';
 import { useAppStore } from '../store';
 import { useShallow } from 'zustand/shallow';
 import { getSkewedNow } from '../lib/time';
@@ -219,12 +225,12 @@ export function NotificationBadge({ className }: { className?: string }) {
 }
 
 // Larger notification bell icon with badge for sidebar
-export function NotificationBell() {
+export function NotificationBell({ size = 20 }: { size?: number }) {
     const alertCount = useAppStore(s => s.alertCount);
 
     return (
         <div className="relative">
-            <Bell size={20} className={alertCount > 0 ? 'text-amber-400' : ''} />
+            <Bell size={size} strokeWidth={2} className={alertCount > 0 ? 'text-amber-400' : ''} />
             {alertCount > 0 && (
                 <span 
                     className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] px-1 flex items-center justify-center 

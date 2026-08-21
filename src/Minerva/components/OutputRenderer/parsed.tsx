@@ -1184,7 +1184,7 @@ export function MimikatzPanel({ content }: { content: string }) {
                                                     <div className="flex items-center gap-2 mb-1.5">
                                                         <span className="font-bold text-sm flex-1" style={{ color: '#fff' }}>{label}</span>
                                                         {s.plaintext && <span className="font-bold px-1.5 py-0.5 border rounded-sm"
-                                                            style={{ color: '#86efac', borderColor: '#22c55e50', background: '#14532d25', fontSize: 10, flexShrink: 0 }}>PLAINTEXT</span>}
+                                                            style={{ color: '#4ade80', borderColor: '#4ade80', background: 'rgba(255,255,255,0.04)', fontSize: 10, flexShrink: 0 }}>PLAINTEXT</span>}
                                                     </div>
                                                     {s.plaintext && (
                                                         <div className="flex items-center gap-2 mb-1">

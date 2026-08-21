@@ -33,6 +33,10 @@ function createWsClient(): Client {
         on: {
             error: (err) => {
                 dbg('ws', 'connection error', err);
+                // Was dbg-only. Nothing set this, and nothing read it, so the
+                // only connectivity chrome in the app was navigator.onLine —
+                // which reads ONLINE while this socket is dead.
+                meState({ ...meState(), badConnection: true });
             },
             connected: (_socket) => {
                 dbg('ws', 'connected');
@@ -40,6 +44,7 @@ function createWsClient(): Client {
             },
             closed: (event) => {
                 dbg('ws', 'connection closed', event);
+                meState({ ...meState(), badConnection: true });
             },
         },
         connectionParams: () => ({

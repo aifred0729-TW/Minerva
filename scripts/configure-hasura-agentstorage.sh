@@ -47,6 +47,22 @@ with open(tables_file, 'r') as f:
     tables = yaml.safe_load(f)
 
 # Find agentstorage table
+# ── Row scope for every Minerva-granted permission ──────────────────────────
+# `agentstorage` is (id, data, unique_id) — it has no operation column, so there
+# is nothing to scope an operation filter on. What we CAN do is stop Minerva's
+# roles from reaching rows that are not Minerva's: Mythic agents use this same
+# table for their own MythicRPC storage, and an empty filter ({}) handed every
+# role unfiltered select AND insert/update/delete over all of it.
+#
+# Every key Minerva writes is prefixed `minerva_*` (payloads, socks ledger,
+# custom nodes, quickhacks, column prefs), so this filter is transparent to
+# Minerva and closes the cross-tenant hole to Mythic's rows.
+#
+# NOTE: this does NOT isolate one operation from another — that needs an
+# operation_id column on agentstorage, tracked separately. Until then, do not
+# store raw payload bytes here.
+MINERVA_SCOPE = {'unique_id': {'_like': 'minerva_%'}}
+
 agentstorage_config = None
 for i, table in enumerate(tables):
     if isinstance(table, dict) and 'table' in table:
@@ -64,28 +80,28 @@ agentstorage_config['insert_permissions'] = [
     {
         'role': 'operator',
         'permission': {
-            'check': {},
+            'check': MINERVA_SCOPE,
             'columns': ['unique_id', 'data']
         }
     },
     {
         'role': 'operation_admin',
         'permission': {
-            'check': {},
+            'check': MINERVA_SCOPE,
             'columns': ['unique_id', 'data']
         }
     },
     {
         'role': 'mythic_admin',
         'permission': {
-            'check': {},
+            'check': MINERVA_SCOPE,
             'columns': ['unique_id', 'data']
         }
     },
     {
         'role': 'developer',
         'permission': {
-            'check': {},
+            'check': MINERVA_SCOPE,
             'columns': ['unique_id', 'data']
         }
     }
@@ -96,35 +112,35 @@ agentstorage_config['select_permissions'] = [
         'role': 'spectator',
         'permission': {
             'columns': ['id', 'unique_id', 'data'],
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     },
     {
         'role': 'operator',
         'permission': {
             'columns': ['id', 'unique_id', 'data'],
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     },
     {
         'role': 'operation_admin',
         'permission': {
             'columns': ['id', 'unique_id', 'data'],
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     },
     {
         'role': 'mythic_admin',
         'permission': {
             'columns': ['id', 'unique_id', 'data'],
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     },
     {
         'role': 'developer',
         'permission': {
             'columns': ['id', 'unique_id', 'data'],
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     }
 ]
@@ -134,32 +150,32 @@ agentstorage_config['update_permissions'] = [
         'role': 'operator',
         'permission': {
             'columns': ['data'],
-            'filter': {},
-            'check': {}
+            'filter': MINERVA_SCOPE,
+            'check': MINERVA_SCOPE
         }
     },
     {
         'role': 'operation_admin',
         'permission': {
             'columns': ['data'],
-            'filter': {},
-            'check': {}
+            'filter': MINERVA_SCOPE,
+            'check': MINERVA_SCOPE
         }
     },
     {
         'role': 'mythic_admin',
         'permission': {
             'columns': ['data'],
-            'filter': {},
-            'check': {}
+            'filter': MINERVA_SCOPE,
+            'check': MINERVA_SCOPE
         }
     },
     {
         'role': 'developer',
         'permission': {
             'columns': ['data'],
-            'filter': {},
-            'check': {}
+            'filter': MINERVA_SCOPE,
+            'check': MINERVA_SCOPE
         }
     }
 ]
@@ -168,25 +184,25 @@ agentstorage_config['delete_permissions'] = [
     {
         'role': 'operator',
         'permission': {
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     },
     {
         'role': 'operation_admin',
         'permission': {
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     },
     {
         'role': 'mythic_admin',
         'permission': {
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     },
     {
         'role': 'developer',
         'permission': {
-            'filter': {}
+            'filter': MINERVA_SCOPE
         }
     }
 ]

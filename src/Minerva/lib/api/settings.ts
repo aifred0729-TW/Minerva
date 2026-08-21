@@ -57,16 +57,36 @@ query getOperations {
 }
 `;
 
+/** How long to wait for /auth before giving the operator control back. */
+export const LOGIN_TIMEOUT_MS = 20_000;
+
+/** Distinguishes "the server never answered" from "the server said no". */
+export const LOGIN_TIMED_OUT = Symbol('login-timed-out');
+
+/**
+ * Returns the auth payload, `null` for a refusal or network error, or
+ * LOGIN_TIMED_OUT if /auth did not answer in time.
+ *
+ * The timeout is not optional. A server that accepts the connection and then
+ * never responds leaves this promise pending forever, and the login screen has
+ * nothing to fall back to: it sits on VERIFYING_CREDENTIALS with the submit
+ * button disabled and no way back to the form short of a reload.
+ */
 export async function loginUser(username: string, password: string) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
     try {
         const response = await fetch('/auth', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, scripting_version: "3" })
+            body: JSON.stringify({ username, password, scripting_version: "3" }),
+            signal: controller.signal,
         });
         if (!response.ok) return null;
         return await response.json();
-    } catch {
-        return null;
+    } catch (e) {
+        return (e as Error)?.name === 'AbortError' ? LOGIN_TIMED_OUT : null;
+    } finally {
+        clearTimeout(timer);
     }
 }

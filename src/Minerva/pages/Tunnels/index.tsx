@@ -315,7 +315,7 @@ export default function Tunnels() {
 
                     {/* ── LEFT: Traffic flow map (2D) ──────────────── */}
                     <motion.div
-                        className="flex-1 relative overflow-hidden border border-white/8"
+                        className="flex-1 relative overflow-hidden border border-white/10"
                         style={{
                             background: '#030307',
                             clipPath: 'polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px))',
@@ -327,7 +327,7 @@ export default function Tunnels() {
                         <style>{`@keyframes tunnelDash { to { stroke-dashoffset: -28; } }`}</style>
 
                         <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-2">
-                            <span className="w-1 h-3.5 bg-signal" style={{ boxShadow: '0 0 6px #22c55e' }} />
+                            <span className="w-1 h-3.5 bg-signal" style={{ boxShadow: '0 0 6px #4ade80' }} />
                             <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-white">FLOW MAP</span>
                         </div>
 
@@ -374,7 +374,7 @@ export default function Tunnels() {
 
                     {/* ── RIGHT: Info-card column ────────────────────── */}
                     <motion.div
-                        className="w-[460px] shrink-0 flex flex-col overflow-hidden border border-white/8"
+                        className="w-[460px] shrink-0 flex flex-col overflow-hidden border border-white/10"
                         style={{
                             background: 'linear-gradient(180deg, #060609 0%, #030305 100%)',
                             clipPath: 'polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px))',
@@ -384,9 +384,9 @@ export default function Tunnels() {
                         transition={{ duration: 0.35, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
                     >
                         {/* Card column header */}
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/8 bg-black/30">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-black/30">
                             <div className="flex items-center gap-2">
-                                <span className="w-1 h-3.5 bg-signal" style={{ boxShadow: '0 0 6px #22c55e' }} />
+                                <span className="w-1 h-3.5 bg-signal" style={{ boxShadow: '0 0 6px #4ade80' }} />
                                 <span className="font-mono text-[10px] font-bold tracking-[0.3em] text-white">TUNNELS</span>
                                 <span className="font-mono text-[10px] text-zinc-500">
                                     {filtered.length}

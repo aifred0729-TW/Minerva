@@ -235,7 +235,7 @@ function OptionField({ name, opt, value, onChange }: {
                 <button
                     onClick={() => onChange(value === 'true' ? 'false' : 'true')}
                     className={cn('px-3 py-1.5 text-xs font-mono border transition-colors',
-                        value === 'true' ? 'border-green-500/40 text-green-400 bg-green-500/10' : 'border-ghost/30 text-signal hover:border-white/30')}
+                        value === 'true' ? 'border-accent text-accent bg-signal/[0.06]' : 'border-ghost/30 text-signal hover:border-white/30')}
                 >
                     {value === 'true' ? 'TRUE' : 'FALSE'}
                 </button>
@@ -886,7 +886,7 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                     {hasActiveFilters && (
                                         <button
                                             onClick={clearFacets}
-                                            className="text-xs font-mono tracking-[0.25em] border border-accent/60 bg-accent/10 px-3 py-2 text-accent hover:bg-accent/20 rounded-md whitespace-nowrap"
+                                            className="text-xs font-mono tracking-[0.25em] border border-accent bg-signal/[0.06] px-3 py-2 text-accent hover:bg-signal/10 rounded-md whitespace-nowrap"
                                         >
                                             CLEAR FILTERS
                                         </button>
@@ -900,18 +900,18 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                     {stagingFilter !== 'all' && (
                                         <span className={cn(
                                             'border px-2 py-1 rounded',
-                                            stagingFilter === 'non-staged' ? 'border-accent bg-accent/10 text-accent' : 'border-signal bg-signal/10 text-signal',
+                                            stagingFilter === 'non-staged' ? 'border-accent bg-signal/[0.06] text-accent' : 'border-signal bg-signal/10 text-signal',
                                         )}>
                                             {stagingFilter === 'staged' ? 'STAGED' : 'NON-STAGED'}
                                         </span>
                                     )}
                                     {Array.from(kindFilter).map(k => (
-                                        <span key={k} className="border border-accent bg-accent/10 text-accent px-2 py-1 rounded">
+                                        <span key={k} className="border border-accent bg-signal/[0.06] text-accent px-2 py-1 rounded">
                                             {k === 'meterpreter' ? 'METERPRETER' : k === 'shell' ? 'SHELL' : 'SPECIAL'}
                                         </span>
                                     ))}
                                     {Array.from(connTypeFilter).map(c => (
-                                        <span key={c} className="border border-accent bg-accent/10 text-accent px-2 py-1 rounded">
+                                        <span key={c} className="border border-accent bg-signal/[0.06] text-accent px-2 py-1 rounded">
                                             {c.toUpperCase()}
                                         </span>
                                     ))}
@@ -966,7 +966,7 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                                             <span className="text-sm font-mono tracking-[0.3em] text-accent uppercase font-bold">
                                                                 {stageName}
                                                             </span>
-                                                            <span className="border border-accent/60 bg-accent/10 px-2 py-px text-xs font-mono tracking-[0.2em] text-accent rounded">
+                                                            <span className="border border-accent bg-signal/[0.06] px-2 py-px text-xs font-mono tracking-[0.2em] text-accent rounded">
                                                                 {entries.length.toString().padStart(2, '0')}
                                                             </span>
                                                             <span className="h-px flex-1 bg-signal/15" />
@@ -986,13 +986,13 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                                                         className={cn(
                                                                             'group relative w-full text-left px-3 py-2.5 border rounded-md font-mono flex items-center gap-3 transition-all',
                                                                             selected
-                                                                                ? 'border-accent bg-accent/[0.08] shadow-[0_0_12px_rgba(34,197,94,0.2)]'
+                                                                                ? 'border-accent bg-signal/[0.06] shadow-[0_0_12px_rgba(74,222,128,0.2)]'
                                                                                 : 'border-signal/20 hover:border-signal/50 bg-black/30 hover:bg-black/50',
                                                                         )}
                                                                     >
                                                                         <span className={cn(
                                                                             'flex items-center justify-center w-10 h-10 shrink-0 rounded-md transition-colors',
-                                                                            selected ? 'bg-accent/15 text-accent' : 'bg-signal/[0.05] text-signal/85 group-hover:text-signal',
+                                                                            selected ? 'bg-signal/[0.06] text-accent' : 'bg-signal/[0.05] text-signal/85 group-hover:text-signal',
                                                                         )}>
                                                                             <Icon size={18} />
                                                                         </span>
@@ -1006,7 +1006,7 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                                                                     'border px-1.5 py-px text-[10px] tracking-[0.2em] font-bold rounded',
                                                                                     facets.staging === 'staged'
                                                                                         ? 'border-signal/60 text-signal'
-                                                                                        : 'border-accent/60 text-accent bg-accent/10',
+                                                                                        : 'border-accent text-accent bg-signal/[0.06]',
                                                                                 )}>
                                                                                     {facets.staging === 'staged' ? 'STAGED' : 'NON-STAGED'}
                                                                                 </span>
@@ -1078,7 +1078,7 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                             generated file's extension and
                                             stealth profile both come from
                                             these two knobs. */}
-                                        <div className="border border-accent/40 bg-accent/[0.03] p-4 space-y-4">
+                                        <div className="border border-accent bg-signal/[0.06] p-4 space-y-4">
                                             <div className="text-xs font-mono tracking-[0.3em] text-accent flex items-center gap-2 font-bold">
                                                 <FileCode size={13} /> OUTPUT
                                             </div>
@@ -1208,7 +1208,7 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                             value={payloadName}
                                             onChange={e => { setPayloadName(e.target.value); setPayloadNameTouched(true); }}
                                             placeholder={defaultName}
-                                            className="w-full bg-black border border-signal/30 text-signal text-sm font-mono px-3 py-2 outline-none focus:border-accent/60"
+                                            className="w-full bg-black border border-signal/30 text-signal text-sm font-mono px-3 py-2 outline-none focus:border-accent"
                                         />
                                         <div className="text-[10px] text-signal/50">
                                             File will be saved as <span className="text-signal/80">{
@@ -1240,7 +1240,7 @@ export const CreateMsfPayloadEmbed: React.FC<{
                                 )}
 
                                 {buildResult && buildResult.ok && (
-                                    <div className="border border-accent/60 bg-accent/[0.05] p-4 space-y-3">
+                                    <div className="border border-accent bg-signal/[0.06] p-4 space-y-3">
                                         <div className="flex items-center gap-2 text-accent font-mono text-sm font-bold">
                                             <Check size={14} /> BUILD_COMPLETE
                                         </div>
@@ -1403,7 +1403,7 @@ const SmoothTile: React.FC<{
             'flex flex-col gap-2',
             compact ? 'p-3' : 'p-4',
             active
-                ? 'border-accent bg-accent/[0.06] shadow-[0_0_14px_rgba(34,197,94,0.20)]'
+                ? 'border-accent bg-signal/[0.06] shadow-[0_0_14px_rgba(74,222,128,0.20)]'
                 : 'border-signal/20 hover:border-signal/50',
         )}
     >
@@ -1412,7 +1412,7 @@ const SmoothTile: React.FC<{
                 'flex items-center justify-center transition-colors rounded-md',
                 compact ? 'w-9 h-9' : 'w-11 h-11',
                 active
-                    ? 'bg-accent/15 text-accent'
+                    ? 'bg-signal/[0.06] text-accent'
                     : 'bg-signal/[0.05] text-signal/85 group-hover:text-signal',
             )}>
                 {icon}
@@ -1459,12 +1459,12 @@ const SmoothChip: React.FC<{
         className={cn(
             'group inline-flex items-center gap-2 px-3 py-2 rounded-md border font-mono text-sm tracking-[0.15em] transition-all',
             active
-                ? 'border-accent bg-accent/10 text-accent font-bold'
+                ? 'border-accent bg-signal/[0.06] text-accent font-bold'
                 : 'border-signal/20 text-signal hover:border-signal/50 hover:bg-signal/[0.04]',
         )}
     >
         <span>{label}</span>
-        <span className={cn('text-xs tabular-nums', active ? 'text-accent/80' : 'text-signal/60')}>{count}</span>
+        <span className={cn('text-xs tabular-nums', active ? 'text-accent' : 'text-signal/60')}>{count}</span>
     </button>
 );
 
@@ -1510,7 +1510,7 @@ const ModulePreviewPane: React.FC<{
             {/* Header — platform icon + path */}
             <div className="border-b border-signal/15 p-4 bg-signal/[0.03]">
                 <div className="flex items-start gap-3">
-                    <div className="w-12 h-12 rounded-md bg-accent/15 text-accent flex items-center justify-center shrink-0">
+                    <div className="w-12 h-12 rounded-md bg-signal/[0.06] text-accent flex items-center justify-center shrink-0">
                         <Icon size={24} />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -1531,18 +1531,18 @@ const ModulePreviewPane: React.FC<{
                         'border px-2 py-1 text-[10px] tracking-[0.2em] font-bold rounded font-mono',
                         facets.staging === 'staged'
                             ? 'border-signal/60 text-signal'
-                            : 'border-accent/60 text-accent bg-accent/10',
+                            : 'border-accent text-accent bg-signal/[0.06]',
                     )}>
                         {facets.staging === 'staged' ? 'STAGED' : 'NON-STAGED'}
                     </span>
-                    <span className="border border-accent/60 bg-accent/10 text-accent px-2 py-1 text-[10px] tracking-[0.2em] font-bold rounded font-mono">
+                    <span className="border border-accent bg-signal/[0.06] text-accent px-2 py-1 text-[10px] tracking-[0.2em] font-bold rounded font-mono">
                         {facets.kind.toUpperCase()}
                     </span>
                 </div>
 
                 <div className="text-[10px] font-mono tracking-[0.3em] text-signal/80 mt-3 mb-2">TRANSPORT</div>
                 <div className="flex flex-wrap gap-1.5">
-                    <span className="border border-accent/60 bg-accent/10 text-accent px-2 py-1 text-[10px] tracking-[0.2em] font-bold rounded font-mono">
+                    <span className="border border-accent bg-signal/[0.06] text-accent px-2 py-1 text-[10px] tracking-[0.2em] font-bold rounded font-mono">
                         {facets.connType.toUpperCase()}
                     </span>
                     {facets.protocol !== 'none' && (
@@ -1636,7 +1636,7 @@ const FacetPicker: React.FC<{
                 <span className={cn(
                     'inline-flex items-center gap-1.5 px-2.5 py-1 border text-xs font-mono',
                     value
-                        ? 'border-accent/50 bg-accent/10 text-accent'
+                        ? 'border-accent bg-signal/[0.06] text-accent'
                         : 'border-ghost/40 text-signal/60',
                 )}>
                     <Check size={11} className={value ? '' : 'opacity-40'} />
@@ -1728,11 +1728,11 @@ const FacetRow: React.FC<{
                             className={cn(
                                 'px-2.5 py-1 border font-mono text-xs tracking-[0.15em] transition-colors',
                                 isActive
-                                    ? 'border-accent bg-accent/15 text-accent font-bold'
+                                    ? 'border-accent bg-signal/[0.06] text-accent font-bold'
                                     : cn('border-ghost/30 hover:border-signal/60 hover:bg-signal/5', valueClass ?? 'text-signal'),
                             )}
                         >
-                            {value} <span className={isActive ? 'text-accent/80' : 'text-signal/60'}>·{count}</span>
+                            {value} <span className={isActive ? 'text-accent' : 'text-signal/60'}>·{count}</span>
                         </button>
                     );
                 })}

@@ -86,7 +86,7 @@ const InstanceRow = ({ inst }: { inst: any }) => {
     const isError = s.includes('error') || s.includes('cancel');
 
     return (
-        <div className="border border-white/8 hover:border-signal/20 transition-all">
+        <div className="border border-white/10 hover:border-signal/20 transition-all">
             <div className="flex items-center gap-3 px-4 py-3">
                 <span className="font-mono text-[11px] text-gray-600 w-10 shrink-0">#{inst.id}</span>
                 <div className="flex-1 min-w-0">

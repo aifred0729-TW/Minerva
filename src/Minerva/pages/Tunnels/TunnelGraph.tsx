@@ -17,7 +17,7 @@ import { fmtBytes } from './tunnels.utils';
 // ============================================================
 
 export const TN_COLOR: Record<string, string> = {
-    socks:       '#22c55e',
+    socks:       '#4ade80',
     rpfwd:       '#60a5fa',
     interactive: '#a78bfa',
     rpfwd_src:   '#60a5fa',
@@ -243,15 +243,15 @@ const TnMythicNode = ({ data }: { data: TnMythicNodeData }) => (
         {/* glow backdrop */}
         <div style={{
             position: 'absolute', inset: -12,
-            background: 'radial-gradient(ellipse 80% 60%, #22c55e22 0%, transparent 70%)',
+            background: 'radial-gradient(ellipse 80% 60%, #4ade8022 0%, transparent 70%)',
             pointerEvents: 'none',
         }} />
         {/* main body */}
         <div style={{
             width: 148, fontFamily: 'monospace',
             background: 'linear-gradient(135deg, #071a0d 0%, #040d07 100%)',
-            border: '1px solid #22c55e70',
-            boxShadow: '0 0 0 1px #22c55e18, 0 0 20px #22c55e28, inset 0 1px 0 #22c55e30',
+            border: '1px solid #4ade8070',
+            boxShadow: '0 0 0 1px #4ade8018, 0 0 20px #4ade8028, inset 0 1px 0 #4ade8030',
             clipPath: 'polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px))',
             padding: '10px 12px 8px',
             position: 'relative',
@@ -262,28 +262,28 @@ const TnMythicNode = ({ data }: { data: TnMythicNodeData }) => (
                 width: 0, height: 0,
                 borderStyle: 'solid',
                 borderWidth: '0 14px 14px 0',
-                borderColor: 'transparent #22c55e70 transparent transparent',
+                borderColor: 'transparent #4ade8070 transparent transparent',
             }} />
             {/* top row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
                 <div style={{
-                    width: 6, height: 20, background: '#22c55e',
-                    boxShadow: '0 0 8px #22c55e, 0 0 16px #22c55e60',
+                    width: 6, height: 20, background: '#4ade80',
+                    boxShadow: '0 0 8px #4ade80, 0 0 16px #4ade8060',
                     flexShrink: 0,
                 }} />
                 <div>
                     <div style={{ fontSize: 11, fontWeight: 900, color: '#4ade80', letterSpacing: '0.18em' }}>MYTHIC</div>
-                    <div style={{ fontSize: 8, color: '#22c55e70', letterSpacing: '0.3em', marginTop: 1 }}>C2 CORE</div>
+                    <div style={{ fontSize: 8, color: '#4ade8070', letterSpacing: '0.3em', marginTop: 1 }}>C2 CORE</div>
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                    <div style={{ width: 6, height: 6, background: '#22c55e', borderRadius: '50%', boxShadow: '0 0 6px #22c55e, 0 0 12px #22c55e80', animation: 'pulse 2s ease-in-out infinite' }} />
-                    <div style={{ width: 2, height: 8, background: 'linear-gradient(180deg, #22c55e60, transparent)' }} />
+                    <div style={{ width: 6, height: 6, background: '#4ade80', borderRadius: '50%', boxShadow: '0 0 6px #4ade80, 0 0 12px #4ade8080', animation: 'pulse 2s ease-in-out infinite' }} />
+                    <div style={{ width: 2, height: 8, background: 'linear-gradient(180deg, #4ade8060, transparent)' }} />
                 </div>
             </div>
             {/* divider */}
-            <div style={{ height: 1, background: 'linear-gradient(90deg, #22c55e60, #22c55e10)', marginBottom: 6 }} />
+            <div style={{ height: 1, background: 'linear-gradient(90deg, #4ade8060, #4ade8010)', marginBottom: 6 }} />
             {/* stats */}
-            <div style={{ fontSize: 10, color: data.activePorts > 0 ? '#4ade80' : '#22c55e30', fontWeight: 700, letterSpacing: '0.08em' }}>
+            <div style={{ fontSize: 10, color: data.activePorts > 0 ? '#4ade80' : '#4ade8030', fontWeight: 700, letterSpacing: '0.08em' }}>
                 {data.activePorts > 0 ? `${data.activePorts} TUNNEL${data.activePorts !== 1 ? 'S' : ''} ACTIVE` : 'STANDBY'}
             </div>
         </div>
@@ -293,7 +293,7 @@ const TnMythicNode = ({ data }: { data: TnMythicNodeData }) => (
 /** Agent / callback */
 const TnAgentNode = ({ data }: { data: TnAgentNodeData }) => {
     const dead = !data.active;
-    const c    = dead ? '#ef4444' : '#22c55e';
+    const c    = dead ? '#ef4444' : '#4ade80';
     return (
         <motion.div className="relative"
             initial={{ opacity: 0, scale: 0.8 }}
@@ -463,7 +463,7 @@ const TnPortNode = ({ data }: { data: TnPortNodeData }) => {
 /** SVG edge with animated particle stream */
 const TnFlowEdge = ({ sourceX, sourceY, targetX, targetY, data }: EdgeProps) => {
     const [path, lx, ly] = getStraightPath({ sourceX, sourceY, targetX, targetY });
-    const color  = (data?.color  as string)  || '#22c55e';
+    const color  = (data?.color  as string)  || '#4ade80';
     const active = (data?.active as boolean);
     const plabel = data?.portLabel as string;
     const traffic = ((data?.bytesRx as number) || 0) + ((data?.bytesTx as number) || 0);
@@ -587,7 +587,7 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
     // Operator + C2 zones (always shown, fixed colours).
     const fixedZones = [
         { id: 'z-port',   y: PY - 32, h: 135, color: '#60a5fa', label: 'OPERATOR SIDE', segment: 'LOCAL NETWORK',     kind: 'operator' as const },
-        { id: 'z-mythic', y: MY - 32, h: 155, color: '#22c55e', label: 'C2 SERVER',     segment: 'C2 INFRASTRUCTURE', kind: 'c2'       as const },
+        { id: 'z-mythic', y: MY - 32, h: 155, color: '#4ade80', label: 'C2 SERVER',     segment: 'C2 INFRASTRUCTURE', kind: 'c2'       as const },
     ];
     fixedZones.forEach((z, zi) => nodes.push({
         id: z.id, type: 'zone',
@@ -670,7 +670,7 @@ export function buildTunnelGraph(ports: CallbackPort[]): { nodes: Node[]; edges:
             });
             edges.push({
                 id: `c2-${cbId}`, source: 'mythic', target: `a-${cbId}`, type: 'flow',
-                data: { active: cb.active, color: cb.active ? '#22c55e' : '#374151' },
+                data: { active: cb.active, color: cb.active ? '#4ade80' : '#374151' },
             });
         });
     });

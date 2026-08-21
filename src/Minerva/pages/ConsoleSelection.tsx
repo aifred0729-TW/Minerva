@@ -207,8 +207,8 @@ const SessionRow = ({ session, isBest }: { session: any; isBest: boolean }) => {
             dead
                 ? 'bg-red-600 border-red-500 hover:bg-red-500 hover:border-red-400'
                 : isBest
-                    ? 'bg-signal/5 border-signal/25 hover:bg-signal/12 hover:border-signal/50'
-                    : 'bg-white/3 border-transparent hover:bg-white/6 hover:border-white/10'
+                    ? 'bg-signal/5 border-signal/25 hover:bg-signal/10 hover:border-signal/50'
+                    : 'bg-white/[0.03] border-transparent hover:bg-white/5 hover:border-white/10'
         )}>
             <Link
                 to={`/console/${session.display_id}`}
@@ -445,7 +445,12 @@ export default function ConsoleSelection() {
         [data, msfSynthetic],
     );
 
-    const filteredCallbacks = hideDead ? callbacks.filter(cb => !isSessionDead(cb)) : callbacks;
+    // Was a bare filter in the render body, so it produced a fresh array on
+    // every render and the useMemo below it could never hit while hideDead was on.
+    const filteredCallbacks = useMemo(
+        () => (hideDead ? callbacks.filter(cb => !isSessionDead(cb)) : callbacks),
+        [callbacks, hideDead],
+    );
     const groups = useMemo(() => groupCallbacks(filteredCallbacks, groupMode), [filteredCallbacks, groupMode]);
     // Sort groups: domains/ranges with at least one alive session first
     const groupEntries = Object.entries(groups).sort(([, aGroup], [, bGroup]) => {

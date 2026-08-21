@@ -35,7 +35,7 @@ import 'ace-builds/src-noconflict/mode-apache_conf';
 import 'ace-builds/src-noconflict/mode-plain_text';
 import 'ace-builds/src-noconflict/theme-monokai';
 import { TaskFromUIButton } from '../TaskFromUIButton';
-import { b64DecodeUnicode, fixMojibake } from '../../lib/utils';
+import { b64DecodeUnicode, fixMojibake, formatBytes } from '../../lib/utils';
 import '@xyflow/react/dist/style.css';
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
@@ -963,10 +963,33 @@ export function AutoTable({ rows, title }: { rows: any[]; title?: string }) {
 }
 
 // ─── ANSI rendering helper ────────────────────────────────────────────────────
+/**
+ * Above this many characters an output is rendered head-first with the rest
+ * behind an explicit control, and the ANSI / JSON passes are skipped.
+ *
+ * Agent output is not bounded by anything on the client: this instance holds a
+ * single 11,948,161-byte response. Un-guarded, that text was `.split('\n')` on
+ * every render, `Anser.ansiToJson`'d into a token array, and turned into one
+ * <span> per token — hundreds of thousands of React elements for one `cat`.
+ * 256 KB is roughly 3,000 lines of `ls -R`, i.e. more than an operator reads
+ * before deciding whether they want the whole thing.
+ */
+export const LARGE_OUTPUT_CHARS = 256 * 1024;
+
+/**
+ * Ceiling on ANSI spans. Text can sit under LARGE_OUTPUT_CHARS and still be
+ * colour-escape-dense enough to explode into element count — mimikatz and
+ * colourised `ls` both do. Past the cap the text renders unstyled rather than
+ * slowly.
+ */
+const MAX_ANSI_TOKENS = 20000;
+
 const renderAnsi = (text: string): React.ReactNode => {
     try {
+        if (text.length > LARGE_OUTPUT_CHARS) return null;
         const tokens: any[] = Anser.ansiToJson(text, { json: true, remove_empty: true });
         if (tokens.length <= 1 && !tokens[0]?.fg && !tokens[0]?.bg && !tokens[0]?.decoration) return null; // no ANSI
+        if (tokens.length > MAX_ANSI_TOKENS) return null;
         return tokens.map((token, i) => {
             const style: React.CSSProperties = { display: 'inline', whiteSpace: 'pre-wrap', wordBreak: 'break-all' };
             const fg = token.fg_truecolor || token.fg;
@@ -985,24 +1008,48 @@ const renderAnsi = (text: string): React.ReactNode => {
 
 export function TerminalPanel({ text, isError }: { text: string; isError?: boolean }) {
     const accent     = isError ? ERR : ACCENT;
-    const lineCount  = text.split('\n').length;
-    const ansiRendered = useMemo(() => renderAnsi(text), [text]);
     const [wrapText, setWrapText] = useState(true);
     const [useAce, setUseAce]     = useState(false);
     const [expanded, setExpanded] = useState(false);
+
+    // ── Large-output gate ──
+    // Everything below this point works on `shownText`, never on `text`, so a
+    // multi-megabyte response costs one slice instead of a tokenizer pass and a
+    // six-figure element tree. The operator opts into the whole thing.
+    const isLarge = text.length > LARGE_OUTPUT_CHARS;
+    const [showFull, setShowFull] = useState(false);
+    const truncated = isLarge && !showFull;
+    const shownText = useMemo(
+        () => (truncated ? text.slice(0, LARGE_OUTPUT_CHARS) : text),
+        [text, truncated],
+    );
+
+    // Was recomputed on every render — one full line array per render, and a
+    // render happens on every stream chunk.
+    const lineCount  = useMemo(() => {
+        let n = 1;
+        for (let i = 0; i < shownText.length; i++) if (shownText.charCodeAt(i) === 10) n++;
+        return n;
+    }, [shownText]);
+    const ansiRendered = useMemo(() => renderAnsi(shownText), [shownText]);
     // #7 — ANSI toggle
-    // eslint-disable-next-line no-control-regex
-    const hasAnsi = useMemo(() => /\x1b\[/.test(text), [text]);
+    const hasAnsi = useMemo(() => {
+        // eslint-disable-next-line no-control-regex
+        return /\x1b\[/.test(shownText);
+    }, [shownText]);
     const [ansiEnabled, setAnsiEnabled] = useState(true);
-    // Auto-detect JSON and pretty-format
+    // Auto-detect JSON and pretty-format. Skipped while truncated: a slice of a
+    // JSON document does not parse, and re-serialising a megabyte to find that
+    // out is the cost this gate exists to avoid.
     const prettyText = useMemo(() => {
-        const trimmed = text.trim();
+        if (truncated) return null;
+        const trimmed = shownText.trim();
         if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
             try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { /*noop*/ }
         }
         return null;
-    }, [text]);
-    const displayText = prettyText ?? text;
+    }, [shownText, truncated]);
+    const displayText = prettyText ?? shownText;
     return (
         <OutputPanel
             icon={<Terminal size={11}/>}
@@ -1037,7 +1084,7 @@ export function TerminalPanel({ text, isError }: { text: string; isError?: boole
                             {expanded ? <Minimize2 size={12}/> : <Maximize2 size={12}/>}
                         </button>
                     )}
-                    <button onClick={() => { navigator.clipboard.writeText(displayText); }} title="Copy text"
+                    <button onClick={() => { navigator.clipboard.writeText(prettyText ?? text); }} title="Copy text (full output)"
                         className="p-0.5 rounded transition-colors hover:bg-white/10"
                         style={{ color: '#555' }}>
                         <Clipboard size={12}/>
@@ -1072,6 +1119,30 @@ export function TerminalPanel({ text, isError }: { text: string; isError?: boole
                     }}>
                     {ansiEnabled && ansiRendered ? ansiRendered : displayText}
                 </pre>
+            )}
+            {truncated && (
+                <div className="mt-2 flex items-center gap-3 border-t border-signal/20 pt-2">
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-signal">
+                        {formatBytes(text.length - LARGE_OUTPUT_CHARS)} more not rendered
+                    </span>
+                    <button
+                        onClick={() => setShowFull(true)}
+                        className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-accent text-accent bg-signal/[0.05] hover:bg-signal/10 transition-colors">
+                        Render all {formatBytes(text.length)}
+                    </button>
+                </div>
+            )}
+            {isLarge && showFull && (
+                <div className="mt-2 flex items-center gap-3 border-t border-signal/20 pt-2">
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-signal">
+                        Rendering {formatBytes(text.length)} in full — ANSI colour off above {formatBytes(LARGE_OUTPUT_CHARS)}
+                    </span>
+                    <button
+                        onClick={() => setShowFull(false)}
+                        className="font-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-signal/40 text-signal bg-signal/[0.05] hover:bg-signal/10 transition-colors">
+                        Collapse to first {formatBytes(LARGE_OUTPUT_CHARS)}
+                    </button>
+                </div>
             )}
         </OutputPanel>
     );

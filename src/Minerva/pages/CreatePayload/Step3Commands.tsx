@@ -203,7 +203,7 @@ export function Step3Commands({ payloadType, currentCommands, onUpdate }: Step3P
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
                             transition={{ duration: 0.1 }}
-                            className="fixed z-[9999] w-80 bg-void/95 border border-signal backdrop-blur-xl shadow-[0_0_30px_rgba(34,197,94,0.3)] rounded-lg pointer-events-none overflow-hidden"
+                            className="fixed z-[9999] w-80 bg-void/95 border border-signal backdrop-blur-xl shadow-[0_0_30px_rgba(74,222,128,0.3)] rounded-lg pointer-events-none overflow-hidden"
                             style={{ top: tooltipPos.y, left: tooltipPos.x }}
                         >
                             {/* Header */}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSubscription, useMutation } from "@apollo/client/react";
 import { useQueryCompat as useQuery, useLazyQueryCompat as useLazyQuery} from "../../lib/useQueryCompat";
 import { AnimatePresence } from 'framer-motion';
-import { Plus, Upload, Package, Eye, EyeOff, List, Loader2, Box, Cpu } from 'lucide-react';
+import { Plus, Upload, Package, Eye, EyeOff, List, Box } from 'lucide-react';
 import { cn, b64DecodeUnicode, downloadBlob } from '../../lib/utils';
 import { getSkewedNow } from '../../lib/time';
 import { snackActions } from '../../lib/snackbar';
@@ -12,6 +12,7 @@ import type { Payload, TabType } from '../../types/payloads';
 import { PayloadRow } from './PayloadRow';
 import { MsfPayloadRow } from './MsfPayloadRow';
 import { ImportPayloadConfigDialog } from './dialogs';
+import { LABEL, NoData, StatusWord } from '../../components/Instrument';
 import { useNavigate } from 'react-router-dom';
 import { PayloadsQuery, exportPayloadConfigQuery, payloadsCallbackAlert, payloadsCallbackAllowed, payloadsDelete, rebuildPayloadMutation, restorePayloadMutation } from '../../lib/api';
 import {
@@ -23,6 +24,29 @@ import { meState } from '../../lib/state';
 
 const BUILD_POLL_INTERVAL_MS = 4_000;
 
+/** What the page rail needs to state the inventory's posture out loud. */
+export type PayloadsStats = {
+    /** Rows currently rendered, after the deleted/auto filters. */
+    visible: number;
+    /** Mythic payloads matching the current filters, across all pages. */
+    total: number;
+    /** Locally generated msfvenom payloads. */
+    msf: number;
+    building: number;
+    failed: number;
+    ready: number;
+};
+
+/**
+ * The three tabs of the payloads surface.
+ *
+ * A tablist, not a segmented control: each one really does swap the panel
+ * underneath, so the roles are the honest ones and arrow keys are what a
+ * screen reader user will expect. The active tab is stated by weight and a
+ * solid underline rather than by dimming the other two — twenty-five nav
+ * targets rendered at `text-gray-400` was the anti-pattern this replaces
+ * (DESIGN_LANGUAGE.md §1, §10).
+ */
 export const TabNavigation: React.FC<{
     activeTab: TabType;
     onTabChange: (tab: TabType) => void;
@@ -35,30 +59,34 @@ export const TabNavigation: React.FC<{
     ];
 
     return (
-        <div className="flex items-center gap-1 border-b border-ghost/30">
+        <div role="tablist" aria-label="Payload views" className="flex items-center gap-1 border-b border-signal/20">
             {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
                 return (
                     <button
                         key={tab.id}
+                        role="tab"
+                        aria-selected={isActive}
                         onClick={() => onTabChange(tab.id)}
                         className={cn(
-                            "flex items-center gap-2 px-4 py-3 border-b-2 transition-all font-mono text-sm",
-                            isActive
-                                ? "border-signal text-signal bg-signal/5"
-                                : "border-transparent text-gray-400 hover:text-signal hover:bg-signal/5"
+                            "relative inline-flex min-h-[38px] items-center gap-2 px-4 text-[12px] uppercase tracking-[0.1em] text-signal transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal",
+                            isActive ? "font-bold" : "font-medium hover:bg-signal/[0.06]",
                         )}
                     >
-                        <Icon size={16} />
+                        <Icon size={13} strokeWidth={2} aria-hidden="true" />
                         {tab.label}
                         {tab.count !== undefined && (
                             <span className={cn(
-                                "px-1.5 py-0.5 text-xs rounded",
-                                isActive ? "bg-signal/20" : "bg-ghost/20"
+                                "rounded-sm border px-1.5 text-[11px] font-bold tabular-nums",
+                                isActive ? "border-signal/40 bg-signal/10" : "border-signal/20",
                             )}>
                                 {tab.count}
                             </span>
+                        )}
+                        {isActive && (
+                            <span aria-hidden="true" className="absolute inset-x-0 -bottom-px h-0.5 bg-signal" />
                         )}
                     </button>
                 );
@@ -67,14 +95,77 @@ export const TabNavigation: React.FC<{
     );
 };
 
+/**
+ * Toolbar toggle. ON inverts rather than tinting: "am I looking at deleted
+ * payloads right now" has to be certain before anything in the table below is
+ * trusted, and inversion survives greyscale where a wash does not.
+ */
+const FilterToggle: React.FC<{
+    on: boolean;
+    onClick: () => void;
+    labelOn: string;
+    labelOff: string;
+}> = ({ on, onClick, labelOn, labelOff }) => (
+    <button
+        onClick={onClick}
+        aria-pressed={on}
+        className={cn(
+            "inline-flex min-h-[34px] items-center gap-2 rounded-sm border px-3 text-[12px] font-bold uppercase tracking-[0.1em] transition-colors",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal",
+            on
+                ? "border-signal bg-signal text-void"
+                : "border-signal/20 text-signal hover:border-signal/45 hover:bg-signal/10",
+        )}
+    >
+        {on ? <Eye size={13} strokeWidth={2} aria-hidden="true" /> : <EyeOff size={13} strokeWidth={2} aria-hidden="true" />}
+        {on ? labelOn : labelOff}
+    </button>
+);
+
+/** Column header cell. One treatment, one place to change it. */
+const Th: React.FC<{ children?: React.ReactNode; className?: string; srOnly?: string }> = ({ children, className, srOnly }) => (
+    <th
+        scope="col"
+        className={cn(
+            "sticky top-0 z-10 border-b border-signal/15 bg-void/95 px-3 py-2.5 text-left text-signal backdrop-blur-sm",
+            LABEL, className,
+        )}
+    >
+        {srOnly ? <span className="sr-only">{srOnly}</span> : children}
+    </th>
+);
+
+/**
+ * Loading state.
+ *
+ * A centred spinner tells an operator nothing about what is arriving; a
+ * skeleton of the actual table tells them how much and in what shape, and it
+ * does not move the layout when the real rows land.
+ */
+const PayloadsSkeleton = () => (
+    <div className="divide-y divide-signal/10" aria-hidden="true">
+        {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 px-3 py-4">
+                <div className="h-2.5 w-14 shrink-0 animate-pulse rounded-sm bg-signal/10" />
+                <div className="h-8 w-8 shrink-0 animate-pulse rounded-sm bg-signal/10" />
+                <div className="h-2.5 w-32 animate-pulse rounded-sm bg-signal/10" />
+                <div className="h-2.5 w-24 animate-pulse rounded-sm bg-signal/10" />
+                <div className="h-2.5 flex-1 animate-pulse rounded-sm bg-signal/[0.06]" />
+                <div className="h-2.5 w-28 shrink-0 animate-pulse rounded-sm bg-signal/10" />
+            </div>
+        ))}
+    </div>
+);
+
 // ============================================
 // Payloads List Component (extracted from main)
 // ============================================
-
 export const PayloadsListView: React.FC<{
     onSwitchToCreate: () => void;
     onSwitchToWrapper: () => void;
-}> = ({ onSwitchToCreate, onSwitchToWrapper }) => {
+    /** Reports the inventory's posture up to the page rail. */
+    onStats?: (stats: PayloadsStats) => void;
+}> = ({ onSwitchToCreate, onSwitchToWrapper, onStats }) => {
     const navigate = useNavigate();
     const handleRebuildFromConfig = useCallback((payload: Payload) => {
         navigate('/create-payload/new', {
@@ -387,199 +478,257 @@ export const PayloadsListView: React.FC<{
 
     const totalPages = Math.ceil(pageData.totalCount / pageData.fetchLimit);
 
+    // ── Posture ─────────────────────────────────────────────────────────────
+    //
+    // Counted here, where the subscription already lives, and handed up to the
+    // rail. The alternative — a second copy of the query in the page shell —
+    // would let the header and the table disagree about how many builds are
+    // running, which is the one thing a status line must never do.
+    const visibleMythic = showDeleted ? payloads : payloads.filter(p => !p.deleted);
+    const building = visibleMythic.filter(p => p.build_phase === 'building').length;
+    const failed = visibleMythic.filter(p => p.build_phase === 'error').length;
+    const ready = visibleMythic.filter(p => p.build_phase === 'success').length + visibleMsf.length;
+    const visibleCount = visibleMythic.length + visibleMsf.length;
+
+    useEffect(() => {
+        onStats?.({
+            visible: visibleCount,
+            total: pageData.totalCount,
+            msf: visibleMsf.length,
+            building,
+            failed,
+            ready,
+        });
+    }, [onStats, visibleCount, pageData.totalCount, visibleMsf.length, building, failed, ready]);
+
+
     return (
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            {/* Toolbar */}
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                    <button
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* ── Controls ─────────────────────────────────────────────────
+                Same two groups the toolbar has always had — what the table is
+                allowed to show on the left, what you can add to it on the
+                right — rebuilt out of the console's controls so they match the
+                filter bar on C2 PROFILES exactly. */}
+            <div
+                className="mv-panel-enter flex shrink-0 flex-wrap items-center justify-between gap-3"
+                style={{ '--mv-panel-index': 1 } as React.CSSProperties}
+            >
+                <div className="flex flex-wrap items-center gap-2">
+                    <FilterToggle
+                        on={showDeleted}
                         onClick={handleToggleDeleted}
-                        className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 text-sm rounded border transition-colors",
-                            showDeleted
-                                ? "border-signal/50 text-signal bg-signal/10"
-                                : "border-ghost/30 text-gray-400 hover:text-signal hover:border-signal/30"
-                        )}
-                    >
-                        {showDeleted ? <Eye size={14} /> : <EyeOff size={14} />}
-                        {showDeleted ? 'Showing Deleted' : 'Hide Deleted'}
-                    </button>
-                    <button
+                        labelOn="Showing deleted"
+                        labelOff="Hide deleted"
+                    />
+                    <FilterToggle
+                        on={showAutogenerated}
                         onClick={handleToggleAutogenerated}
-                        className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 text-sm rounded border transition-colors",
-                            showAutogenerated
-                                ? "border-signal/50 text-signal bg-signal/10"
-                                : "border-ghost/30 text-gray-400 hover:text-signal hover:border-signal/30"
-                        )}
-                    >
-                        {showAutogenerated ? <Eye size={14} /> : <EyeOff size={14} />}
-                        {showAutogenerated ? 'Showing Auto' : 'Hide Auto'}
-                    </button>
+                        labelOn="Showing auto"
+                        labelOff="Hide auto"
+                    />
 
                     {/* Source filter removed — MSF rows now render identically
                         to Mythic rows, so a separate Mythic/MSF toggle felt
                         out of place. */}
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex flex-wrap items-center gap-2">
                     <button
                         onClick={() => setShowImportDialog(true)}
                         className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 text-sm rounded border transition-colors",
-                            "border-ghost/30 text-gray-400 hover:text-signal hover:border-signal/30"
+                            "inline-flex min-h-[34px] items-center gap-2 rounded-sm border border-signal/20 px-3",
+                            "text-[12px] font-bold uppercase tracking-[0.1em] text-signal transition-colors",
+                            "hover:border-signal/45 hover:bg-signal/10",
+                            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal",
                         )}
                     >
-                        <Upload size={14} />
-                        Import Config
+                        <Upload size={13} strokeWidth={2} aria-hidden="true" />
+                        Import config
                     </button>
+
+                    {/* The one primary on the page. Accent fill, and nothing
+                        else on this surface is allowed to look like it. */}
                     <button
                         onClick={onSwitchToCreate}
-                        className="flex items-center gap-2 px-4 py-2 bg-signal hover:bg-signal/80 text-void font-medium rounded transition-colors text-sm"
+                        className={cn(
+                            "inline-flex min-h-[34px] items-center gap-2 rounded-sm border border-accent bg-accent px-3.5",
+                            "text-[12px] font-bold uppercase tracking-[0.1em] text-void transition-colors",
+                            "hover:bg-accent/85",
+                            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:ring-offset-void focus-visible:ring-accent",
+                        )}
                     >
-                        <Plus size={16} />
-                        New Payload
+                        <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                        New payload
                     </button>
+
                     <button
                         onClick={onSwitchToWrapper}
-                        className="flex items-center gap-2 px-4 py-2 bg-signal/10 hover:bg-signal/20 border border-signal/30 text-signal rounded transition-colors text-sm"
+                        className={cn(
+                            "inline-flex min-h-[34px] items-center gap-2 rounded-sm border border-accent bg-signal/[0.06] px-3",
+                            "text-[12px] font-bold uppercase tracking-[0.1em] text-accent transition-colors",
+                            "hover:bg-signal/10",
+                            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent",
+                        )}
                     >
-                        <Package size={16} />
+                        <Package size={13} strokeWidth={2} aria-hidden="true" />
                         Wrapper
                     </button>
                 </div>
             </div>
 
-            {/* Table */}
-            <div className="flex-1 overflow-auto">
+            {/* ── Inventory ────────────────────────────────────────────────
+                Deliberately NOT boxed. A frame around the only thing on the
+                page says "this is one of several things here", and it is not —
+                it is the page. The rails above and below already bound it, the
+                column header rule already separates it from the controls, and
+                the border it used to carry only ate two rows of height and
+                indented every filename by a further 16px.
+
+                What the panel's strips used to say has moved to where it is
+                still needed: how many rows survived the filters, and whether
+                anything is building, are both on the rails. */}
+            <div
+                className="cyber-scrollbar mv-panel-enter relative mt-4 min-h-0 flex-1 overflow-auto"
+                style={{ '--mv-panel-index': 2 } as React.CSSProperties}
+            >
                 {loading ? (
-                    <div className="flex items-center justify-center h-64">
-                        <Loader2 size={32} className="text-signal animate-spin" />
-                    </div>
+                    <PayloadsSkeleton />
                 ) : (payloads.length === 0 && visibleMsf.length === 0) ? (
-                    <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                        <Box size={48} className="mb-4" />
-                        <p className="text-lg">No payloads found</p>
+                    <div className="flex h-full flex-col items-center justify-center gap-4 px-6 py-16">
+                        <NoData>
+                            {showDeleted || showAutogenerated
+                                ? 'Nothing matches the current filters'
+                                : 'No payload has been built in this operation yet'}
+                        </NoData>
                         <button
                             onClick={onSwitchToCreate}
-                            className="mt-4 flex items-center gap-2 px-4 py-2 bg-signal/10 hover:bg-signal/20 border border-signal/30 text-signal rounded transition-colors"
+                            className={cn(
+                                "inline-flex min-h-[34px] items-center gap-2 rounded-sm border border-accent bg-accent px-3.5",
+                                "text-[12px] font-bold uppercase tracking-[0.1em] text-void transition-colors hover:bg-accent/85",
+                                "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:ring-offset-void focus-visible:ring-accent",
+                            )}
                         >
-                            <Plus size={16} />
-                            Create your first payload
+                            <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                            Create the first payload
                         </button>
                     </div>
                 ) : (
-                    <div className="border border-gray-800 rounded-lg overflow-hidden">
-                        <table className="w-full">
-                            <thead>
-                                <tr className="border-b border-gray-700 bg-black/30">
-                                    <th className="px-4 py-3 text-left text-xs text-gray-500 font-medium uppercase tracking-wider w-20">Source</th>
-                                    <th className="px-4 py-3 text-left text-xs text-gray-500 font-medium uppercase tracking-wider">Agent / Module</th>
-                                    <th className="px-4 py-3 text-left text-xs text-gray-500 font-medium uppercase tracking-wider">File</th>
-                                    <th className="px-4 py-3 text-left text-xs text-gray-500 font-medium uppercase tracking-wider">Progress</th>
-                                    <th className="px-4 py-3 text-left text-xs text-gray-500 font-medium uppercase tracking-wider">Description</th>
-                                    <th className="px-4 py-3 text-left text-xs text-gray-500 font-medium uppercase tracking-wider">C2 Status</th>
-                                    <th className="px-4 py-3 text-left text-xs text-gray-500 font-medium uppercase tracking-wider">Tags</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <AnimatePresence>
-                                    {/* MSF rows first — locally generated payloads feel most "fresh". */}
-                                    {visibleMsf.map((rec) => (
-                                        <MsfPayloadRow
-                                            key={`msf-${rec.id}`}
-                                            record={rec}
-                                            onDeleted={handleMsfDeleted}
-                                            onUpdated={handleMsfUpdated}
-                                            isCombat={isCombat}
-                                        />
-                                    ))}
-                                    {showMythicRows && payloads.map((payload) => (
-                                        <PayloadRow
-                                            key={payload.id}
-                                            payload={payload}
-                                            onDelete={(uuid) => deletePayload({ variables: { payload_uuid: uuid } })}
-                                            onRestore={(uuid) => restorePayload({ variables: { payload_uuid: uuid } })}
-                                            onToggleAlert={(uuid, alert) => toggleCallbackAlert({ variables: { payload_uuid: uuid, callback_alert: alert } })}
-                                            onToggleAllowed={(uuid, allowed) => toggleCallbackAllowed({ variables: { payload_uuid: uuid, callback_allowed: allowed } })}
-                                            onRebuild={(uuid) => rebuildPayload({ variables: { uuid } })}
-                                            onRebuildFromConfig={handleRebuildFromConfig}
-                                            onExportConfig={(uuid) => exportConfig({ variables: { uuid } })}
-                                            showDeleted={showDeleted}
-                                            isCombat={isCombat}
-                                            onTagsUpdated={() => fetchNewPage({ variables: { offset: (pageData.currentPage - 1) * pageData.fetchLimit, limit: pageData.fetchLimit, showDeleted, showAutogenerated } })}
-                                        />
-                                    ))}
-                                </AnimatePresence>
-                            </tbody>
-                        </table>
-                    </div>
+                    <table className="w-full border-collapse">
+                        <thead>
+                            <tr>
+                                <Th className="w-[7.5rem]" srOnly="Row actions" />
+                                <Th>Agent / Module</Th>
+                                <Th>File</Th>
+                                <Th>Progress</Th>
+                                <Th>Description</Th>
+                                <Th>C2 Status</Th>
+                                <Th>Tags</Th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <AnimatePresence>
+                                {/* MSF rows first — locally generated payloads feel most "fresh". */}
+                                {visibleMsf.map((rec) => (
+                                    <MsfPayloadRow
+                                        key={`msf-${rec.id}`}
+                                        record={rec}
+                                        onDeleted={handleMsfDeleted}
+                                        onUpdated={handleMsfUpdated}
+                                        isCombat={isCombat}
+                                    />
+                                ))}
+                                {showMythicRows && payloads.map((payload) => (
+                                    <PayloadRow
+                                        key={payload.id}
+                                        payload={payload}
+                                        onDelete={(uuid) => deletePayload({ variables: { payload_uuid: uuid } })}
+                                        onRestore={(uuid) => restorePayload({ variables: { payload_uuid: uuid } })}
+                                        onToggleAlert={(uuid, alert) => toggleCallbackAlert({ variables: { payload_uuid: uuid, callback_alert: alert } })}
+                                        onToggleAllowed={(uuid, allowed) => toggleCallbackAllowed({ variables: { payload_uuid: uuid, callback_allowed: allowed } })}
+                                        onRebuild={(uuid) => rebuildPayload({ variables: { uuid } })}
+                                        onRebuildFromConfig={handleRebuildFromConfig}
+                                        onExportConfig={(uuid) => exportConfig({ variables: { uuid } })}
+                                        showDeleted={showDeleted}
+                                        isCombat={isCombat}
+                                        onTagsUpdated={() => fetchNewPage({ variables: { offset: (pageData.currentPage - 1) * pageData.fetchLimit, limit: pageData.fetchLimit, showDeleted, showAutogenerated } })}
+                                    />
+                                ))}
+                            </AnimatePresence>
+                        </tbody>
+                    </table>
                 )}
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="border-t border-ghost/30 pt-4 mt-4 flex items-center justify-between gap-2">
-                    {/* Per-page selector — Item 7 */}
-                    <div className="flex items-center gap-2 text-xs font-mono">
-                        <span className="text-ghost/50">Per page:</span>
-                        {[20, 50, 100].map(n => (
-                            <button
-                                key={n}
-                                onClick={() => {
-                                    setPageData(prev => ({ ...prev, fetchLimit: n, currentPage: 1 }));
-                                    setLoading(true);
-                                    fetchNewPage({ variables: { offset: 0, limit: n, showDeleted, showAutogenerated } });
-                                }}
-                                className={cn(
-                                    "px-2 py-0.5 rounded border transition-colors",
-                                    pageData.fetchLimit === n
-                                        ? "border-signal bg-signal/10 text-signal"
-                                        : "border-ghost/30 text-ghost hover:text-signal hover:border-signal/30"
-                                )}
-                            >
-                                {n}
-                            </button>
-                        ))}
+            {/* ── Bottom instrument rail ───────────────────────────────────
+                Totals on the left, paging on the right. It is always present,
+                so the foot of the page does not jump the moment a filter takes
+                the row count over one page. */}
+            <div className="-mx-6 mt-4 flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-signal/20 bg-void/90 px-6 py-2 backdrop-blur-sm lg:-mx-10 lg:px-10">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1 text-[13px]">
+                    <span className="flex shrink-0 items-center gap-2">
+                        <Box size={13} strokeWidth={2} className="text-signal" aria-hidden="true" />
+                        <span className="text-signal opacity-60">Shown</span>
+                        <span className="font-bold tabular-nums text-signal">{visibleCount}/{pageData.totalCount + visibleMsf.length}</span>
+                    </span>
+                    <span className="hidden shrink-0 items-center gap-2 sm:flex">
+                        <span className="text-signal opacity-60">Building</span>
+                        <StatusWord tone={building > 0 ? 'warn' : 'signal'}>{building > 0 ? building : 'None'}</StatusWord>
+                    </span>
+                    <span className="hidden shrink-0 items-center gap-2 md:flex">
+                        <span className="text-signal opacity-60">Failed</span>
+                        <StatusWord tone={failed > 0 ? 'fail' : 'signal'}>{failed > 0 ? failed : 'None'}</StatusWord>
+                    </span>
+                    <span className="hidden shrink-0 items-center gap-2 lg:flex">
+                        <span className="text-signal opacity-60">Msfvenom</span>
+                        <span className="font-bold tabular-nums text-signal">{visibleMsf.length}</span>
+                    </span>
+                </div>
+
+                <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+                    {/* Per-page selector */}
+                    <div className="flex items-center gap-2">
+                        <span className={cn("hidden text-signal opacity-70 sm:inline", LABEL)}>Per page</span>
+                        <div role="radiogroup" aria-label="Rows per page" className="inline-flex overflow-hidden rounded-sm border border-signal/20">
+                            {[20, 50, 100].map(n => (
+                                <button
+                                    key={n}
+                                    role="radio"
+                                    aria-checked={pageData.fetchLimit === n}
+                                    onClick={() => {
+                                        setPageData(prev => ({ ...prev, fetchLimit: n, currentPage: 1 }));
+                                        setLoading(true);
+                                        fetchNewPage({ variables: { offset: 0, limit: n, showDeleted, showAutogenerated } });
+                                    }}
+                                    className={cn(
+                                        "inline-flex min-h-[30px] items-center px-2.5 text-[12px] font-bold tabular-nums transition-colors",
+                                        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal",
+                                        pageData.fetchLimit === n ? "bg-signal text-void" : "text-signal hover:bg-signal/10",
+                                    )}
+                                >
+                                    {n}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     {/* Page nav */}
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => handleChangePage(1)}
-                            disabled={pageData.currentPage === 1}
-                            className="px-3 py-1.5 rounded border border-ghost/30 text-gray-400 hover:text-signal hover:border-signal/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            First
-                        </button>
-                        <button
-                            onClick={() => handleChangePage(pageData.currentPage - 1)}
-                            disabled={pageData.currentPage === 1}
-                            className="px-3 py-1.5 rounded border border-ghost/30 text-gray-400 hover:text-signal hover:border-signal/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            Prev
-                        </button>
-                        <span className="px-4 text-gray-400 font-mono text-sm">
-                            Page {pageData.currentPage} of {totalPages}
-                            <span className="ml-2 text-ghost/40 text-xs">({pageData.totalCount} total)</span>
-                        </span>
-                        <button
-                            onClick={() => handleChangePage(pageData.currentPage + 1)}
-                            disabled={pageData.currentPage === totalPages}
-                            className="px-3 py-1.5 rounded border border-ghost/30 text-gray-400 hover:text-signal hover:border-signal/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            Next
-                        </button>
-                        <button
-                            onClick={() => handleChangePage(totalPages)}
-                            disabled={pageData.currentPage === totalPages}
-                            className="px-3 py-1.5 rounded border border-ghost/30 text-gray-400 hover:text-signal hover:border-signal/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            Last
-                        </button>
-                    </div>
+                    {totalPages > 1 && (
+                        <nav aria-label="Payload pages" className="flex items-center gap-2">
+                            <PageButton onClick={() => handleChangePage(1)} disabled={pageData.currentPage === 1} label="First" />
+                            <PageButton onClick={() => handleChangePage(pageData.currentPage - 1)} disabled={pageData.currentPage === 1} label="Prev" />
+                            <span className="px-1 text-[13px] text-signal" role="status" aria-atomic="true">
+                                <span className="opacity-60">Page</span>{' '}
+                                <span className="font-bold tabular-nums">{pageData.currentPage}</span>
+                                <span className="opacity-60"> of </span>
+                                <span className="font-bold tabular-nums">{totalPages}</span>
+                            </span>
+                            <PageButton onClick={() => handleChangePage(pageData.currentPage + 1)} disabled={pageData.currentPage === totalPages} label="Next" />
+                            <PageButton onClick={() => handleChangePage(totalPages)} disabled={pageData.currentPage === totalPages} label="Last" />
+                        </nav>
+                    )}
                 </div>
-            )}
-            
+            </div>
+
             {/* Import Payload Config Dialog */}
             <ImportPayloadConfigDialog
                 open={showImportDialog}
@@ -589,6 +738,22 @@ export const PayloadsListView: React.FC<{
     );
 };
 
+/** Pagination control. Disabled stays legible — it is dimmed, not erased. */
+const PageButton: React.FC<{ onClick: () => void; disabled: boolean; label: string }> = ({ onClick, disabled, label }) => (
+    <button
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+            "inline-flex min-h-[30px] items-center rounded-sm border border-signal/20 px-2.5",
+            "text-[12px] font-bold uppercase tracking-[0.1em] text-signal transition-colors",
+            "hover:border-signal/45 hover:bg-signal/10",
+            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal",
+            "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-signal/20 disabled:hover:bg-transparent",
+        )}
+    >
+        {label}
+    </button>
+);
 // ============================================
 // OS Info Helper
 // ============================================

@@ -106,6 +106,17 @@ export function hydrateFromPreferences(preferences: Record<string, unknown> | nu
     if (pendingFlush) scheduleFlush();
 }
 
+/**
+ * Whether the operator's preferences have come back from Mythic yet.
+ *
+ * Consumers that seed themselves from storage at mount need this: on a fast
+ * mount the answer is no, and whatever they read is a local fallback that must
+ * not be flushed back up as if it were the operator's real state.
+ */
+export function isHydrated(): boolean {
+    return hydrated;
+}
+
 /** Mark a key for Mythic sync. Idempotent; call once near the cache module. */
 export function manageKey(key: string): void {
     managed.add(key);
@@ -211,6 +222,39 @@ async function flushToMythic(): Promise<void> {
             }, FLUSH_DEBOUNCE_MS * 4);
         }
     }
+}
+
+/**
+ * Drop every scrap of this operator's MSF state from the module.
+ *
+ * `memory`/`managed`/`touched`/`hydrated` are module singletons, and logout is
+ * an SPA transition — same JS heap, no reload — so without this they survive
+ * into the next operator's session. The damage is not just a stale read:
+ * `hydrateFromPreferences` skips any key in `touched`, so operator B's bag is
+ * rebuilt from A's residue and B's first write POSTs it to B's own
+ * `updateOperatorPreferences` — carrying A's `minerva_msf_tasks_*` entries with
+ * full response_text (hashdump, creds_all) into B's account.
+ *
+ * Call `flushNow()` BEFORE this if A's work should be preserved server-side.
+ */
+export function resetKV(): void {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    pendingFlush = false;
+    // Drop the localStorage mirror too, or the next session re-reads it.
+    for (const key of managed) {
+        try { localStorage.removeItem(key); } catch { /* private mode */ }
+    }
+    for (const key of memory.keys()) {
+        try { localStorage.removeItem(key); } catch { /* private mode */ }
+    }
+    memory.clear();
+    managed.clear();
+    touched.clear();
+    hydrated = false;
+    // Notify subscribers so any mounted view repaints as empty rather than
+    // holding the previous operator's rows on screen.
+    wildcardListeners.forEach(fn => { try { fn(); } catch { /* swallow */ } });
+    listeners.forEach(set => set.forEach(fn => { try { fn(); } catch { /* swallow */ } }));
 }
 
 /** Force-flush, e.g. before logout. Resolves once Mythic has acknowledged. */

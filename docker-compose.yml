@@ -23,16 +23,37 @@ services:
     volumes:
       - ./src:/app/src
       - ./public:/app/public
+      # Mounted so the repo's manifest is what actually runs. It was previously
+      # baked in at image build time only, so package.json changes could never
+      # reach a running container — including the FAST_REFRESH flag its `start`
+      # script sets inline, which overrides anything in `environment:` below.
+      - ./package.json:/app/package.json:ro
       - ./config-overrides.js:/app/config-overrides.js:ro
       - ./tsconfig.json:/app/tsconfig.json:ro
       - ./tailwind.config.js:/app/tailwind.config.js:ro
       - ./postcss.config.js:/app/postcss.config.js:ro
       - ./.env:/app/.env:ro
     environment:
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
-      - FAST_REFRESH=true
-      - WDS_POLLING=true
+      # Filesystem watching. THESE DEFAULT OFF ON PURPOSE.
+      #
+      # Polling exists for Docker Desktop on macOS/Windows, where bind mounts do
+      # not deliver inotify events. On Linux they do, and polling instead makes
+      # webpack walk and stat() the whole watched tree forever: measured on the
+      # reference host at 60,591 statx + 2,657 getdents64 per 10 SECONDS, zero
+      # inotify watches, ~1.2-1.8 cores held permanently and 25 hours of CPU
+      # burned in 16 hours of uptime. On an 8-core box that is enough to make
+      # video playback stutter in other applications.
+      #
+      # Set MINERVA_WATCH_POLLING=true in the environment if you are running
+      # this on Docker Desktop and hot reload stops seeing your edits.
+      - CHOKIDAR_USEPOLLING=${MINERVA_WATCH_POLLING:-false}
+      - WATCHPACK_POLLING=${MINERVA_WATCH_POLLING:-false}
+      # Fast Refresh injects react-refresh + its webpack plugin into the served
+      # bundle — 546 module references of pure development instrumentation that
+      # every operator downloads and that wraps every component. This deployment
+      # serves the dev server to real operators, so the HMR ergonomics are worth
+      # far less here than the bundle and render cost.
+      - FAST_REFRESH=false
       - WDS_SOCKET_PATH=ws
       - WDS_SOCKET_PORT=443
       - PORT=3000
@@ -53,6 +74,12 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./nginx/nginx.dev.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      # Generated runtime files (server-info.json). A DIRECTORY is mounted, not
+      # the file: the directory is committed via .gitkeep so Docker always finds
+      # it, while the file itself is generated and gitignored — mounting a file
+      # that does not exist yet makes Docker silently create a directory in its
+      # place, and committing it would bake one machine's hostname into the repo.
+      - ./nginx/runtime:/usr/share/nginx/runtime:ro
       # Writable (NOT :ro) so the entrypoint can self-sign a cert on first run when
       # nginx/ssl/ is empty. Drop your own minerva.crt / minerva.key here to override.
       - ./nginx/ssl:/etc/nginx/ssl

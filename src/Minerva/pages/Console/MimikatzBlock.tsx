@@ -157,7 +157,7 @@ export const MimikatzBlock = ({ content, taskId, taskDisplayId, callbackHost, ta
                 const hasErr  = /ERROR kuhl/.test(sec.body);
                 const hasOk   = /\bOK\b/.test(sec.body) || /Privilege.*OK/.test(sec.body);
                 return (
-                    <div key={si} className="border border-white/8 rounded-sm overflow-hidden bg-black/25">
+                    <div key={si} className="border border-white/10 rounded-sm overflow-hidden bg-black/25">
                         {/* cmd header */}
                         <div className="flex items-center gap-2 px-2 py-1.5 bg-black/30 border-b border-white/5 flex-wrap">
                             <span className="text-gray-700 text-[9px] font-mono shrink-0">mimikatz #</span>

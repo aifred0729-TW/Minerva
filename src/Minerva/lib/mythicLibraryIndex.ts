@@ -19,7 +19,11 @@
 import React from 'react';
 import { useQuery, useReactiveVar } from '@apollo/client/react';
 import type { ApolloClient } from '@apollo/client';
-import { GET_UPLOADED_FILES, GET_BUILT_PAYLOADS } from './api';
+// Leaf module, not the `lib/api` barrel — App.tsx mounts
+// MythicLibraryIndexRefresher eagerly, and the barrel re-exports all 28 api
+// modules, so these two documents pulled every gql document in the app into
+// the entry bundle and made the browser parse all 423 of them at startup.
+import { GET_UPLOADED_FILES, GET_BUILT_PAYLOADS } from './api/files';
 import { b64DecodeUnicode } from './utils';
 import { meState } from './state';
 import { listLocalPayloads, suggestFilename, type MsfPayloadRecord } from './msfPayloads';
@@ -336,7 +340,7 @@ export function resolveMythicConsoleUpload(
  *  the line untouched and meterpreter will fail with its usual stat error,
  *  which is no worse than the pre-fallback behavior. */
 export async function refreshMythicLibraryIndex(
-    client: ApolloClient<any>,
+    client: ApolloClient,
 ): Promise<void> {
     try {
         const [filesRes, payloadsRes] = await Promise.all([

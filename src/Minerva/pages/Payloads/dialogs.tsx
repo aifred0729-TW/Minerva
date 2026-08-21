@@ -48,8 +48,8 @@ export const ConfirmDialog: React.FC<{
 }> = ({ open, onClose, onConfirm, title, message, confirmLabel = 'Confirm', confirmColor = 'red' }) => {
     if (!open) return null;
     const colorMap = {
-        red: 'bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/40',
-        green: 'bg-matrix/20 border-matrix text-matrix hover:bg-matrix/40',
+        red: 'bg-red-400/20 border-red-400 text-red-400 hover:bg-red-400/40',
+        green: 'bg-signal/[0.06] border-accent text-accent hover:bg-signal/10',
         signal: 'bg-signal/20 border-signal text-signal hover:bg-signal/40',
     };
     return createPortal(
@@ -64,9 +64,9 @@ export const ConfirmDialog: React.FC<{
                     <ShieldAlert size={20} className="text-red-400" />
                     <h3 className="font-mono font-bold text-signal tracking-widest">{title}</h3>
                 </div>
-                <div className="p-6 text-gray-300 text-sm">{message}</div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end gap-2">
-                    <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors">
+                <div className="p-6 text-signal text-sm">{message}</div>
+                <div className="p-4 border-t border-signal/25 flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 border border-signal/25 text-signal opacity-70 font-mono rounded hover:text-signal hover:border-signal transition-colors">
                         Cancel
                     </button>
                     <button
@@ -162,27 +162,27 @@ export const CreateNewCallbackDialog: React.FC<{
                         <PhoneCall size={18} className="text-signal" />
                         <h3 className="font-mono font-bold text-signal tracking-widest">MANUALLY CREATE CALLBACK</h3>
                     </div>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors"><X size={16} /></button>
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors"><X size={16} /></button>
                 </div>
-                <div className="p-4 border-b border-ghost/20 bg-yellow-500/5 text-ghost text-xs font-mono">
-                    <span className="text-yellow-400 font-bold">NOTE:</span> Creates a callback for <span className="text-signal">{filename}</span> without triggering payload execution. Useful for webshells, manual sessions, or testing.
+                <div className="p-4 border-b border-signal/15 bg-amber-400/5 text-signal opacity-70 text-xs font-mono">
+                    <span className="text-amber-400 font-bold">NOTE:</span> Creates a callback for <span className="text-signal">{filename}</span> without triggering payload execution. Useful for webshells, manual sessions, or testing.
                 </div>
                 <div className="p-4 max-h-[55vh] overflow-y-auto space-y-2">
                     {fields.map(({ label, value, setter, placeholder }) => (
                         <div key={label} className="grid grid-cols-3 gap-2 items-center">
-                            <label className="text-xs font-mono text-ghost uppercase tracking-wider col-span-1">{label}</label>
+                            <label className="text-xs font-mono text-signal opacity-70 uppercase tracking-wider col-span-1">{label}</label>
                             <input
                                 type="text"
                                 value={value}
                                 onChange={(e) => setter(e.target.value)}
                                 placeholder={placeholder || ''}
-                                className="col-span-2 bg-void border border-signal/20 rounded px-3 py-1.5 text-sm text-gray-200 font-mono focus:outline-none focus:border-signal/60 placeholder:text-ghost/30"
+                                className="col-span-2 bg-void border border-signal/20 rounded px-3 py-1.5 text-sm text-signal font-mono focus:outline-none focus:border-signal/60 placeholder:text-signal/45"
                             />
                         </div>
                     ))}
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end gap-2">
-                    <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors text-sm">
+                <div className="p-4 border-t border-signal/25 flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 border border-signal/25 text-signal opacity-70 font-mono rounded hover:text-signal hover:border-signal transition-colors text-sm">
                         Cancel
                     </button>
                     <button
@@ -283,22 +283,22 @@ export const ImportPayloadConfigDialog: React.FC<{
             >
                 <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between">
                     <h3 className="font-mono font-bold text-signal tracking-widest flex items-center gap-2"><Upload size={16} /> IMPORT PAYLOAD CONFIG</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors"><X size={20} /></button>
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors"><X size={20} /></button>
                 </div>
                 <div className="p-6 space-y-4">
-                    <p className="text-xs text-gray-400 font-mono">Select a previously exported payload config JSON file to generate a new payload.</p>
+                    <p className="text-xs text-signal opacity-70 font-mono">Select a previously exported payload config JSON file to generate a new payload.</p>
                     <label className="flex items-center gap-3 px-4 py-3 border border-dashed border-signal/40 rounded cursor-pointer hover:border-signal/70 hover:bg-signal/5 transition-colors">
                         <FileJson size={20} className="text-signal" />
-                        <span className="text-sm text-gray-300 font-mono">{fileName || 'Select JSON File...'}</span>
+                        <span className="text-sm text-signal font-mono">{fileName || 'Select JSON File...'}</span>
                         <input type="file" accept=".json" hidden onChange={onFileChange} />
                     </label>
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end gap-2">
-                    <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
+                <div className="p-4 border-t border-signal/25 flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 border border-signal/25 text-signal opacity-70 font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
                     <button
                         disabled={!fileContents}
                         onClick={() => importPayload({ variables: { payload: normalizePayloadConfig(fileContents) } })}
-                        className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-signal/85 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                         Submit
                     </button>
@@ -349,7 +349,7 @@ export const RebuildWithEditsDialog: React.FC<{
             >
                 <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between shrink-0">
                     <h3 className="font-mono font-bold text-signal tracking-widest flex items-center gap-2"><FileJson size={16} /> REBUILD WITH MODIFIED CONFIG</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors"><X size={20} /></button>
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors"><X size={20} /></button>
                 </div>
                 <div className="flex-1 overflow-hidden p-4">
                     {loading ? (
@@ -363,12 +363,12 @@ export const RebuildWithEditsDialog: React.FC<{
                         />
                     )}
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end gap-2 shrink-0">
-                    <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
+                <div className="p-4 border-t border-signal/25 flex justify-end gap-2 shrink-0">
+                    <button onClick={onClose} className="px-4 py-2 border border-signal/25 text-signal opacity-70 font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
                     <button
                         disabled={!config || loading}
                         onClick={() => { importPayload({ variables: { payload: normalizePayloadConfig(config) } }); onClose(); }}
-                        className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-signal/85 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                         <Play size={14} /> Create
                     </button>
@@ -389,15 +389,15 @@ export const PayloadDetailColumn: React.FC<{ payloadId: number; isCombat?: boole
         skip: !payloadId,
     });
     if (loading) return <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin text-signal" size={24} /></div>;
-    if (!data?.payload?.[0]) return <div className="text-gray-500 p-4 font-mono text-sm">No data</div>;
+    if (!data?.payload?.[0]) return <div className="text-signal opacity-60 p-4 font-mono text-sm">No data</div>;
     const p = data.payload[0];
     const fname = p.filemetum ? b64DecodeUnicode(p.filemetum.filename_text) : 'N/A';
     return (
         <div className="text-xs font-mono space-y-3 overflow-y-auto cyber-scrollbar h-full p-2 min-w-0">
             <div className="space-y-1">
                 <div className="text-signal/60 uppercase tracking-wider text-[10px]">File</div>
-                <div className="text-white break-all">{fname}</div>
-                <div className="text-gray-500 break-all">{p.filemetum?.md5 && `MD5: ${p.filemetum.md5}`}</div>
+                <div className="text-signal break-all">{fname}</div>
+                <div className="text-signal opacity-60 break-all">{p.filemetum?.md5 && `MD5: ${p.filemetum.md5}`}</div>
             </div>
             {p.buildparameterinstances?.length > 0 && (
                 <div className="min-w-0">
@@ -406,8 +406,8 @@ export const PayloadDetailColumn: React.FC<{ payloadId: number; isCombat?: boole
                         // 2-col grid: label column auto-sized & truncatable; value column takes
                         // the rest and breaks on long unbreakable tokens. Prevents either
                         // column from pushing the row out of the (potentially narrow) compare pane.
-                        <div key={bp.id} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-x-2 items-start text-gray-300 py-0.5 border-b border-ghost/10">
-                            <span className="text-ghost truncate" title={bp.buildparameter.name}>{bp.buildparameter.name}</span>
+                        <div key={bp.id} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-x-2 items-start text-signal py-0.5 border-b border-signal/10">
+                            <span className="text-signal opacity-70 truncate" title={bp.buildparameter.name}>{bp.buildparameter.name}</span>
                             <div className="min-w-0 text-right break-all"><ParseParamValue value={bp.value} parameterType={bp.buildparameter.parameter_type} /></div>
                         </div>
                     ))}
@@ -417,8 +417,8 @@ export const PayloadDetailColumn: React.FC<{ payloadId: number; isCombat?: boole
                 <div className="min-w-0">
                     <div className="text-signal/60 uppercase tracking-wider text-[10px] mb-1">C2 Parameters</div>
                     {p.c2profileparametersinstances.map((c2: any, idx: number) => (
-                        <div key={idx} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-x-2 items-start text-gray-300 py-0.5 border-b border-ghost/10">
-                            <span className="text-ghost truncate" title={`${c2.c2profile.name}/${c2.c2profileparameter.name}`}>{c2.c2profile.name}/{c2.c2profileparameter.name}</span>
+                        <div key={idx} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] gap-x-2 items-start text-signal py-0.5 border-b border-signal/10">
+                            <span className="text-signal opacity-70 truncate" title={`${c2.c2profile.name}/${c2.c2profileparameter.name}`}>{c2.c2profile.name}/{c2.c2profileparameter.name}</span>
                             <div className="min-w-0 text-right break-all"><ParseParamValue value={c2.value} parameterType={c2.c2profileparameter.parameter_type} /></div>
                         </div>
                     ))}
@@ -467,7 +467,7 @@ export const ComparePayloadsDialog: React.FC<{
             >
                 <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between shrink-0">
                     <h3 className="font-mono font-bold text-signal tracking-widest flex items-center gap-2"><GitCompare size={16} /> COMPARE PAYLOAD CONFIGURATIONS</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors"><X size={20} /></button>
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors"><X size={20} /></button>
                 </div>
                 <div
                     className="flex flex-1 overflow-hidden select-none"
@@ -482,11 +482,11 @@ export const ComparePayloadsDialog: React.FC<{
                 >
                     {/* Left */}
                     <div className="flex flex-col min-w-0 overflow-hidden" style={{ width: `${leftWidth}%` }}>
-                        <div className="p-2 border-b border-ghost/20 shrink-0">
+                        <div className="p-2 border-b border-signal/15 shrink-0">
                             <select
                                 value={leftId}
                                 onChange={(e) => setLeftId(Number(e.target.value))}
-                                className="w-full bg-black/40 border border-ghost/30 text-gray-300 font-mono text-xs p-1.5 rounded focus:border-signal outline-none"
+                                className="w-full bg-black/40 border border-signal/25 text-signal font-mono text-xs p-1.5 rounded focus:border-signal outline-none"
                             >
                                 {payloads.map(p => (
                                     <option key={p.id} value={p.id}>
@@ -501,17 +501,17 @@ export const ComparePayloadsDialog: React.FC<{
                     </div>
                     {/* Draggable divider */}
                     <div
-                        className="w-1.5 bg-ghost/20 hover:bg-signal/50 active:bg-signal cursor-col-resize flex-shrink-0 transition-colors"
+                        className="w-1.5 bg-signal/10 hover:bg-signal/50 active:bg-signal cursor-col-resize flex-shrink-0 transition-colors"
                         onMouseDown={() => { dragging.current = true; }}
                         title="Drag to resize"
                     />
                     {/* Right */}
                     <div className="flex flex-col min-w-0 overflow-hidden flex-1">
-                        <div className="p-2 border-b border-ghost/20 shrink-0">
+                        <div className="p-2 border-b border-signal/15 shrink-0">
                             <select
                                 value={rightId}
                                 onChange={(e) => setRightId(Number(e.target.value))}
-                                className="w-full bg-black/40 border border-ghost/30 text-gray-300 font-mono text-xs p-1.5 rounded focus:border-signal outline-none"
+                                className="w-full bg-black/40 border border-signal/25 text-signal font-mono text-xs p-1.5 rounded focus:border-signal outline-none"
                             >
                                 {payloads.map(p => (
                                     <option key={p.id} value={p.id}>
@@ -525,8 +525,8 @@ export const ComparePayloadsDialog: React.FC<{
                         </div>
                     </div>
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end shrink-0">
-                    <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors">Close</button>
+                <div className="p-4 border-t border-signal/25 flex justify-end shrink-0">
+                    <button onClick={onClose} className="px-4 py-2 border border-signal/25 text-signal opacity-70 font-mono rounded hover:text-signal hover:border-signal transition-colors">Close</button>
                 </div>
             </motion.div>
         </div>,
@@ -578,47 +578,47 @@ export const HostPayloadFileDialog: React.FC<{
             >
                 <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between">
                     <h3 className="font-mono font-bold text-signal tracking-widest flex items-center gap-2"><Globe2 size={16} /> HOST FILE VIA C2</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors"><X size={20} /></button>
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors"><X size={20} /></button>
                 </div>
                 <div className="p-4 space-y-4">
                     <div>
-                        <label className="text-xs text-ghost font-mono uppercase tracking-wider block mb-1">File</label>
-                        <p className="text-white font-mono text-sm">{fileName}</p>
+                        <label className="text-xs text-signal opacity-70 font-mono uppercase tracking-wider block mb-1">File</label>
+                        <p className="text-signal font-mono text-sm">{fileName}</p>
                     </div>
                     <div>
-                        <label className="text-xs text-ghost font-mono uppercase tracking-wider block mb-1">C2 Profile</label>
+                        <label className="text-xs text-signal opacity-70 font-mono uppercase tracking-wider block mb-1">C2 Profile</label>
                         <select
                             value={selectedC2Id}
                             onChange={(e) => setSelectedC2Id(Number(e.target.value))}
-                            className="w-full bg-black/40 border border-ghost/30 text-gray-300 font-mono text-sm p-2 rounded focus:border-signal outline-none"
+                            className="w-full bg-black/40 border border-signal/25 text-signal font-mono text-sm p-2 rounded focus:border-signal outline-none"
                         >
                             {c2Profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             {c2Profiles.length === 0 && <option value={0}>No running egress C2 profiles</option>}
                         </select>
                     </div>
                     <div>
-                        <label className="text-xs text-ghost font-mono uppercase tracking-wider block mb-1">Hosting URL Path (starts with /)</label>
+                        <label className="text-xs text-signal opacity-70 font-mono uppercase tracking-wider block mb-1">Hosting URL Path (starts with /)</label>
                         <input
                             value={hostUrl}
                             onChange={(e) => setHostUrl(e.target.value)}
                             placeholder="/path/to/file"
-                            className="w-full bg-black/40 border border-ghost/30 text-gray-300 font-mono text-sm p-2 rounded focus:border-signal outline-none"
+                            className="w-full bg-black/40 border border-signal/25 text-signal font-mono text-sm p-2 rounded focus:border-signal outline-none"
                         />
                     </div>
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => setAlertOnDownload(!alertOnDownload)}
-                            className={cn("w-8 h-4 rounded-full transition-colors relative", alertOnDownload ? "bg-signal" : "bg-gray-700")}
+                            className={cn("w-8 h-4 rounded-full transition-colors relative", alertOnDownload ? "bg-signal" : "bg-signal/20")}
                         >
-                            <span className={cn("absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform", alertOnDownload ? "left-4.5 translate-x-1" : "left-0.5")} />
+                            <span className={cn("absolute top-0.5 h-3 w-3 rounded-full bg-void transition-transform", alertOnDownload ? "left-4.5 translate-x-1" : "left-0.5")} />
                         </button>
-                        <label className="text-sm text-gray-300 font-mono">Alert on download</label>
+                        <label className="text-sm text-signal font-mono">Alert on download</label>
                     </div>
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end gap-2">
-                    <button onClick={onClose} className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
+                <div className="p-4 border-t border-signal/25 flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 border border-signal/25 text-signal opacity-70 font-mono rounded hover:text-signal hover:border-signal transition-colors">Cancel</button>
                     <button onClick={() => submit(true)} className="px-4 py-2 border border-red-400/50 text-red-400 font-mono rounded hover:bg-red-400/10 transition-colors">Stop Hosting</button>
-                    <button onClick={() => submit(false)} className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-white transition-colors">Host File</button>
+                    <button onClick={() => submit(false)} className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-signal/85 transition-colors">Host File</button>
                 </div>
             </motion.div>
         </div>,
@@ -679,23 +679,23 @@ export const AddRemoveCommandsDialog: React.FC<{
             >
                 <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between shrink-0">
                     <h3 className="font-mono font-bold text-signal tracking-widest flex items-center gap-2"><ListCheck size={16} /> ADD / REMOVE COMMANDS</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors"><X size={20} /></button>
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors"><X size={20} /></button>
                 </div>
-                <div className="p-3 border-b border-ghost/20 shrink-0">
+                <div className="p-3 border-b border-signal/15 shrink-0">
                     <div className="relative">
-                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-signal opacity-60" />
                         <input
                             value={filter}
                             onChange={(e) => setFilter(e.target.value)}
                             placeholder="Filter commands..."
-                            className="w-full bg-black/40 border border-ghost/30 text-gray-300 font-mono text-sm pl-8 pr-3 py-1.5 rounded focus:border-signal outline-none"
+                            className="w-full bg-black/40 border border-signal/25 text-signal font-mono text-sm pl-8 pr-3 py-1.5 rounded focus:border-signal outline-none"
                         />
                     </div>
                 </div>
                 <div className="flex flex-1 overflow-hidden">
                     {/* Not Included */}
-                    <div className="flex-1 flex flex-col min-w-0 border-r border-ghost/20">
-                        <div className="px-3 py-2 text-xs text-ghost font-mono uppercase tracking-wider bg-black/20 shrink-0">
+                    <div className="flex-1 flex flex-col min-w-0 border-r border-signal/15">
+                        <div className="px-3 py-2 text-xs text-signal opacity-70 font-mono uppercase tracking-wider bg-black/20 shrink-0">
                             Not Included ({filteredNotIncluded.length})
                         </div>
                         <div className="flex-1 overflow-y-auto cyber-scrollbar">
@@ -703,17 +703,17 @@ export const AddRemoveCommandsDialog: React.FC<{
                                 <button
                                     key={cmd.id}
                                     onClick={() => moveToIncluded(cmd)}
-                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-400 hover:bg-signal/10 hover:text-signal transition-colors font-mono border-b border-ghost/10"
+                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-signal opacity-70 hover:bg-signal/10 hover:text-signal transition-colors font-mono border-b border-signal/10"
                                 >
                                     <span>{cmd.cmd}</span>
-                                    <PlusCircle size={14} className="text-green-400/50" />
+                                    <PlusCircle size={14} className="text-accent" />
                                 </button>
                             ))}
                         </div>
                     </div>
                     {/* Included */}
                     <div className="flex-1 flex flex-col min-w-0">
-                        <div className="px-3 py-2 text-xs text-matrix font-mono uppercase tracking-wider bg-black/20 shrink-0">
+                        <div className="px-3 py-2 text-xs text-accent font-mono uppercase tracking-wider bg-black/20 shrink-0">
                             Included ({filteredIncluded.length})
                         </div>
                         <div className="flex-1 overflow-y-auto cyber-scrollbar">
@@ -721,7 +721,7 @@ export const AddRemoveCommandsDialog: React.FC<{
                                 <button
                                     key={cmd.id}
                                     onClick={() => moveToNotIncluded(cmd)}
-                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-matrix hover:bg-red-400/10 hover:text-red-400 transition-colors font-mono border-b border-ghost/10"
+                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-accent hover:bg-red-400/10 hover:text-red-400 transition-colors font-mono border-b border-signal/10"
                                 >
                                     <span>{cmd.cmd}</span>
                                     <MinusCircle size={14} className="text-red-400/50" />
@@ -730,7 +730,7 @@ export const AddRemoveCommandsDialog: React.FC<{
                         </div>
                     </div>
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end shrink-0">
+                <div className="p-4 border-t border-signal/25 flex justify-end shrink-0">
                     <button onClick={onClose} className="px-4 py-2 bg-signal/20 border border-signal/30 text-signal font-mono rounded hover:bg-signal/30 transition-colors">Done</button>
                 </div>
             </motion.div>
@@ -782,10 +782,10 @@ export const TagEditDialog: React.FC<{
             >
                 <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between">
                     <h3 className="font-mono font-bold text-signal tracking-widest flex items-center gap-2"><TagIcon size={16} /> EDIT TAGS</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors"><X size={20} /></button>
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors"><X size={20} /></button>
                 </div>
                 <div className="p-4 space-y-2 max-h-72 overflow-y-auto cyber-scrollbar">
-                    {tagTypes.length === 0 && <p className="text-gray-500 font-mono text-sm text-center py-4">No tag types defined</p>}
+                    {tagTypes.length === 0 && <p className="text-signal opacity-60 font-mono text-sm text-center py-4">No tag types defined</p>}
                     {tagTypes.map(tt => {
                         const active = isTagged(tt.id);
                         return (
@@ -794,7 +794,7 @@ export const TagEditDialog: React.FC<{
                                 onClick={() => toggle(tt.id)}
                                 className={cn(
                                     "w-full flex items-center justify-between px-3 py-2 rounded border transition-all font-mono text-sm",
-                                    active ? 'border-opacity-50' : 'border-ghost/20 hover:border-ghost/40'
+                                    active ? 'border-opacity-50' : 'border-signal/15 hover:border-signal/30'
                                 )}
                                 style={active ? {
                                     backgroundColor: `${tt.color}20`,
@@ -806,12 +806,12 @@ export const TagEditDialog: React.FC<{
                                     <span className="w-3 h-3 rounded-full" style={{ backgroundColor: tt.color }} />
                                     <span>{tt.name}</span>
                                 </div>
-                                {active ? <Check size={14} /> : <span className="text-ghost text-xs">+ Add</span>}
+                                {active ? <Check size={14} /> : <span className="text-signal opacity-70 text-xs">+ Add</span>}
                             </button>
                         );
                     })}
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end">
+                <div className="p-4 border-t border-signal/25 flex justify-end">
                     <button onClick={onClose} className="px-4 py-2 bg-signal/20 border border-signal/30 text-signal font-mono rounded hover:bg-signal/30 transition-colors">Done</button>
                 </div>
             </motion.div>
@@ -830,7 +830,7 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
         variables: { payload_id: payloadId },
         fetchPolicy: 'cache-first',
     });
-    if (loading) return <span className="text-gray-500 font-mono text-xs flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> #{payloadId}</span>;
+    if (loading) return <span className="text-signal opacity-60 font-mono text-xs flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> #{payloadId}</span>;
     const p = data?.payload?.[0];
     if (!p) return <span className="text-signal font-bold font-mono text-xs">#{payloadId}</span>;
     const fname = p.filemetum ? b64DecodeUnicode(p.filemetum.filename_text) : `#${payloadId}`;
@@ -844,7 +844,7 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
     }, {} as Record<string, any[]>);
 
     return (
-        <div className="border border-ghost/20 rounded overflow-hidden text-xs font-mono">
+        <div className="border border-signal/15 rounded overflow-hidden text-xs font-mono">
             {/* Collapsed header — always visible */}
             <button
                 onClick={() => setExpanded(v => !v)}
@@ -852,25 +852,25 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
             >
                 <Package size={11} className="text-signal/60 shrink-0" />
                 <span className="text-signal font-bold truncate flex-1">{fname}</span>
-                <span className="text-gray-500 shrink-0">({p.payloadtype?.name})</span>
-                {expanded ? <ChevronUp size={11} className="text-ghost shrink-0" /> : <ChevronDown size={11} className="text-ghost shrink-0" />}
+                <span className="text-signal opacity-60 shrink-0">({p.payloadtype?.name})</span>
+                {expanded ? <ChevronUp size={11} className="text-signal opacity-70 shrink-0" /> : <ChevronDown size={11} className="text-signal opacity-70 shrink-0" />}
             </button>
 
             {/* Expanded nested details */}
             {expanded && (
-                <div className="border-t border-ghost/20 divide-y divide-ghost/10">
+                <div className="border-t border-signal/15 divide-y divide-signal/10">
                     {/* C2 Profiles */}
                     {Object.keys(c2Groups).length > 0 && (
                         <div className="p-2.5">
-                            <span className="text-ghost/50 uppercase tracking-wider text-[10px] block mb-1.5">C2 Profiles</span>
+                            <span className="text-signal opacity-60 uppercase tracking-wider text-[10px] block mb-1.5">C2 Profiles</span>
                             {(Object.entries(c2Groups) as [string, any[]][]).map(([profileName, instances]) => (
                                 <div key={profileName} className="mb-2 last:mb-0">
                                     <span className="text-signal/80 font-bold block">{profileName}</span>
                                     <div className="ml-2 mt-0.5 space-y-0.5">
                                         {instances.map((inst: any, i: number) => (
                                             <div key={i} className="flex justify-between gap-2">
-                                                <span className="text-ghost/50 shrink-0">{inst.c2profileparameter?.name}:</span>
-                                                <span className="text-gray-300 truncate" title={inst.value}>{inst.value || '—'}</span>
+                                                <span className="text-signal opacity-60 shrink-0">{inst.c2profileparameter?.name}:</span>
+                                                <span className="text-signal truncate" title={inst.value}>{inst.value || '—'}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -881,12 +881,12 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
                     {/* Build Parameters */}
                     {(p.buildparameterinstances || []).length > 0 && (
                         <div className="p-2.5">
-                            <span className="text-ghost/50 uppercase tracking-wider text-[10px] block mb-1.5">Build Parameters</span>
+                            <span className="text-signal opacity-60 uppercase tracking-wider text-[10px] block mb-1.5">Build Parameters</span>
                             <div className="space-y-0.5">
                                 {p.buildparameterinstances.map((bpi: any, i: number) => (
                                     <div key={i} className="flex justify-between gap-2">
-                                        <span className="text-ghost/50 shrink-0">{bpi.buildparameter?.name}:</span>
-                                        <span className="text-gray-300 truncate" title={bpi.value}>{bpi.value || '—'}</span>
+                                        <span className="text-signal opacity-60 shrink-0">{bpi.buildparameter?.name}:</span>
+                                        <span className="text-signal truncate" title={bpi.value}>{bpi.value || '—'}</span>
                                     </div>
                                 ))}
                             </div>
@@ -895,7 +895,7 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
                     {/* Build Steps */}
                     {(p.payload_build_steps || []).length > 0 && (
                         <div className="p-2.5">
-                            <span className="text-ghost/50 uppercase tracking-wider text-[10px] block mb-1.5">Build Steps</span>
+                            <span className="text-signal opacity-60 uppercase tracking-wider text-[10px] block mb-1.5">Build Steps</span>
                             <div className="flex flex-wrap gap-1">
                                 {p.payload_build_steps.map((step: any) => (
                                     <span
@@ -903,9 +903,9 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
                                         title={`${step.step_name}${step.step_stdout ? '\n' + step.step_stdout : ''}${step.step_stderr ? '\nERR: ' + step.step_stderr : ''}`}
                                         className={cn(
                                             "w-2.5 h-2.5 rounded-full border cursor-default",
-                                            step.step_skip ? "bg-ghost/20 border-ghost/30 opacity-50" :
-                                            step.step_success === true ? "bg-matrix border-matrix" :
-                                            step.step_success === false ? "bg-red-400 border-red-500" :
+                                            step.step_skip ? "bg-signal/10 border-signal/25 opacity-50" :
+                                            step.step_success === true ? "bg-accent border-accent" :
+                                            step.step_success === false ? "bg-red-400 border-red-400" :
                                             "bg-signal/50 border-signal animate-pulse"
                                         )}
                                     />
@@ -916,23 +916,23 @@ export const WrappedPayloadInfo: React.FC<{ payloadId: number }> = ({ payloadId 
                     {/* File Metadata */}
                     {p.filemetum && (p.filemetum.md5 || p.filemetum.sha1 || p.filemetum.size > 0) && (
                         <div className="p-2.5">
-                            <span className="text-ghost/50 uppercase tracking-wider text-[10px] block mb-1.5">File Metadata</span>
+                            <span className="text-signal opacity-60 uppercase tracking-wider text-[10px] block mb-1.5">File Metadata</span>
                             {p.filemetum.md5 && (
                                 <div className="flex justify-between gap-2">
-                                    <span className="text-ghost/50">MD5:</span>
-                                    <span className="text-gray-300 truncate">{p.filemetum.md5}</span>
+                                    <span className="text-signal opacity-60">MD5:</span>
+                                    <span className="text-signal truncate">{p.filemetum.md5}</span>
                                 </div>
                             )}
                             {p.filemetum.sha1 && (
                                 <div className="flex justify-between gap-2">
-                                    <span className="text-ghost/50">SHA1:</span>
-                                    <span className="text-gray-300 truncate">{p.filemetum.sha1}</span>
+                                    <span className="text-signal opacity-60">SHA1:</span>
+                                    <span className="text-signal truncate">{p.filemetum.sha1}</span>
                                 </div>
                             )}
                             {p.filemetum.size > 0 && (
                                 <div className="flex justify-between gap-2">
-                                    <span className="text-ghost/50">Size:</span>
-                                    <span className="text-gray-300">{p.filemetum.size > 1048576 ? `${(p.filemetum.size / 1048576).toFixed(2)} MB` : p.filemetum.size > 1024 ? `${(p.filemetum.size / 1024).toFixed(1)} KB` : `${p.filemetum.size} B`}</span>
+                                    <span className="text-signal opacity-60">Size:</span>
+                                    <span className="text-signal">{p.filemetum.size > 1048576 ? `${(p.filemetum.size / 1048576).toFixed(2)} MB` : p.filemetum.size > 1024 ? `${(p.filemetum.size / 1024).toFixed(1)} KB` : `${p.filemetum.size} B`}</span>
                                 </div>
                             )}
                         </div>
@@ -987,7 +987,7 @@ export const PayloadDialog: React.FC<{
                 <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between gap-3 shrink-0">
                     {/* min-w-0 + truncate keeps long titles from pushing the close button off-screen */}
                     <h3 className="font-mono font-bold text-signal tracking-widest min-w-0 truncate">{title}</h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors shrink-0">
+                    <button onClick={onClose} className="text-signal opacity-70 hover:opacity-100 transition-colors shrink-0">
                         <X size={20} />
                     </button>
                 </div>
@@ -1004,29 +1004,29 @@ export const PayloadDialog: React.FC<{
                         <textarea
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
-                            className="w-full h-48 bg-black/50 border border-ghost/30 text-signal p-3 font-mono text-sm focus:border-signal outline-none rounded"
+                            className="w-full h-48 bg-black/50 border border-signal/25 text-signal p-3 font-mono text-sm focus:border-signal outline-none rounded"
                         />
                     ) : (
                         // whitespace-pre-wrap preserves indentation/newlines; break-all forces
                         // long unbreakable tokens (URLs, base64, hashes) to wrap rather than
                         // creating horizontal scroll that bleeds out of the dialog.
-                        <pre className="text-sm text-gray-300 font-mono whitespace-pre-wrap break-all bg-black/50 p-4 rounded border border-ghost/20">
+                        <pre className="text-sm text-signal font-mono whitespace-pre-wrap break-all bg-black/50 p-4 rounded border border-signal/15">
                             {content || 'No content available.'}
                         </pre>
                     )}
                 </div>
-                <div className="p-4 border-t border-ghost/30 flex justify-end gap-2">
+                <div className="p-4 border-t border-signal/25 flex justify-end gap-2">
                     {editable && onSave && (
                         <button 
                             onClick={() => { onSave(editValue); onClose(); }}
-                            className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-white transition-colors"
+                            className="px-4 py-2 bg-signal text-void font-mono font-bold rounded hover:bg-signal/85 transition-colors"
                         >
                             Save
                         </button>
                     )}
                     <button 
                         onClick={onClose}
-                        className="px-4 py-2 border border-ghost/30 text-ghost font-mono rounded hover:text-signal hover:border-signal transition-colors"
+                        className="px-4 py-2 border border-signal/25 text-signal opacity-70 font-mono rounded hover:text-signal hover:border-signal transition-colors"
                     >
                         {editable ? 'Cancel' : 'Close'}
                     </button>

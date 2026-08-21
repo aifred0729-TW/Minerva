@@ -1,7 +1,7 @@
 import { gql } from '@apollo/client';
 
-export const TASK_FRAGMENT = gql`
-  fragment taskData on task {
+export const TASK_FRAGMENT_CORE = gql`
+  fragment taskDataCore on task {
     id
     display_id
     agent_task_id
@@ -73,12 +73,6 @@ export const TASK_FRAGMENT = gql`
       domain
       mythictree_groups
     }
-    responses(order_by: {id: asc}) {
-      id
-      response: response_text
-      timestamp
-      is_error
-    }
     credentials {
       id
       account
@@ -86,6 +80,34 @@ export const TASK_FRAGMENT = gql`
       type
       credential_text
       comment
+    }
+  }
+`;
+
+/**
+ * Task shape WITH every response row inlined.
+ *
+ * Mythic's `response_update_task_timestamp` trigger bumps `task.timestamp` on
+ * every response insert, so any *_stream cursor over `task` re-emits the whole
+ * row — responses 1..N — each time a chunk lands. On a streaming task that is
+ * quadratic: measured 16,767,488 B vs 189,619 B for the same selection set on
+ * one console open (98.9% of the payload).
+ *
+ * So this is only for consumers that genuinely read `task.responses` and have
+ * no response stream of their own — i.e. STREAM_SUBTASKS, whose SubTaskBlock
+ * reads `sub.responses` directly. Everything else must use TASK_FRAGMENT_CORE
+ * and subscribe to STREAM_TASK_RESPONSES, which replays the same rows from
+ * cursor 1970 anyway.
+ */
+export const TASK_FRAGMENT = gql`
+  ${TASK_FRAGMENT_CORE}
+  fragment taskData on task {
+    ...taskDataCore
+    responses(order_by: {id: asc}) {
+      id
+      response: response_text
+      timestamp
+      is_error
     }
   }
 `;
@@ -183,14 +205,14 @@ export const GET_KILL_COMMAND = gql`
 `;
 
 export const STREAM_CALLBACK_TASKS = gql`
-  ${TASK_FRAGMENT}
+  ${TASK_FRAGMENT_CORE}
   subscription StreamCallbackTasks($callback_display_id: Int!) {
     task_stream(
       batch_size: 20,
       cursor: {initial_value: {timestamp: "1970-01-01T00:00:00Z"}},
       where: {callback: {display_id: {_eq: $callback_display_id}}, parent_task_id: {_is_null: true}}
     ) {
-      ...taskData
+      ...taskDataCore
     }
   }
 `;

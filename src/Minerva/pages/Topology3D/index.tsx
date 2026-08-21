@@ -79,10 +79,12 @@ import { playThreeLoad, playSelectQH, playDoneQH } from '../../lib/soundEffects'
 import { BG_COLOR, buildTopology, extractPrimaryIP } from './topology';
 import { QuickHackOverlayWrapper, QuickHackSubscriptionMonitor, NodeFollower } from './QuickHack';
 import { ContextMenu3D, BackgroundContextMenu3D, SubnetContextMenu3D, DetailPanel, StatsHUD, ScreenProjector, TopologyScene } from './DetailPanel';
+import { NodeDossier } from './NodeDossier';
 import { Html } from '@react-three/drei';
 import { QuickHackPanel, QuickHackAgentPicker, IPSelectionMenu } from './QuickHack';
 import { Topology3DModals } from './Topology3DModals';
 import { usePageVisible } from '../../lib/usePageVisible';
+import { useWindowEngaged } from '../../lib/useWindowEngaged';
 
 export default function Topology3D() {
     const navigate = useNavigate();
@@ -90,6 +92,8 @@ export default function Topology3D() {
     const { hacks: quickHacks } = useQuickHacks();
 
     const pageVisible = usePageVisible();
+    // Drives the Canvas frameloop below — see the comment there.
+    const windowEngaged = useWindowEngaged();
 
     // Current operation scopes custom nodes/edges — items belonging to other
     // ops are filtered out, legacy items (no operation_id) get adopted by the
@@ -172,11 +176,43 @@ export default function Topology3D() {
     const [bgMenu, setBgMenu] = useState<{ x: number; y: number } | null>(null);
     /** Right-click on a subnet volume → per-CIDR action menu. */
     const [subnetCtxMenu, setSubnetCtxMenu] = useState<{ x: number; y: number; cidr: string } | null>(null);
-    /** CIDRs the operator has chosen to hide. Stored per session — not
-     *  persisted across reloads, matching how the global "show subnets"
-     *  toggle behaves. Cleared by the "Restore Hidden Network Spaces"
-     *  background-menu entry. */
-    const [hiddenSubnets, setHiddenSubnets] = useState<Set<string>>(() => new Set());
+    /** CIDRs the operator has chosen to hide.
+     *
+     *  Persisted through `mythicKV` (localStorage mirror + Mythic operator
+     *  preferences), the same way `disconnectedNodes` below is: hiding a
+     *  network space is a deliberate triage decision, and having every one of
+     *  them reappear on the next refresh made the feature useless. Restored
+     *  individually or all at once from the scene menu's HIDDEN SPACES group. */
+    const HIDDEN_SUBNETS_KEY = 'minerva_topology3d_hidden_subnets';
+    const [hiddenSubnets, setHiddenSubnets] = useState<Set<string>>(() => {
+        try {
+            mythicKV.manageKey(HIDDEN_SUBNETS_KEY);
+            const raw = mythicKV.getItem(HIDDEN_SUBNETS_KEY);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return new Set(Array.isArray(parsed) ? parsed : []);
+        } catch { return new Set(); }
+    });
+    useEffect(() => {
+        // Mythic preferences hydrate after mount, and another browser may
+        // write the list too — re-read whenever the key changes under us.
+        const onChange = () => {
+            try {
+                const raw = mythicKV.getItem(HIDDEN_SUBNETS_KEY);
+                const parsed = raw ? JSON.parse(raw) : [];
+                setHiddenSubnets(new Set(Array.isArray(parsed) ? parsed : []));
+            } catch { /* ignore */ }
+        };
+        return mythicKV.subscribe(HIDDEN_SUBNETS_KEY, onChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    const writeHiddenSubnets = useCallback((next: Set<string>) => {
+        setHiddenSubnets(next);
+        mythicKV.manageKey(HIDDEN_SUBNETS_KEY);
+        mythicKV.setItem(HIDDEN_SUBNETS_KEY, JSON.stringify([...next]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    /** Node whose full-screen dossier is open (right-click → VIEW DETAILS). */
+    const [dossierNode, setDossierNode] = useState<TopoNode | null>(null);
     const [createCustomNodeModal, setCreateCustomNodeModal] = useState(false);
     const [dragNodeId, setDragNodeId] = useState<string | null>(null);
     const [showSubnets, setShowSubnets] = useState(true);
@@ -189,7 +225,6 @@ export default function Topology3D() {
     // ── Modal/Dialog State ──
     const [editDescriptionModal, setEditDescriptionModal] = useState<Callback | null>(null);
     const [newDescription, setNewDescription] = useState('');
-    const [detailsModal, setDetailsModal] = useState<Callback | null>(null);
     const [setParentModal, setSetParentModal] = useState<Callback | null>(null);
     // Source TopoNode for the LINK_TO_PARENT panel — we need the live Vector3 so
     // a ScreenProjector inside the Canvas can update setParentScreenPos every
@@ -566,16 +601,23 @@ export default function Topology3D() {
     }, []);
 
     const handleHideSubnet = useCallback((cidr: string) => {
-        setHiddenSubnets(prev => {
-            const next = new Set(prev);
-            next.add(cidr);
-            return next;
-        });
-    }, []);
+        const next = new Set(hiddenSubnets);
+        next.add(cidr);
+        writeHiddenSubnets(next);
+        snackActions.info(`Hid ${cidr} — restore it from the scene menu`);
+    }, [hiddenSubnets, writeHiddenSubnets]);
+
+    /** Un-hide one specific network space. */
+    const handleRestoreSubnet = useCallback((cidr: string) => {
+        if (!hiddenSubnets.has(cidr)) return;
+        const next = new Set(hiddenSubnets);
+        next.delete(cidr);
+        writeHiddenSubnets(next);
+    }, [hiddenSubnets, writeHiddenSubnets]);
 
     const handleRestoreAllSubnets = useCallback(() => {
-        setHiddenSubnets(new Set());
-    }, []);
+        writeHiddenSubnets(new Set());
+    }, [writeHiddenSubnets]);
 
     const handleNavigateConsole = useCallback((displayId: number) => {
         // Mythic + MSF share `/console/<displayId>` — Console picks MSF mode
@@ -587,8 +629,41 @@ export default function Topology3D() {
         lockCallback({ variables: { callback_display_id: displayId, locked } });
     }, [lockCallback]);
 
-    const handleHideCallback = useCallback((displayId: number) => {
-        hideCallback({ variables: { callback_display_id: displayId, active: false } });
+    /** Hide the whole machine.
+     *
+     *  A topology node aggregates every callback on a host, so hiding just the
+     *  representative session left the node sitting there with its remaining
+     *  sessions — the operator clicked HIDE NODE and nothing appeared to
+     *  happen. Hide them all.
+     *
+     *  MSF sessions are synthetic rows with display_ids offset past Mythic's
+     *  range; there is no callback for Mythic to flip, so they are reported
+     *  rather than silently skipped. */
+    const handleHideNode = useCallback((node: TopoNode) => {
+        const sessions: any[] = (node.allCallbacks as any[] | undefined) ?? (node.data ? [node.data as any] : []);
+        const mythic: number[] = [];
+        let msf = 0;
+        for (const s of sessions) {
+            if (!s) continue;
+            if (isMsfCallback(s)) { msf++; continue; }
+            const id = s.display_id;
+            if (typeof id === 'number' && !mythic.includes(id)) mythic.push(id);
+        }
+        if (!mythic.length) {
+            snackActions.warning(
+                msf > 0
+                    ? `${node.label} only has MSF sessions — hide those from the Metasploit page.`
+                    : `Nothing to hide on ${node.label}.`,
+            );
+            return;
+        }
+        mythic.forEach(id => hideCallback({ variables: { callback_display_id: id, active: false } }));
+        const noun = mythic.length > 1 ? `${mythic.length} sessions` : '1 session';
+        snackActions.info(
+            msf > 0
+                ? `Hid ${noun} on ${node.label} · ${msf} MSF session${msf > 1 ? 's' : ''} left in place`
+                : `Hid ${node.label} (${noun})`,
+        );
     }, [hideCallback]);
 
     // ── Context Menu Action Handlers (matching CallbackGraph) ──
@@ -608,10 +683,12 @@ export default function Topology3D() {
         return { ...cb, isCustom: false, id: cb?.id, callback_id: cb?.display_id, display_id: cb?.display_id, host: cb?.host, ip: extractPrimaryIP(cb?.ip), os: cb?.os || cb?.operating_system, architecture: cb?.architecture, user: cb?.user, description: cb?.description, locked: cb?.locked, integrity_level: cb?.integrity_level, domain: cb?.domain, pid: cb?.pid, sleep_info: cb?.sleep_info, payloadType: cb?.payload?.payloadtype?.name };
     }, []);
 
+    /** VIEW DETAILS hands the whole viewport to the node dossier — the full
+     *  netrunner-console read on one machine, not a glance panel. */
     const openDetails = useCallback((node: TopoNode) => {
-        setDetailsModal(resolveCallbackData(node));
+        setDossierNode(node);
         setCtxMenu(null);
-    }, [resolveCallbackData]);
+    }, []);
 
     const openEditDescription = useCallback((node: TopoNode) => {
         const d = resolveCallbackData(node);
@@ -1802,7 +1879,15 @@ export default function Topology3D() {
                     // animations (rotations, emissive pulses, edge dashes) update
                     // every frame. Demand mode caused visible stutter where
                     // animations only ticked on pointer events / invalidate().
-                    frameloop="always"
+                    //
+                    // ...but only while someone is looking. rAF is throttled for
+                    // a HIDDEN tab, not for one that is merely unfocused, so this
+                    // scene kept re-rendering at the full refresh rate with
+                    // Minerva parked on a second monitor — starving the shared
+                    // GPU process every other tab composites through. 'never'
+                    // halts the loop outright and 'always' resumes it on focus;
+                    // this is not the 'demand' mode the comment above rejects.
+                    frameloop={windowEngaged ? 'always' : 'never'}
                     dpr={[1, 1.5]}
                     onCreated={({ gl }) => {
                         gl.setClearColor(BG_COLOR);
@@ -1934,7 +2019,7 @@ export default function Topology3D() {
                         onNavigateConsole={handleNavigateConsole}
                         preferredDisplayId={preferredDisplayIdFor(ctxNode)}
                         onLock={handleLockCallback}
-                        onHide={handleHideCallback}
+                        onHide={handleHideNode}
                         onViewDetails={openDetails}
                         onEditDescription={openEditDescription}
                         onEditCustomNode={openEditCustomNode}
@@ -1967,7 +2052,8 @@ export default function Topology3D() {
                         showInactive={showInactive}
                         onToggleHidden={() => setShowHidden(v => !v)}
                         showHidden={showHidden}
-                        hiddenSubnetCount={hiddenSubnets.size}
+                        hiddenSubnets={[...hiddenSubnets].sort()}
+                        onRestoreSubnet={handleRestoreSubnet}
                         onRestoreAllSubnets={handleRestoreAllSubnets}
                     />
                 )}
@@ -2035,6 +2121,17 @@ export default function Topology3D() {
                     )}
                 </AnimatePresence>
 
+                {/* Full-screen node dossier — right-click → VIEW DETAILS */}
+                <AnimatePresence>
+                    {dossierNode && (
+                        <NodeDossier
+                            node={dossierNode}
+                            onClose={() => setDossierNode(null)}
+                            edges={edgesData?.callbackgraphedge}
+                        />
+                    )}
+                </AnimatePresence>
+
                 {/* Right-edge HUD column — system legend on top, tunnel
                     legend stacked under it (when the overlay is on).
                     Bottom-right of the screen is reserved for the global
@@ -2095,8 +2192,6 @@ export default function Topology3D() {
                     createCustomNodeModal={createCustomNodeModal}
                     setCreateCustomNodeModal={setCreateCustomNodeModal}
                     handleCreateCustomNode={handleCreateCustomNode}
-                    detailsModal={detailsModal}
-                    setDetailsModal={setDetailsModal}
                     setParentModal={setParentModal}
                     setSetParentModal={(v) => { setSetParentModal(v); if (v === null) setSetParentNode(null); }}
                     setParentScreenPos={setParentScreenPos}

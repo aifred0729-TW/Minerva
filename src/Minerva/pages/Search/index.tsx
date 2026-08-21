@@ -37,6 +37,8 @@ import {
     SEARCH_INTERACTIVE_PARAMS, SEARCH_INTERACTIVE_COMMAND, SEARCH_INTERACTIVE_HOST,
     SEARCH_INTERACTIVE_OPERATOR, SEARCH_INTERACTIVE_TYPE,
 } from '../../lib/api/search';
+import { useReactiveVar } from '@apollo/client/react';
+import { meState } from '../../lib/state';
 import {
     TaskResult, CallbackResult, FileResult, CredentialResult, ArtifactResult,
     KeylogResult, PayloadResult, TokenResult, ProcessResult, SocksResult,
@@ -113,6 +115,10 @@ const FieldSelector = ({ options, value, onChange }: { options: string[]; value:
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const Search = () => {
+    // Scopes every task/file/credential/artifact search to the CURRENT operation.
+    // Hasura's operator filter on those tables is `_in X-Hasura-operations`,
+    // i.e. every operation this operator belongs to. See lib/api/search.ts.
+    const currentOperationId = useReactiveVar(meState)?.user?.current_operation_id as number | undefined;
     const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -240,7 +246,11 @@ const Search = () => {
         if (!searchQuery.trim() && !isKeylogUnique) { setResults([]); setTotalCount(0); return; }
         setLoading(true);
         const s = `%${searchQuery}%`;
-        const vars = { search: s, offset: (page - 1) * limit, limit };
+        // operation_id scopes every task/file/credential/artifact search to the
+        // CURRENT operation. Hasura's operator filter on those tables is
+        // `_in X-Hasura-operations` — every operation this operator belongs to —
+        // so without it the results span other engagements. See lib/api/search.ts.
+        const vars = { search: s, offset: (page - 1) * limit, limit, operation_id: currentOperationId };
         try {
             let data: any;
             switch (activeTab) {
@@ -251,10 +261,10 @@ const Search = () => {
                     else if (searchField === 'Tag') data = await searchTasksTag({ variables: vars });
                     else if (searchField === 'Callback ID') {
                         const cbId = parseInt(searchQuery);
-                        if (!isNaN(cbId)) data = await searchTasksCbId({ variables: { search: cbId, offset: (page - 1) * limit, limit } });
+                        if (!isNaN(cbId)) data = await searchTasksCbId({ variables: { search: cbId, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                         else { setResults([]); setTotalCount(0); break; }
                     }
-                    else if (searchField === 'Callback Group') data = await searchTasksCbGroup({ variables: { search: searchQuery, offset: (page - 1) * limit, limit } });
+                    else if (searchField === 'Callback Group') data = await searchTasksCbGroup({ variables: { search: searchQuery, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                     else if (searchField === 'Host') data = await searchTasksHost({ variables: vars });
                     else if (searchField === 'Status') data = await searchTasksStatus({ variables: vars });
                     else if (searchField === 'Operator') data = await searchTasksOperator({ variables: vars });
@@ -272,13 +282,13 @@ const Search = () => {
                     else if (searchField === 'Architecture') data = await searchCbArch({ variables: vars });
                     else if (searchField === 'PID') {
                         const pidNum = parseInt(searchQuery);
-                        if (!isNaN(pidNum)) data = await searchCbPID({ variables: { search: pidNum, offset: (page - 1) * limit, limit } });
+                        if (!isNaN(pidNum)) data = await searchCbPID({ variables: { search: pidNum, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                         else { setResults([]); setTotalCount(0); break; }
                     }
-                    else if (searchField === 'Group') data = await searchCbGroup({ variables: { search: searchQuery, offset: (page - 1) * limit, limit } });
+                    else if (searchField === 'Group') data = await searchCbGroup({ variables: { search: searchQuery, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                     else if (searchField === 'Display ID') {
                         const dispId = parseInt(searchQuery);
-                        if (!isNaN(dispId)) data = await searchCbDisplayId({ variables: { search: dispId, offset: (page - 1) * limit, limit } });
+                        if (!isNaN(dispId)) data = await searchCbDisplayId({ variables: { search: dispId, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                         else { setResults([]); setTotalCount(0); break; }
                     }
                     else data = await searchCbHost({ variables: vars });
@@ -324,12 +334,12 @@ const Search = () => {
                     else if (searchField === 'Command') data = await searchArtifactsCommand({ variables: vars });
                     else if (searchField === 'Task') {
                         const taskId = parseInt(searchQuery);
-                        if (!isNaN(taskId)) data = await searchArtifactsTask({ variables: { search: taskId, offset: (page - 1) * limit, limit } });
+                        if (!isNaN(taskId)) data = await searchArtifactsTask({ variables: { search: taskId, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                         else { setResults([]); setTotalCount(0); break; }
                     }
                     else if (searchField === 'Callback') {
                         const cbId = parseInt(searchQuery);
-                        if (!isNaN(cbId)) data = await searchArtifactsCallback({ variables: { search: cbId, offset: (page - 1) * limit, limit } });
+                        if (!isNaN(cbId)) data = await searchArtifactsCallback({ variables: { search: cbId, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                         else { setResults([]); setTotalCount(0); break; }
                     }
                     else if (searchField === 'Operator') data = await searchArtifactsOperator({ variables: vars });
@@ -339,9 +349,9 @@ const Search = () => {
                     break;
                 case 'keylogs':
                     if (!searchQuery.trim() && searchField === 'User') {
-                        data = await searchKeylogsUniqueUser({ variables: { offset: (page - 1) * limit, limit } });
+                        data = await searchKeylogsUniqueUser({ variables: { offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                     } else if (!searchQuery.trim() && searchField === 'Program') {
-                        data = await searchKeylogsUniqueProgram({ variables: { offset: (page - 1) * limit, limit } });
+                        data = await searchKeylogsUniqueProgram({ variables: { offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                     } else if (searchField === 'User') data = await searchKeylogsUser({ variables: vars });
                     else if (searchField === 'Program') data = await searchKeylogsProgram({ variables: vars });
                     else if (searchField === 'Host') data = await searchKeylogsHost({ variables: vars });
@@ -374,7 +384,7 @@ const Search = () => {
                 case 'socks':
                     if (searchField === 'Port') {
                         const portNum = parseInt(searchQuery);
-                        if (!isNaN(portNum)) data = await searchSocksPort({ variables: { search: portNum, offset: (page - 1) * limit, limit } });
+                        if (!isNaN(portNum)) data = await searchSocksPort({ variables: { search: portNum, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                         else { setResults([]); setTotalCount(0); break; }
                     } else data = await searchSocksIP({ variables: vars });
                     setResults(data?.data?.callbackport || []);
@@ -400,7 +410,7 @@ const Search = () => {
                     else if (searchField === 'Operator') data = await searchInteractiveOperator({ variables: vars });
                     else if (searchField === 'Type') {
                         const typeNum = parseInt(searchQuery);
-                        if (!isNaN(typeNum)) data = await searchInteractiveType({ variables: { search: typeNum, offset: (page - 1) * limit, limit } });
+                        if (!isNaN(typeNum)) data = await searchInteractiveType({ variables: { search: typeNum, offset: (page - 1) * limit, limit, operation_id: currentOperationId } });
                         else { setResults([]); setTotalCount(0); break; }
                     }
                     else data = await searchInteractiveParams({ variables: vars });

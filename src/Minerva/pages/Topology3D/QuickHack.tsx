@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSubscription } from "@apollo/client/react";
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, X, Crosshair, Monitor, Globe, Hash, AlertTriangle, Users }from 'lucide-react';
+import { ChevronRight, X, Crosshair, Globe, Hash, Users }from 'lucide-react';
 import { Group, Vector3 } from 'three';
 import { cn } from '../../lib/utils';
 import type { TopoNode, QuickHackExecution } from '../../types/topology';
@@ -15,6 +15,10 @@ import { useFrame } from '@react-three/fiber';
 import { SUBSCRIBE_TASK_STATUS_BY_ID } from '../../lib/api';
 import type { Callback } from '../../types';
 import { isMsfCallback } from '../Callbacks/msfSyntheticCallbacks';
+import {
+    useAnchoredPanel, PanelShell, PanelGroup, PanelRow, PanelChip, PanelBar,
+    panelRowClass, PANEL_ITEM_ATTR, TONE_TEXT, TONE_ICON, type PanelTone,
+} from '../../components/CyberPanel';
 
 const QUICKHACK_EXIT_DELAY_MS = 2_200;
 const QUICKHACK_REMOVE_DELAY_MS = 2_700;
@@ -79,172 +83,96 @@ export const QuickHackPanel = ({
     /** When the agent picker is open, the hack the operator already chose is dimmed-highlighted so the context stays visible. */
     pendingHackId?: string | null;
 }) => {
-    const panelRef = useRef<HTMLDivElement>(null);
-    const [hoveredId, setHoveredId] = useState<string | null>(null);
     const cb = node.data;
-    const accentColor = '#ff003c';
 
     // Resolve the agent type from the node's payload info
     const nodeAgentType = cb?.payload?.payloadtype?.name?.toLowerCase() ?? null;
 
-    // Close on outside click
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [onClose]);
-
-    // Position: anchor to top-right of the node, offset by 40px right and 60px up
-    const panelX = screenPos.x + 40;
-    const panelY = screenPos.y - 60;
-
-    // Clamp to viewport
-    const clampedX = Math.min(panelX, window.innerWidth - 280);
-    const clampedY = Math.max(panelY, 8);
+    // Position: anchor to the top-right of the node, offset by 40px right and
+    // 60px up. `useAnchoredPanel` then flips/clamps it inside the viewport and
+    // wires Esc / outside-click / arrow-key roving focus.
+    const { ref, pos, onKeyDown } = useAnchoredPanel(
+        screenPos.x + 40,
+        Math.max(screenPos.y - 60, 8),
+        onClose,
+    );
 
     return createPortal(
-        <motion.div
-            ref={panelRef}
-            initial={{ opacity: 0, x: -10, scale: 0.96 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -10, scale: 0.96 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed z-[9999] w-[260px] font-mono"
-            style={{ left: clampedX, top: clampedY }}
-        >
-            {/* Connector line from node to panel */}
-            <svg className="absolute pointer-events-none" style={{
-                left: -40, top: 60, width: 44, height: 2, overflow: 'visible',
-            }}>
-                <line x1="0" y1="1" x2="40" y2="1" stroke={`${accentColor}60`} strokeWidth="1" strokeDasharray="3 2" />
-                <circle cx="0" cy="1" r="2" fill={accentColor} opacity="0.6" />
+        <>
+            {/* Leash from the node to the panel — the one piece of Cyberpunk
+                staging the panel keeps, because it says WHICH node is armed. */}
+            <svg
+                className="pointer-events-none fixed z-[9998]"
+                style={{ left: screenPos.x, top: pos.top + 26, width: Math.max(2, pos.left - screenPos.x), height: 2, overflow: 'visible' }}
+            >
+                <line x1="0" y1="1" x2={Math.max(2, pos.left - screenPos.x)} y2="1"
+                    stroke="rgba(248,113,113,0.5)" strokeWidth="1" strokeDasharray="3 2" />
+                <circle cx="0" cy="1" r="2.5" fill="rgba(248,113,113,0.85)" />
             </svg>
 
-            <div style={{
-                background: 'linear-gradient(135deg, rgba(0,0,0,0.97) 0%, rgba(15,5,10,0.98) 100%)',
-                border: `1px solid ${accentColor}35`,
-                boxShadow: `0 0 30px ${accentColor}15, 0 0 60px rgba(0,0,0,0.6)`,
-                clipPath: 'polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px))',
-            }}>
-                {/* Top accent line */}
-                <div className="h-[1px]" style={{ background: `linear-gradient(90deg, ${accentColor}, ${accentColor}40, transparent)` }} />
-
-                {/* Header */}
-                <div className="px-3 py-2 flex items-center justify-between border-b border-white/5">
-                    <div className="flex items-center gap-2">
-                        <Crosshair size={10} style={{ color: accentColor }} />
-                        <span className="text-[9px] uppercase tracking-[0.25em] font-bold" style={{ color: accentColor }}>
-                            Quickhack
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-[9px] text-gray-400">
-                            #{cb?.display_id}
-                        </span>
-                        <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors">
-                            <X size={10} />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Target info strip */}
-                <div className="px-3 py-1.5 flex items-center gap-2 border-b border-white/5 bg-white/[0.02]">
-                    <Monitor size={9} className="text-gray-400" />
-                    <span className="text-[9px] text-gray-300 truncate">{cb?.host || node.label}</span>
-                    {cb?.ip && <span className="text-[8px] text-gray-400 ml-auto">{extractPrimaryIP(cb.ip)}</span>}
-                </div>
-
-                {/* Agent type indicator strip */}
-                {nodeAgentType && (
-                    <div className="px-3 py-1 flex items-center gap-1.5 border-b border-white/5 bg-white/[0.01]">
-                        <span className="text-[8px] text-gray-600 uppercase tracking-[0.15em]">AGENT</span>
-                        <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-px"
-                            style={{ color: '#22d3ee', border: '1px solid rgba(34,211,238,0.25)', background: 'rgba(34,211,238,0.06)' }}>
-                            {nodeAgentType}
-                        </span>
-                    </div>
-                )}
-
-                {/* QuickHack list */}
-                <div className="py-1">
+            <PanelShell
+                innerRef={ref}
+                pos={pos}
+                width={288}
+                onKeyDown={onKeyDown}
+                icon={Crosshair}
+                iconTone="text-red-400"
+                title="QUICKHACK"
+                subtitle={`${cb?.host || node.label}${cb?.ip ? ` · ${extractPrimaryIP(cb.ip)}` : ''}`}
+                badge={nodeAgentType ? nodeAgentType.toUpperCase() : undefined}
+                badgeTone="text-signal opacity-70"
+                onClose={onClose}
+                footerLeft="TARGET ARMED"
+                footerRight={cb?.display_id != null ? `C-${cb.display_id}` : undefined}
+            >
+                <PanelGroup label="HACKS" count={hacks.length}>
                     {hacks.map(hack => {
                         const compatible = isHackCompatible(hack, nodeAgentType);
                         const isPending = pendingHackId === hack.id;
+                        // One tone system for the whole console: armed hacks are
+                        // `danger`, the one already chosen is `active`, an agent
+                        // that cannot run it is `muted`.
+                        const tone: PanelTone = !compatible ? 'muted' : isPending ? 'active' : 'danger';
+                        const meta = [
+                            (hack.steps ?? []).length > 1 ? `${hack.steps.length} STEPS` : null,
+                            hack.variables && hack.variables.length > 0
+                                ? `${hack.variables.length} VAR${hack.variables.length !== 1 ? 'S' : ''}` : null,
+                        ].filter(Boolean).join(' · ');
                         return (
                             <button
                                 key={hack.id}
-                                onClick={() => compatible && !isPending && onSelectHack(hack)}
-                                onMouseEnter={() => setHoveredId(hack.id)}
-                                onMouseLeave={() => setHoveredId(null)}
+                                type="button"
+                                role="menuitem"
+                                {...{ [PANEL_ITEM_ATTR]: '' }}
                                 disabled={!compatible || isPending}
-                                className={cn(
-                                    "w-full px-3 py-2 text-left transition-all duration-150 relative",
-                                    !compatible && "cursor-not-allowed opacity-40",
-                                    isPending && "cursor-default"
-                                )}
-                                style={{
-                                    background: isPending
-                                        ? `${hack.color}1f`
-                                        : compatible && hoveredId === hack.id ? `${hack.color}0d` : 'transparent',
-                                    borderLeft: isPending ? `2px solid ${hack.color}` : undefined,
-                                }}
-                                title={!compatible ? `Incompatible: requires ${formatAgentTypes(hack.agentTypes)}` : undefined}
+                                onClick={() => compatible && !isPending && onSelectHack(hack)}
+                                title={!compatible ? `Incompatible: requires ${formatAgentTypes(hack.agentTypes)}` : hack.description}
+                                className={cn(panelRowClass(tone, !compatible || isPending), 'flex-col items-stretch gap-1 py-2')}
                             >
-                                {/* Hover left accent — only for compatible */}
-                                {compatible && hoveredId === hack.id && (
-                                    <motion.div
-                                        layoutId="qh-accent"
-                                        className="absolute left-0 top-0 bottom-0 w-[2px]"
-                                        style={{ background: hack.color }}
-                                    />
-                                )}
-
-                                <div className="flex items-center gap-2">
-                                    <LucideIcon name={hack.icon} size={14} style={{ color: compatible ? hack.color : '#555' }} />
-                                    <span className="text-[11px] font-bold tracking-wider"
-                                        style={{ color: compatible && hoveredId === hack.id ? hack.color : compatible ? `${hack.color}dd` : '#555' }}>
+                                <PanelBar tone={tone} />
+                                <span className="flex items-center gap-2.5">
+                                    <LucideIcon name={hack.icon} size={12} className={cn('shrink-0', TONE_ICON[tone])} />
+                                    <span className={cn('truncate tracking-[0.1em] font-bold', TONE_TEXT[tone])}>
                                         {hack.name}
                                     </span>
-                                    <span className="ml-auto flex items-center gap-1">
-                                        {/* Agent type restriction badge */}
-                                        {hack.agentTypes && hack.agentTypes.length > 0 && (
-                                            <span className={cn(
-                                                "text-[7px] px-1 py-px border tracking-wider",
-                                                !compatible
-                                                    ? "border-red-500/30 text-red-400/60"
-                                                    : "border-white/15 text-gray-500"
-                                            )}>
-                                                {hack.agentTypes.map(a => a.toUpperCase()).join('/')}
-                                            </span>
-                                        )}
-                                        {(hack.steps ?? []).length > 1 && (
-                                            <span className="text-[8px] px-1 py-px border opacity-60"
-                                                style={{ borderColor: `${hack.color}40`, color: `${hack.color}aa` }}>
-                                                {hack.steps.length} STEPS
-                                            </span>
-                                        )}
-                                        {hack.variables && hack.variables.length > 0 && (
-                                            <span className="text-[8px] px-1 py-px border opacity-60"
-                                                style={{ borderColor: `${hack.color}40`, color: `${hack.color}aa` }}>
-                                                {hack.variables.length} VAR{hack.variables.length !== 1 ? 'S' : ''}
-                                            </span>
-                                        )}
-                                    </span>
-                                </div>
-                                <div className="text-[8px] text-gray-400 mt-0.5 pl-[22px] leading-relaxed">
+                                    <span aria-hidden="true" className="flex-1" />
+                                    {isPending
+                                        ? <PanelChip text="CHOSEN" tone="active" />
+                                        : !compatible
+                                            ? <PanelChip text="N/A" tone="muted" />
+                                            : meta
+                                                ? <PanelChip text={meta} tone="default" />
+                                                : null}
+                                </span>
+                                <span className="pl-[22px] text-left text-[10px] leading-relaxed text-signal opacity-70 line-clamp-2">
                                     {hack.description}
-                                </div>
+                                </span>
                             </button>
                         );
                     })}
-                </div>
-
-                {/* Bottom accent */}
-                <div className="h-[1px]" style={{ background: `linear-gradient(90deg, transparent, ${accentColor}15, transparent)` }} />
-            </div>
-        </motion.div>,
+                </PanelGroup>
+            </PanelShell>
+        </>,
         document.body
     );
 };
@@ -253,28 +181,6 @@ export const QuickHackPanel = ({
 //    QuickHackPanel when the targeted node hosts more than one
 //    compatible agent (e.g. Apollo + Meterpreter on the same machine).
 //    Operator picks which agent the chosen hack should run against.
-
-/** Per-agent accent: Mythic agents collapse to a single cyan tone, MSF
- *  sessions get red, anything unknown falls back to signal. Kept inline
- *  so callers don't have to reach into a separate colour table. */
-function pickAgentAccent(cb: Callback): { fg: string; border: string; bg: string; label: string } {
-    const ptype = (cb.payload?.payloadtype?.name || '').toLowerCase();
-    const isMsf = isMsfCallback(cb);
-    if (isMsf) {
-        return {
-            fg: '#ff6b6b',
-            border: 'rgba(255,107,107,0.35)',
-            bg: 'rgba(255,107,107,0.06)',
-            label: (ptype || 'meterpreter').toUpperCase(),
-        };
-    }
-    return {
-        fg: '#22d3ee',
-        border: 'rgba(34,211,238,0.35)',
-        bg: 'rgba(34,211,238,0.06)',
-        label: (ptype || 'agent').toUpperCase(),
-    };
-}
 
 /** QuickHack agent picker — opens to the right of QuickHackPanel when
  *  the node has more than one candidate callback for the chosen hack. */
@@ -292,142 +198,67 @@ export const QuickHackAgentPicker = ({
     onSelectCallback: (cb: Callback) => void;
     onCancel: () => void;
 }) => {
-    const panelRef = useRef<HTMLDivElement>(null);
-    const [hoveredId, setHoveredId] = useState<number | null>(null);
-    const accentColor = hack.color;
-
-    // Close on outside click — but allow clicks back on the QuickHackPanel.
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (!panelRef.current) return;
-            const target = e.target as Node;
-            if (panelRef.current.contains(target)) return;
-            // Heuristic: if the click landed on something else inside the
-            // QuickHack portal stack (the left panel), keep us open. That
-            // panel is the only sibling we want to coexist with.
-            onCancel();
-        };
-        const id = setTimeout(() => document.addEventListener('mousedown', handler), 0);
-        return () => { clearTimeout(id); document.removeEventListener('mousedown', handler); };
-    }, [onCancel]);
-
-    // QuickHackPanel sits at clampedX with width 260; +40px connector. Stack
-    // the picker to its right with a small gap. If we'd overflow the right
-    // viewport edge, fall back to the left of the panel.
-    const panelLeft = Math.min(screenPos.x + 40, window.innerWidth - 280);
+    // QuickHackPanel sits at +40px from the node with width 288. Stack the
+    // picker to its right with a small gap; useAnchoredPanel folds it back
+    // inside the viewport (and flips it left) when there is no room.
+    const panelLeft = Math.min(screenPos.x + 40, window.innerWidth - 300);
     const panelTop = Math.max(screenPos.y - 60, 8);
-    const desiredLeft = panelLeft + 268;
-    const pickerWidth = 240;
-    const pickerLeft = desiredLeft + pickerWidth + 4 > window.innerWidth
-        ? Math.max(8, panelLeft - pickerWidth - 8)
-        : desiredLeft;
+    const { ref, pos, onKeyDown } = useAnchoredPanel(panelLeft + 296, panelTop, onCancel);
 
     return createPortal(
-        <motion.div
-            ref={panelRef}
-            initial={{ opacity: 0, x: -8, scale: 0.97 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -8, scale: 0.97 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed z-[9999] font-mono"
-            style={{ left: pickerLeft, top: panelTop, width: pickerWidth }}
+        <PanelShell
+            innerRef={ref}
+            pos={pos}
+            width={256}
+            onKeyDown={onKeyDown}
+            icon={Users}
+            iconTone="text-red-400"
+            title="PICK AGENT"
+            subtitle={hack.name}
+            onClose={onCancel}
+            footerLeft="ONE MACHINE · MANY AGENTS"
+            footerRight={`${candidates.length}`}
         >
-            <div style={{
-                background: 'linear-gradient(135deg, rgba(0,0,0,0.97) 0%, rgba(10,8,14,0.98) 100%)',
-                border: `1px solid ${accentColor}35`,
-                boxShadow: `0 0 30px ${accentColor}15, 0 0 60px rgba(0,0,0,0.6)`,
-                clipPath: 'polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px))',
-            }}>
-                {/* Top accent line, matching QuickHackPanel */}
-                <div className="h-[1px]" style={{ background: `linear-gradient(90deg, ${accentColor}, ${accentColor}40, transparent)` }} />
-
-                {/* Header */}
-                <div className="px-3 py-2 flex items-center justify-between border-b border-white/5">
-                    <div className="flex items-center gap-2">
-                        <Users size={10} style={{ color: accentColor }} />
-                        <span className="text-[9px] uppercase tracking-[0.25em] font-bold" style={{ color: accentColor }}>
-                            Pick agent
-                        </span>
-                    </div>
-                    <button onClick={onCancel} className="text-signal hover:text-accent transition-colors">
-                        <X size={10} />
-                    </button>
-                </div>
-
-                {/* Hack context strip */}
-                <div className="px-3 py-1.5 flex items-center gap-2 border-b border-white/5 bg-white/[0.02]">
-                    <LucideIcon name={hack.icon} size={11} style={{ color: accentColor }} />
-                    <span className="text-[10px] font-bold tracking-wider" style={{ color: accentColor }}>
-                        {hack.name}
-                    </span>
-                    <span className="ml-auto text-[8px] text-signal tracking-[0.15em]">
-                        {candidates.length} CANDIDATES
-                    </span>
-                </div>
-
-                {/* Candidate list */}
-                <div className="py-1 max-h-[55vh] overflow-y-auto cyber-scrollbar">
-                    {candidates.map(cb => {
-                        const accent = pickAgentAccent(cb);
-                        // Canonical aliveness check — `active` is the
-                        // hidden-by-operator flag, not the dead flag.
-                        // For Mythic callbacks the truth is in
-                        // `last_checkin` vs `sleep_info`; for MSF
-                        // synthetic dead rows the factory pins
-                        // `last_checkin` to 1970 so the same check
-                        // returns false. `cb.dead` is also honoured
-                        // for the rare case MSF marks it before the
-                        // ledger writes the dead timestamp.
-                        const alive = !cb.dead && isCallbackAlive(cb);
-                        const hovered = hoveredId === cb.id;
-                        return (
-                            <button
-                                key={cb.id}
-                                onClick={() => onSelectCallback(cb)}
-                                onMouseEnter={() => setHoveredId(cb.id)}
-                                onMouseLeave={() => setHoveredId(null)}
-                                disabled={!alive}
-                                className={cn(
-                                    "w-full px-3 py-2 text-left transition-all duration-150 relative",
-                                    !alive && "opacity-40 cursor-not-allowed",
-                                )}
-                                style={{
-                                    background: alive && hovered ? `${accent.fg}10` : 'transparent',
-                                    borderLeft: hovered ? `2px solid ${accent.fg}` : '2px solid transparent',
-                                }}
-                                title={!alive ? 'Callback is dead' : undefined}
-                            >
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-px"
-                                          style={{ color: accent.fg, border: `1px solid ${accent.border}`, background: accent.bg }}>
-                                        {accent.label}
-                                    </span>
-                                    <span className="text-[11px] font-bold text-signal tabular-nums">
-                                        #{cb.display_id}
-                                    </span>
-                                    <span className="ml-auto flex items-center gap-1">
-                                        <span className={cn("w-1.5 h-1.5 rounded-full", alive ? "bg-accent animate-pulse" : "bg-red-500")} />
-                                        <span className="text-[8px] tracking-[0.2em] text-signal">
-                                            {alive ? 'ALIVE' : 'DEAD'}
-                                        </span>
-                                    </span>
-                                </div>
-                                <div className="text-[9px] text-signal mt-0.5 pl-[2px] leading-tight truncate">
-                                    {cb.user || '?'}@{cb.host || cb.ip || '?'}
-                                </div>
-                                {cb.description && (
-                                    <div className="text-[8px] text-signal/85 mt-0.5 pl-[2px] leading-tight truncate">
-                                        {cb.description}
-                                    </div>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
-
-                <div className="h-[1px]" style={{ background: `linear-gradient(90deg, transparent, ${accentColor}15, transparent)` }} />
-            </div>
-        </motion.div>,
+            <PanelGroup label="CANDIDATES" count={candidates.length}>
+                {candidates.map(cb => {
+                    // Canonical aliveness check — `active` is the hidden-by-operator
+                    // flag, not the dead flag. For Mythic callbacks the truth is in
+                    // `last_checkin` vs `sleep_info`; for MSF synthetic dead rows the
+                    // factory pins `last_checkin` to 1970 so the same check returns
+                    // false. `cb.dead` is also honoured for the rare case MSF marks it
+                    // before the ledger writes the dead timestamp.
+                    const alive = !cb.dead && isCallbackAlive(cb);
+                    const ptype = (cb.payload?.payloadtype?.name || (isMsfCallback(cb) ? 'meterpreter' : 'agent')).toUpperCase();
+                    const tone: PanelTone = alive ? 'default' : 'muted';
+                    return (
+                        <button
+                            key={cb.id}
+                            type="button"
+                            role="menuitem"
+                            {...{ [PANEL_ITEM_ATTR]: '' }}
+                            disabled={!alive}
+                            onClick={() => onSelectCallback(cb)}
+                            title={!alive ? 'Callback is dead' : `${cb.user || '?'}@${cb.host || cb.ip || '?'}`}
+                            className={cn(panelRowClass(tone, !alive), 'flex-col items-stretch gap-1 py-2')}
+                        >
+                            <PanelBar tone={tone} />
+                            <span className="flex items-center gap-2.5">
+                                <span className={cn('font-bold tabular-nums tracking-[0.1em]', TONE_TEXT[tone])}>
+                                    C-{cb.display_id}
+                                </span>
+                                <span className="truncate text-[10px] text-signal opacity-70">{ptype}</span>
+                                <span aria-hidden="true" className="flex-1" />
+                                <PanelChip text={alive ? 'ALIVE' : 'DEAD'} tone={alive ? 'active' : 'danger'} />
+                            </span>
+                            <span className="truncate pl-[2px] text-left text-[10px] leading-tight text-signal opacity-70">
+                                {cb.user || '?'}@{cb.host || cb.ip || '?'}
+                                {cb.description ? ` · ${cb.description}` : ''}
+                            </span>
+                        </button>
+                    );
+                })}
+            </PanelGroup>
+        </PanelShell>,
         document.body
     );
 };
@@ -532,21 +363,23 @@ export const QuickHackVarPicker = ({
                         }}
                         onBlur={() => setIpInputMode(false)}
                         placeholder="IP"
-                        className="w-[112px] px-1.5 py-1 text-[9px] font-mono tracking-wider focus:outline-none transition-colors"
-                        style={{
-                            background: 'rgba(0,0,0,0.85)',
-                            border: '1px solid rgba(34,211,238,0.5)',
-                            color: '#22d3ee',
-                        }}
+                        className="w-[112px] rounded-sm border border-accent/50 bg-void/80 px-2 py-1 text-[10px] font-mono tracking-[0.1em] text-signal transition-colors placeholder:text-signal/40 focus:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                     />
                 ) : (
                     <button
                         onClick={onRequestNodePick}
-                        className="flex items-center gap-1 px-1.5 py-1 border text-[8px] font-mono tracking-wider transition-all cursor-pointer"
+                        className={cn(
+                            'flex items-center gap-1 rounded-sm border px-1.5 py-1 cursor-pointer',
+                            'text-[10px] font-mono font-bold tracking-[0.12em] transition-colors duration-150',
+                            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset',
+                            // Armed → accent (the console's "live" tone); set → plain
+                            // signal; still empty → amber, the palette's one tone for
+                            // "required but not filled in" (Section 1).
+                            isPickingNode ? 'border-accent/60 bg-accent/10 text-accent focus-visible:ring-accent'
+                                : isFilled ? 'border-signal/25 bg-void/50 text-signal focus-visible:ring-signal/60'
+                                : 'border-amber-400/40 bg-amber-400/[0.06] text-amber-400 focus-visible:ring-amber-400',
+                        )}
                         style={{
-                            borderColor: isPickingNode ? `${accentColor}80` : isFilled ? 'rgba(34,211,238,0.4)' : 'rgba(255,255,255,0.15)',
-                            background: isPickingNode ? `${accentColor}15` : isFilled ? 'rgba(34,211,238,0.08)' : 'rgba(0,0,0,0.7)',
-                            color: isFilled ? '#22d3ee' : isPickingNode ? accentColor : '#666',
                             boxShadow: isPickingNode ? `0 0 8px ${accentColor}30` : 'none',
                             animation: isPickingNode ? 'qh-flicker 1.5s ease-in-out infinite' : undefined,
                         }}
@@ -556,7 +389,7 @@ export const QuickHackVarPicker = ({
                                 : isFilled ? value : 'Click to pick target IP'
                         }
                     >
-                        <Globe size={8} />
+                        <Globe size={9} strokeWidth={2} aria-hidden="true" />
                         {isFilled
                             ? <span className="max-w-[80px] truncate">{value}</span>
                             : <span>{isPickingNode ? 'PICK / TYPE' : 'IP'}</span>
@@ -577,15 +410,18 @@ export const QuickHackVarPicker = ({
         >
             <button
                 onClick={onTogglePortInput}
-                className="flex items-center gap-1 px-1.5 py-1 border text-[8px] font-mono tracking-wider transition-all cursor-pointer"
-                style={{
-                    borderColor: portInputOpen ? `${accentColor}80` : isFilled ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.15)',
-                    background: portInputOpen ? `${accentColor}15` : isFilled ? 'rgba(245,158,11,0.08)' : 'rgba(0,0,0,0.7)',
-                    color: isFilled ? '#f59e0b' : portInputOpen ? accentColor : '#666',
-                }}
+                className={cn(
+                    'flex items-center gap-1 rounded-sm border px-1.5 py-1 cursor-pointer',
+                    'text-[10px] font-mono font-bold tracking-[0.12em] transition-colors duration-150',
+                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset',
+                    portInputOpen ? 'border-accent/60 bg-accent/10 text-accent focus-visible:ring-accent'
+                        : isFilled ? 'border-signal/25 bg-void/50 text-signal focus-visible:ring-signal/60'
+                        : 'border-amber-400/40 bg-amber-400/[0.06] text-amber-400 focus-visible:ring-amber-400',
+                )}
+                style={{ boxShadow: portInputOpen ? `0 0 8px ${accentColor}30` : 'none' }}
                 title={isFilled ? `Number: ${value}` : 'Click to enter number'}
             >
-                <Hash size={8} />
+                <Hash size={9} strokeWidth={2} aria-hidden="true" />
                 {isFilled ? <span>{value}</span> : <span>NUM</span>}
             </button>
             <AnimatePresence>
@@ -609,7 +445,7 @@ export const QuickHackVarPicker = ({
                             }}
                             onKeyDown={e => { if (e.key === 'Enter') onTogglePortInput(); }}
                             placeholder="NUM"
-                            className="w-[52px] bg-black/80 border border-amber-500/30 px-1.5 py-1 text-[9px] font-mono text-amber-400 placeholder-gray-700 focus:border-amber-400/60 focus:outline-none transition-colors text-center"
+                            className="w-[52px] rounded-sm border border-accent/50 bg-void/80 px-1.5 py-1 text-center text-[10px] font-mono tracking-[0.1em] text-signal transition-colors placeholder:text-signal/40 focus:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                         />
                     </motion.div>
                 )}
@@ -628,38 +464,28 @@ export const IPSelectionMenu = ({
     onSelect: (ip: string) => void;
     screenPos: { x: number; y: number };
 }) => {
+    // No dismiss handler of its own: the parent owns when this closes, so the
+    // panel only borrows the placement + roving-focus half of the hook.
+    const { ref, pos, onKeyDown } = useAnchoredPanel(screenPos.x + 30, screenPos.y - 10, () => {});
+
     return createPortal(
-        <motion.div
-            initial={{ opacity: 0, x: -6, scale: 0.95 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -6, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed z-[10002] font-mono"
-            style={{ left: screenPos.x + 30, top: screenPos.y - 10 }}
+        <PanelShell
+            innerRef={ref}
+            pos={pos}
+            width={224}
+            onKeyDown={onKeyDown}
+            icon={Globe}
+            title="SELECT IP"
+            footerLeft="TARGET ADDRESS"
+            footerRight={`${ips.length}`}
+            className="z-[10002]"
         >
-            <div style={{
-                background: 'linear-gradient(135deg, rgba(0,0,0,0.94) 0%, rgba(5,15,20,0.96) 100%)',
-                border: '1px solid rgba(34,211,238,0.25)',
-                boxShadow: '0 0 20px rgba(34,211,238,0.08), 0 0 40px rgba(0,0,0,0.5)',
-            }}>
-                <div className="h-[1px]" style={{ background: 'linear-gradient(90deg, #22d3ee, rgba(34,211,238,0.2), transparent)' }} />
-                <div className="px-2 py-1.5 text-[8px] text-gray-600 uppercase tracking-[0.2em] border-b border-white/5">
-                    SELECT IP
-                </div>
-                <div className="py-0.5">
-                    {ips.map(ip => (
-                        <button
-                            key={ip}
-                            onClick={() => onSelect(ip)}
-                            className="w-full px-3 py-1.5 text-left text-[10px] font-mono text-cyan-300/80 hover:bg-cyan-500/10 hover:text-cyan-200 transition-colors flex items-center gap-2"
-                        >
-                            <Globe size={8} className="text-cyan-500/50 shrink-0" />
-                            {ip}
-                        </button>
-                    ))}
-                </div>
-            </div>
-        </motion.div>,
+            <PanelGroup label="ADDRESSES" count={ips.length}>
+                {ips.map(ip => (
+                    <PanelRow key={ip} icon={Globe} label={ip} onClick={() => onSelect(ip)} />
+                ))}
+            </PanelGroup>
+        </PanelShell>,
         document.body
     );
 };

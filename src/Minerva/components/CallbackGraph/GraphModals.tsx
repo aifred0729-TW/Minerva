@@ -7,9 +7,9 @@ import { MythicDialog } from '../MythicDialog';
 import { EventTriggerContextSelectDialog } from '../EventTriggerContextSelect';
 import { getErrorMessage, parseFirstIP, cn, isCallbackAlive } from '../../lib/utils';
 import {
-    PANEL_CHAMFER, TILE_CHAMFER,
-    CornerTicks, Section, SelectableTile, ChamferedToggle, ActionButton, StatusPill, EmptyTile,
+    Section, SelectableTile, ChamferedToggle, ActionButton, StatusPill, EmptyTile,
 } from '../LinkPanel/linkPanelParts';
+import { PanelStreak, PanelChip } from '../CyberPanel';
 import { snackActions } from '../../lib/snackbar';
 import {
     Edit, Plus, Share2, GitBranch, Network, Info, Terminal,
@@ -541,8 +541,6 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
         return [...list].sort((a: any, b: any) => (b?.running ? 1 : 0) - (a?.running ? 1 : 0));
     }, [p2pData]);
 
-    if (typeof document === 'undefined') return null;
-
     // ESC closes the panel without trapping graph interaction
     React.useEffect(() => {
         if (!source) return;
@@ -550,6 +548,11 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [source, onClose]);
+
+    // Below the hooks, not above them: an early return here skipped the effect,
+    // so a render without `document` ran fewer hooks than one with it. The
+    // effect is inert without a DOM anyway — effects do not run server-side.
+    if (typeof document === 'undefined') return null;
 
     // Broadcast-style horizontal reveal — outer width grows 0 → PANEL_WIDTH;
     // the fixed-width inner content gets clipped from the left edge so the
@@ -568,14 +571,10 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
                         top: position.top,
                         left: position.left,
                         maxHeight: PANEL_MAX_HEIGHT,
-                        clipPath: PANEL_CHAMFER,
                     }}
-                    className="fixed z-[9999] overflow-hidden bg-black border border-signal/50 shadow-[0_0_40px_rgba(0,0,0,0.85)] backdrop-blur-md font-mono"
+                    className="fixed z-[9999] overflow-hidden rounded-md border border-signal/20 bg-void/80 backdrop-blur-sm font-mono"
                     onClick={(e) => e.stopPropagation()}
                 >
-                    {/* L-shape corner ticks on the four corners — Cyberpunk HUD signature */}
-                    <CornerTicks side="left" />
-                    <CornerTicks side="right" />
 
                     {/* Inner is pinned at PANEL_WIDTH; parent's animated width clips
                         it from the left edge so content reveals rightward from the
@@ -588,39 +587,26 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
                         className="flex flex-col"
                         style={{ width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
                     >
-                    {/* Header — inverted ID tile + title block + glowing close button */}
-                    <div className="flex items-stretch border-b border-signal/40 bg-signal/[0.02]">
-                        <div className="relative flex items-center justify-center bg-signal px-3 min-w-[64px] shadow-[inset_0_0_12px_rgba(255,255,255,0.25)]">
-                            {/* Small corner ticks INSIDE the inverted block — Cyberpunk badge feel */}
-                            <span className="pointer-events-none absolute top-1 left-1 w-1.5 h-px bg-void" />
-                            <span className="pointer-events-none absolute top-1 left-1 w-px h-1.5 bg-void" />
-                            <span className="pointer-events-none absolute bottom-1 right-1 w-1.5 h-px bg-void" />
-                            <span className="pointer-events-none absolute bottom-1 right-1 w-px h-1.5 bg-void" />
-                            <span className="text-[16px] font-bold tracking-[0.15em] text-void">
-                                #{source.display_id}
-                            </span>
-                        </div>
-                        <div className="flex flex-col justify-center px-3 py-2 flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                                <GitBranch size={12} strokeWidth={2.5} className="text-accent shrink-0" />
-                                <span className="text-[11px] uppercase tracking-[0.3em] text-signal font-bold truncate">
-                                    LINK_TO_PARENT
-                                </span>
-                                <span className="ml-auto flex items-center gap-1 border border-accent/60 bg-accent/10 px-1.5 py-px text-[8px] uppercase tracking-[0.2em] text-accent shrink-0">
-                                    <span className="h-1 w-1 bg-accent animate-pulse rounded-full shadow-[0_0_4px_currentColor]" />
-                                    ARMED
-                                </span>
-                            </div>
-                            <div className="text-[10px] uppercase tracking-[0.2em] text-signal truncate mt-0.5">
-                                {source.isCustom ? 'CUSTOM' : 'CALLBACK'} · {source.host}
+                    {/* Header strip — same grammar as every other floating panel:
+                        what this is on the left, how it is on the right. */}
+                    <div className="relative overflow-hidden flex items-center gap-3 px-4 py-2.5 border-b border-signal/15">
+                        <PanelStreak />
+                        <div className="relative flex items-center gap-2.5 min-w-0 flex-1">
+                            <GitBranch size={13} strokeWidth={2} aria-hidden="true" className="text-accent shrink-0" />
+                            <div className="min-w-0">
+                                <div className="text-[10px] font-bold tracking-[0.25em] text-signal truncate">LINK_TO_PARENT</div>
+                                <div className="text-[10px] tracking-[0.15em] text-signal opacity-70 truncate mt-0.5">
+                                    {source.isCustom ? 'CUSTOM' : 'CALLBACK'} · {source.host}
+                                </div>
                             </div>
                         </div>
+                        <PanelChip text={`C-${source.display_id}`} tone="default" className="relative" />
                         <button
                             onClick={onClose}
-                            className="group flex items-center justify-center px-3 text-signal transition-all hover:bg-red-500/10 hover:text-red-400 border-l border-signal/40"
                             aria-label="Close"
+                            className="relative shrink-0 rounded-sm border border-signal/15 p-1 text-signal/70 transition-colors hover:border-red-400/60 hover:bg-red-400/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400"
                         >
-                            <X size={14} strokeWidth={2.5} className="transition-transform duration-200 group-hover:rotate-90" />
+                            <X size={11} strokeWidth={2} aria-hidden="true" />
                         </button>
                     </div>
 
@@ -650,7 +636,7 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
                                                 ? 'dead'
                                                 : 'alive';
                                         const KindIcon = kind === 'custom' ? Box : kind === 'alive' ? Cpu : Skull;
-                                        const iconCls  = kind === 'custom' ? 'text-signal' : kind === 'alive' ? 'text-accent' : 'text-red-500';
+                                        const iconCls  = kind === 'custom' ? 'text-signal/70' : kind === 'alive' ? 'text-accent' : 'text-red-400';
                                         const pillText = cb.isCustom ? 'CUSTOM' : cb.payload?.payloadtype?.name;
                                         return (
                                             <SelectableTile
@@ -658,32 +644,15 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
                                                 selected={selected}
                                                 onClick={() => setSelectedDestination(cb)}
                                             >
-                                                {/* Status LED dot — pulses for live, dim for dead/custom */}
-                                                <span className={cn(
-                                                    'h-1.5 w-1.5 shrink-0 rounded-full',
-                                                    kind === 'alive' && 'bg-accent animate-pulse shadow-[0_0_4px_currentColor] text-accent',
-                                                    kind === 'dead' && 'bg-red-500 text-red-500',
-                                                    kind === 'custom' && 'bg-signal text-signal',
-                                                )} />
-                                                <KindIcon size={12} strokeWidth={2.2} className={cn('shrink-0', iconCls)} />
-                                                <span className="text-signal font-bold">#{cb.display_id}</span>
-                                                <span className={kind === 'dead' ? 'text-red-500' : 'text-accent'}>@</span>
-                                                <span className={cn('min-w-0 flex-1 truncate', kind === 'dead' ? 'text-signal line-through decoration-red-500/60' : 'text-signal')}>{cb.host}</span>
-                                                {kind !== 'custom' && (
-                                                    <span className={cn(
-                                                        'border px-1.5 py-px text-[9px] tracking-[0.2em] shrink-0',
-                                                        kind === 'alive' ? 'border-accent/60 bg-accent/10 text-accent' : 'border-red-500/60 bg-red-500/10 text-red-400'
-                                                    )}>
-                                                        {kind === 'alive' ? 'LIVE' : 'DEAD'}
-                                                    </span>
+                                                <KindIcon size={12} strokeWidth={2} className={cn('shrink-0', iconCls)} />
+                                                <span className="shrink-0 font-bold tabular-nums text-signal">C-{cb.display_id}</span>
+                                                <span className={cn('min-w-0 flex-1 truncate', kind === 'dead' ? 'text-signal line-through decoration-red-400/60' : 'text-signal')}>{cb.host}</span>
+                                                {pillText && (
+                                                    <PanelChip text={String(pillText).toUpperCase()} tone={kind === 'custom' ? 'default' : kind === 'alive' ? 'default' : 'muted'} />
                                                 )}
-                                                <span className={cn(
-                                                    'border px-1.5 py-px text-[9px] tracking-[0.2em] shrink-0',
-                                                    kind === 'custom' ? 'border-signal/50 text-signal' :
-                                                    kind === 'alive' ? 'border-accent/60 text-accent' : 'border-red-500/60 text-red-400'
-                                                )}>
-                                                    {pillText}
-                                                </span>
+                                                {kind !== 'custom' && (
+                                                    <PanelChip text={kind === 'alive' ? 'LIVE' : 'DEAD'} tone={kind === 'alive' ? 'active' : 'danger'} />
+                                                )}
                                             </SelectableTile>
                                         );
                                     })}
@@ -755,39 +724,36 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
                             icon={<Tag size={11} strokeWidth={2.5} />}
                             hint="OPTIONAL"
                         >
-                            <div className="relative" style={{ clipPath: TILE_CHAMFER }}>
+                            <div className="relative">
                                 <input
                                     type="text"
                                     value={edgeLabel}
                                     onChange={(e) => setEdgeLabel(e.target.value)}
                                     placeholder="SMB_LINK · INTERNAL_PIVOT"
-                                    className="w-full border-l-2 border-l-signal/40 bg-signal/[0.03] pl-3 pr-5 py-2.5 text-[11px] tracking-wider text-signal placeholder:text-accent focus:border-l-accent focus:bg-signal/5 focus:outline-none transition-colors"
+                                    className="w-full min-h-[32px] rounded-sm border border-signal/15 bg-signal/[0.04] px-2.5 py-1.5 text-[11px] tracking-[0.1em] text-signal transition-colors placeholder:text-signal/40 hover:border-signal/50 focus:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                                 />
                             </div>
                         </Section>
 
                         {/* Link summary */}
                         {selectedDestination && selectedProfile && (
-                            <div
-                                style={{ clipPath: TILE_CHAMFER }}
-                                className="relative border-l-2 border-l-accent bg-signal/[0.05] pl-3 pr-5 py-2.5 text-[11px] text-signal shadow-[0_0_18px_rgba(34,197,94,0.15)]"
-                            >
+                            <div className="relative rounded-sm border border-accent/40 bg-accent/[0.06] px-3 py-2.5 text-[11px] text-signal">
                                 <div className="mb-1.5 flex items-center justify-between">
                                     <div className="flex items-center gap-1.5">
                                         <Send size={11} strokeWidth={2.5} className="text-accent" />
                                         <span className="text-[10px] uppercase tracking-[0.25em] text-signal">LINK_PREVIEW</span>
                                     </div>
-                                    <span className="border border-accent/60 bg-accent/10 px-1.5 py-px text-[9px] tracking-[0.2em] text-accent">
+                                    <span className="rounded-[3px] border border-accent/50 bg-accent/10 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-accent">
                                         {isP2PConnection ? 'P2P' : 'EGRESS'}
                                     </span>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1.5 text-signal">
-                                    <span className="border border-signal/40 bg-signal/10 px-1.5 py-px font-bold">#{source.display_id}</span>
+                                    <span className="rounded-[3px] border border-signal/25 bg-void/50 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-signal">#{source.display_id}</span>
                                     <span className="text-signal">{source.host}</span>
                                     <ChevronRight size={11} className="text-accent" />
-                                    <span className="border border-accent/60 bg-accent/10 px-1.5 py-px text-accent">{selectedProfile.name}</span>
+                                    <span className="rounded-[3px] border border-accent/50 bg-accent/10 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-accent">{selectedProfile.name}</span>
                                     <ChevronRight size={11} className="text-accent" />
-                                    <span className="border border-signal/40 bg-signal/10 px-1.5 py-px font-bold">#{selectedDestination.display_id}</span>
+                                    <span className="rounded-[3px] border border-signal/25 bg-void/50 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-signal">#{selectedDestination.display_id}</span>
                                     <span className="text-signal">{selectedDestination.host}</span>
                                 </div>
                                 {edgeLabel && (
@@ -801,11 +767,8 @@ const LinkToParentPanel: React.FC<LinkToParentPanelProps> = ({
                     </div>
 
                     {/* Footer — graphical action buttons with clear affordance */}
-                    <div className="flex items-center justify-between gap-3 border-t border-signal/40 bg-signal/[0.02] px-4 py-3">
-                        <div className="flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-signal">
-                            <span className="h-1 w-1 bg-accent animate-pulse" />
-                            <span>MINERVA · LINK</span>
-                        </div>
+                    <div className="flex items-center justify-between gap-3 border-t border-signal/15 px-4 py-2.5">
+                        <span className="text-[10px] tracking-[0.2em] text-signal opacity-70">MINERVA · LINK</span>
                         <div className="flex items-center gap-2">
                             <ActionButton
                                 variant="ghost"

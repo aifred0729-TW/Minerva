@@ -5,37 +5,10 @@ import {
 import { snackActions } from '../../lib/snackbar';
 import { useGetMythicSetting, useSetMythicSetting } from '../../components/MythicSavedUserSetting';
 import { DraggableList } from '../../components/DraggableList';
+import { ALL_SIDEBAR_ITEMS, DEFAULT_SIDEBAR_SHORTCUTS } from './sidebarItems';
 
-const ALL_SIDEBAR_ITEMS = [
-    { key: 'dashboard',       label: 'DASHBOARD'    },
-    { key: 'events',          label: 'EVENTS'       },
-    { key: 'callbacks',       label: 'CALLBACKS'    },
-    { key: 'console',         label: 'CONSOLE'      },
-    { key: 'task',            label: 'TASKS'        },
-    { key: 'payloads',        label: 'PAYLOADS'     },
-    { key: 'credentials',     label: 'CREDENTIALS'  },
-    { key: 'files',           label: 'FILES'        },
-    { key: 'c2-profiles',     label: 'C2 PROFILES'  },
-    { key: 'tunnels',         label: 'TUNNELS'      },
-    { key: 'quickhacks',      label: 'QUICKHACK'    },
-    { key: 'users',           label: 'USERS'        },
-    { key: 'search',          label: 'SEARCH'       },
-    { key: 'topology',        label: '3D TOPOLOGY'  },
-    { key: 'metasploit',      label: 'METASPLOIT'   },
-    { key: 'settings',        label: 'SETTINGS'     },
-    { key: 'opsec',           label: 'OPSEC'        },
-    { key: 'operations',      label: 'OPERATIONS'   },
-    { key: 'artifacts',       label: 'ARTIFACTS'    },
-    { key: 'mitre',           label: 'MITRE'        },
-    { key: 'reporting',       label: 'REPORTING'    },
-    { key: 'tags',            label: 'TAGS'         },
-    { key: 'browser-scripts', label: 'SCRIPTS'      },
-    { key: 'eventing',        label: 'EVENTING'     },
-    { key: 'payload-types',   label: 'PKG TYPES'    },
-    { key: 'jupyter',         label: 'JUPYTER'      },
-    { key: 'graphql',         label: 'GRAPHQL'      },
-];
-export const DEFAULT_SIDEBAR_SHORTCUTS = ALL_SIDEBAR_ITEMS.map(i => i.key);
+export { DEFAULT_SIDEBAR_SHORTCUTS };
+
 
 // Mirror Sidebar.tsx's resolution: drop unknown keys (legacy MythicReactUI defaults like
 // "ActiveCallbacks","Payloads",… stored from older installs) and append any current items

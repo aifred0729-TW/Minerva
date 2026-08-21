@@ -117,7 +117,7 @@ export function BrowserScriptView({ active, onRemoveEdge, onAddP2PEdge, onTaskFo
                     source: cbNodeId,
                     target: bsNodeId,
                     label: bs.command?.cmd || '',
-                    style: { stroke: '#22c55e44', strokeWidth: 1 },
+                    style: { stroke: '#4ade8044', strokeWidth: 1 },
                     animated: false,
                     data: { commandName: bs.command?.cmd || '', scriptName: String(bs.name || '') },
                 });
@@ -191,8 +191,8 @@ export function BrowserScriptView({ active, onRemoveEdge, onAddP2PEdge, onTaskFo
             edges: edges.map((e: any) => ({
                 ...e,
                 style: connectedEdgeIds.has(e.id)
-                    ? { stroke: '#22c55e', strokeWidth: 2, opacity: 1 }
-                    : { stroke: '#22c55e22', strokeWidth: 1, opacity: 0.2 },
+                    ? { stroke: '#4ade80', strokeWidth: 2, opacity: 1 }
+                    : { stroke: '#4ade8022', strokeWidth: 1, opacity: 0.2 },
             })),
         };
     }, [bsVisibleGraphData, bsSelectedNodeIds]);

@@ -31,9 +31,9 @@ export const getOSInfo = (os: string) => {
     };
     if (lower.includes('android')) return { 
         desc: "Android mobile operating system based on the Linux kernel.",
-        color: "text-green-400",
-        bg: "bg-green-400/10",
-        border: "border-green-400/30"
+        color: "text-accent",
+        bg: "bg-signal/[0.06]",
+        border: "border-accent"
     };
     if (lower.includes('chrome')) return { 
         desc: "Chrome OS and web-based operating system environments.",

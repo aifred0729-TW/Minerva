@@ -68,8 +68,6 @@ export function MsfSocksDialog({ open, onClose, sessionId, label, ipField }: Pro
         if (open) setSubnetText(initialSubnets.join('\n'));
     }, [open, initialSubnets]);
 
-    if (!open) return null;
-
     const parseSubnets = (text: string): string[] =>
         text.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
 
@@ -132,6 +130,11 @@ export function MsfSocksDialog({ open, onClose, sessionId, label, ipField }: Pro
             .filter(([sid]) => sid !== sessionId)
             .map(([sid, info]) => ({ sid, subnets: info.subnets, attachedAt: info.attachedAt }));
     }, [tunnel, sessionId]);
+
+    // Closed-state guard below every hook. Above them it skipped the useMemo
+    // further down, so opening the dialog changed the hook count mid-life —
+    // React's "rendered more hooks than during the previous render" crash.
+    if (!open) return null;
 
     const focusedExistingSubnets = tunnel?.sessions[sessionId]?.subnets ?? [];
 

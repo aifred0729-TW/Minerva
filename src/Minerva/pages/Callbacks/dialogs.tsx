@@ -505,9 +505,9 @@ export const ColumnFilterInput = ({ value, onChange, placeholder = 'Filter...' }
 }) => (
     <div className="relative">
         <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-            className="w-full bg-black/60 border border-white/10 text-gray-300 text-[10px] font-mono px-2 py-0.5 focus:outline-none focus:border-signal/30 rounded-sm placeholder-gray-600"
+            className="w-full rounded-sm border border-signal/20 bg-black/40 px-2 py-1 text-[11px] font-mono text-signal transition-colors placeholder:text-signal/40 hover:border-signal/40 focus:border-signal/60 focus:outline-none focus-visible:ring-1 focus-visible:ring-signal"
             onClick={e => e.stopPropagation()} />
-        {value && <button onClick={e => { e.stopPropagation(); onChange(''); }} className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400"><X size={10} /></button>}
+        {value && <button onClick={e => { e.stopPropagation(); onChange(''); }} className="absolute right-1 top-1/2 -translate-y-1/2 text-signal opacity-60 transition-opacity hover:opacity-100"><X size={10} /></button>}
     </div>
 );
 

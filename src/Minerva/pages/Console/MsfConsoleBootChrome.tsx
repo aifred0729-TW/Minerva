@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useWindowEngaged } from '../../lib/useWindowEngaged';
 import { Server, Terminal, Activity, Layers, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -263,17 +264,19 @@ function StepDot({ state }: { state: StepState }) {
 }
 
 function ShimmerBar() {
+    // A boot can sit on screen while the operator goes and does something else.
+    // Framer's `repeat: Infinity` runs off its own rAF loop, which CSS
+    // `animation-play-state` cannot pause, so it needs the gate explicitly.
+    const engaged = useWindowEngaged();
     return (
         <div className="relative h-[3px] w-full overflow-hidden rounded-sm bg-signal/10">
             <motion.div
                 className="absolute inset-y-0 w-1/3 bg-accent/80 rounded-sm"
                 initial={{ x: '-100%' }}
-                animate={{ x: ['-30%', '130%'] }}
-                transition={{
-                    duration: 1.6,
-                    repeat: Infinity,
-                    ease: 'easeInOut',
-                }}
+                animate={engaged ? { x: ['-30%', '130%'] } : { x: '-30%' }}
+                transition={engaged
+                    ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }
+                    : { duration: 0 }}
             />
         </div>
     );

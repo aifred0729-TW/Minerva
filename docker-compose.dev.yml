@@ -14,10 +14,21 @@ services:
       - ./postcss.config.js:/app/postcss.config.js:ro
       - ./.env:/app/.env:ro
     environment:
-      - CHOKIDAR_USEPOLLING=true
-      - WATCHPACK_POLLING=true
+      # Filesystem watching. THESE DEFAULT OFF ON PURPOSE.
+      #
+      # Polling exists for Docker Desktop on macOS/Windows, where bind mounts do
+      # not deliver inotify events. On Linux they do, and polling instead makes
+      # webpack walk and stat() the whole watched tree forever: measured on the
+      # reference host at 60,591 statx + 2,657 getdents64 per 10 SECONDS, zero
+      # inotify watches, ~1.2-1.8 cores held permanently and 25 hours of CPU
+      # burned in 16 hours of uptime. On an 8-core box that is enough to make
+      # video playback stutter in other applications.
+      #
+      # Set MINERVA_WATCH_POLLING=true in the environment if you are running
+      # this on Docker Desktop and hot reload stops seeing your edits.
+      - CHOKIDAR_USEPOLLING=${MINERVA_WATCH_POLLING:-false}
+      - WATCHPACK_POLLING=${MINERVA_WATCH_POLLING:-false}
       - FAST_REFRESH=true
-      - WDS_POLLING=true
       - WDS_SOCKET_PATH=ws
       - WDS_SOCKET_PORT=443
       - PORT=3000

@@ -2,20 +2,18 @@
 //  Snackbar / toast utilities (Minerva-native)
 //
 //  Replaces the old Snackbar.js from components/utilities.
-//  Removes dependencies on MythicNestedMenus & MythicStyledTooltip
-//  by using plain MUI Menu for the snooze dropdown.
+//
+//  The snooze dropdown used to be a plain MUI Menu. Every module in the app
+//  imports `snackActions` from here, so this file is eager — and those four
+//  MUI imports put @mui/material + @mui/system + @mui/utils + @emotion +
+//  stylis (167 modules, ~740 KB of the entry bundle) on the critical path of
+//  the login screen, for one dropdown on a toast close button. It is now a
+//  portalled Tailwind menu in the house style.
 // ═══════════════════════════════════════════════════════════════════
 import React from 'react';
 import { toast, type ToastOptions, type ToastContent } from 'react-toastify';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import Button from '@mui/material/Button';
-import ButtonGroup from '@mui/material/ButtonGroup';
-import NotificationsPausedIcon from '@mui/icons-material/NotificationsPaused';
-import AlarmIcon from '@mui/icons-material/Alarm';
-import SnoozeIcon from '@mui/icons-material/Snooze';
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
-import { CheckCircle2, XCircle, AlertTriangle, Info, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { CheckCircle2, XCircle, AlertTriangle, Info, Loader2, AlarmClock, BellOff, ChevronDown, Moon } from 'lucide-react';
 import { getSkewedNow } from './time';
 import { playNotification } from './soundEffects';
 
@@ -68,7 +66,7 @@ function dndWithTime(minutes: number): void {
 type ToastType = 'success' | 'error' | 'warning' | 'info' | 'loading';
 
 const TYPE_CONFIG: Record<ToastType, { label: string; Icon: React.ComponentType<any>; color: string }> = {
-    success: { label: 'OK', Icon: CheckCircle2, color: '#22c55e' },
+    success: { label: 'OK', Icon: CheckCircle2, color: '#4ade80' },
     error: { label: 'ERROR', Icon: XCircle, color: '#ef4444' },
     warning: { label: 'WARN', Icon: AlertTriangle, color: '#eab308' },
     info: { label: 'INFO', Icon: Info, color: '#3b82f6' },
@@ -91,70 +89,94 @@ const CyberToast = ({ msg, type }: { msg: React.ReactNode; type: ToastType }) =>
 };
 
 // ── CloseButton with snooze dropdown ───────────────────────────────
+// NOTE: currently unreachable. App.tsx's <ToastContainer closeButton={false}>
+// means this never mounts, and it is the only writer of the `dnd` key that
+// snackActions.info/.warning read — so Do-Not-Disturb can be read but never
+// set. Left in place (and de-MUI'd) rather than deleted, because wiring it up
+// or dropping the feature is a product call, not a performance one.
+const SNOOZE_OPTIONS: { label: string; minutes: number; long?: boolean }[] = [
+    { label: '5 MIN', minutes: 5 },
+    { label: '30 MIN', minutes: 30 },
+    { label: '1 HR', minutes: 60 },
+    { label: '4 HR', minutes: 60 * 4 },
+    { label: '24 HR', minutes: 60 * 24, long: true },
+];
+
 export const CloseButton = ({ closeToast }: { closeToast?: () => void }) => {
-    const anchorRef = React.useRef<HTMLDivElement | null>(null);
+    const anchorRef = React.useRef<HTMLButtonElement | null>(null);
     const [menuOpen, setMenuOpen] = React.useState(false);
+    const [menuPos, setMenuPos] = React.useState<{ top: number; left: number } | null>(null);
     const [dnd] = React.useState(() => stillDoNotDisturb());
 
-    const snoozeOptions = [
-        { label: '5min', icon: <AlarmIcon />,  minutes: 5 },
-        { label: '30min', icon: <AlarmIcon />,  minutes: 30 },
-        { label: '1hr', icon: <AlarmIcon />,  minutes: 60 },
-        { label: '4hr', icon: <AlarmIcon />,  minutes: 60 * 4 },
-        { label: '24hr', icon: <SnoozeIcon />, minutes: 60 * 24 },
-    ];
+    // Toasts live in a fixed, overflow-clipped container, so the menu is
+    // portalled to <body> and positioned from the button's own rect — the one
+    // thing MUI's Menu was actually doing here.
+    React.useEffect(() => {
+        if (!menuOpen) { setMenuPos(null); return; }
+        const rect = anchorRef.current?.getBoundingClientRect();
+        if (rect) setMenuPos({ top: rect.bottom + 4, left: rect.left });
+        const close = () => setMenuOpen(false);
+        window.addEventListener('scroll', close, true);
+        window.addEventListener('resize', close);
+        return () => {
+            window.removeEventListener('scroll', close, true);
+            window.removeEventListener('resize', close);
+        };
+    }, [menuOpen]);
 
     if (dnd) {
         return (
-            <div style= {{ display: 'flex', alignItems: 'center', gap: 4 }
-    }>
-        <AlarmIcon color="warning" fontSize = "small" />
-            <span style={ { fontSize: 12 } }> Snoozed </span>
-                </div>
+            <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-signal">
+                <AlarmClock size={12} strokeWidth={2} className="shrink-0" />
+                <span>Snoozed</span>
+            </div>
         );
     }
 
-return (
-    <div>
-    <ButtonGroup ref= { anchorRef } size = "small" style = {{ float: 'right', width: '70px' }}>
-        <Button
-                    size="small"
-onClick = {(e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMenuOpen((prev) => !prev);
-}}
-title = "Snooze Info and Warning messages for a period of time. Revert this at any time in your settings"
-    >
-    <NotificationsPausedIcon color="error" fontSize = "small" />
-        <ArrowDropDownIcon fontSize="small" />
-            </Button>
-            </ButtonGroup>
-            < Menu
-anchorEl = { anchorRef.current }
-open = { menuOpen }
-onClose = {() => setMenuOpen(false)}
-anchorOrigin = {{ vertical: 'bottom', horizontal: 'left' }}
-transformOrigin = {{ vertical: 'top', horizontal: 'left' }}
-style = {{ zIndex: 100000 }}
-            >
-{
-    snoozeOptions.map((opt) => (
-        <MenuItem
-                        key= { opt.label }
-                        onClick = {(e) => {
-        e.stopPropagation();
-        dndWithTime(opt.minutes);
-    setMenuOpen(false);
-}}
-                    >
-    <span style={ { display: 'flex', alignItems: 'center', gap: 4 } }>
-        { opt.icon } { opt.label }
-</span>
-    </MenuItem>
-                ))}
-</Menu>
-    </div>
+    return (
+        <>
+            <button
+                ref={anchorRef}
+                type="button"
+                title="Snooze Info and Warning messages for a period of time. Revert this at any time in your settings"
+                onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMenuOpen((prev) => !prev);
+                }}
+                className="float-right flex items-center gap-0.5 rounded-md border border-signal/20 px-1.5 py-1 text-signal transition-colors hover:border-signal/40 hover:bg-signal/10">
+                <BellOff size={12} strokeWidth={2} className="shrink-0" />
+                <ChevronDown size={11} strokeWidth={2} className="shrink-0" />
+            </button>
+            {menuOpen && menuPos && createPortal(
+                <>
+                    <div className="fixed inset-0 z-[100000]" onClick={() => setMenuOpen(false)} />
+                    <div
+                        role="menu"
+                        style={{ top: menuPos.top, left: menuPos.left }}
+                        className="fixed z-[100001] min-w-[9rem] rounded-md border border-signal/20 bg-machine py-1 shadow-lg">
+                        {SNOOZE_OPTIONS.map((opt) => (
+                            <button
+                                key={opt.label}
+                                type="button"
+                                role="menuitem"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    dndWithTime(opt.minutes);
+                                    setMenuOpen(false);
+                                }}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[10px] uppercase tracking-wider text-signal transition-colors hover:bg-signal/10">
+                                {opt.long
+                                    ? <Moon size={11} strokeWidth={2} className="shrink-0" />
+                                    : <AlarmClock size={11} strokeWidth={2} className="shrink-0" />}
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                </>,
+                document.body,
+            )}
+        </>
     );
 };
 

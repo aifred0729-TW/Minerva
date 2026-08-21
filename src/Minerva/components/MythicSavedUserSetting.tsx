@@ -40,15 +40,34 @@ export function useGetMythicSetting({ setting_name, default_value }: {
   default_value: any;
 }): any {
   const preferences = useReactiveVar(mePreferences);
-  const initialValue = GetMythicSetting({ setting_name, default_value });
-  const [setting, setSetting] = React.useState(initialValue);
+  return preferences?.[setting_name] === undefined ? default_value : preferences[setting_name];
+}
 
-  React.useEffect(() => {
-    const newSetting = GetMythicSetting({ setting_name, default_value });
-    setSetting(newSetting);
-  }, [preferences?.[setting_name]]);
-
-  return setting;
+/**
+ * Plural form of `useGetMythicSetting` — reads N settings through ONE
+ * reactive-var subscription instead of N.
+ *
+ * `useReactiveVar` registers a listener per call, so a component that reads
+ * nine settings pays nine listeners and nine re-render notifications for every
+ * preference write. TaskBlock does exactly that, and the console mounts one
+ * TaskBlock per task in the callback's history — measured 936 listeners on
+ * callback 203 (104 tasks x 9). The values all come from the same object, so
+ * one subscription is enough.
+ *
+ * `defaults` must be a stable reference (module-level constant or useMemo);
+ * the returned object is memoised on it plus the preferences identity, so
+ * consumers can safely put it in dependency arrays.
+ */
+export function useGetMythicSettings<T extends Record<string, any>>(defaults: T): T {
+  const preferences = useReactiveVar(mePreferences);
+  return React.useMemo(() => {
+    const out: Record<string, any> = {};
+    for (const key of Object.keys(defaults)) {
+      const v = (preferences as any)?.[key];
+      out[key] = v === undefined ? defaults[key] : v;
+    }
+    return out as T;
+  }, [preferences, defaults]);
 }
 
 /**

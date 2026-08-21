@@ -37,7 +37,7 @@ const fmtBytes = (n: number): string => {
 };
 
 const TYPE_COLOR: Record<string, string> = {
-    socks: '#22c55e',
+    socks: '#4ade80',
     rpfwd: '#60a5fa',
     interactive: '#a78bfa',
     c2: '#4ade8044',
@@ -667,7 +667,7 @@ export default function TunnelMap() {
                             />
                             <MiniMap
                                 nodeColor={(n) => {
-                                    if (n.type === 'mythicNode') return '#22c55e';
+                                    if (n.type === 'mythicNode') return '#4ade80';
                                     if (n.type === 'agentNode') return (n.data as Record<string, unknown>).active ? '#4ade80' : '#374151';
                                     const pt = (n.data as Record<string, unknown>).portType as string;
                                     return TYPE_COLOR[pt] || '#94a3b8';
@@ -682,7 +682,7 @@ export default function TunnelMap() {
                         </div>
                         {/* Bottom hint */}
                         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-                            <div className="font-mono text-[10px] text-gray-600 bg-black/60 border border-white/8 px-3 py-1 tracking-widest whitespace-nowrap">
+                            <div className="font-mono text-[10px] text-gray-600 bg-black/60 border border-white/10 px-3 py-1 tracking-widest whitespace-nowrap">
                                 DRAG TO REARRANGE · SCROLL TO ZOOM · ANIMATED EDGES = LIVE TRAFFIC
                             </div>
                         </div>

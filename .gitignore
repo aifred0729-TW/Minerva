@@ -143,3 +143,10 @@ vite.config.ts.timestamp-*
 
 # Security: Do not push SSL certificates
 nginx/ssl/
+
+# Generated at install time by scripts/minerva_install.sh
+nginx/runtime/server-info.json
+
+# Generated msfrpcd credential, served to authenticated operators via nginx.
+# Contains a secret — never commit it.
+nginx/runtime/msf-config.json

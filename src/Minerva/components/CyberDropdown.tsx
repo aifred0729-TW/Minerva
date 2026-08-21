@@ -113,7 +113,7 @@ export function CyberDropdown({
                 width: menuPosition.width,
                 zIndex: 99999
             }}
-            className="border border-signal bg-void/98 backdrop-blur-xl shadow-[0_0_30px_rgba(0,255,255,0.2),0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150"
+            className="border border-signal bg-void/100 backdrop-blur-xl shadow-[0_0_30px_rgba(0,255,255,0.2),0_8px_32px_rgba(0,0,0,0.8)] overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150"
         >
             {/* Scanline effect */}
             <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.1)_50%)] bg-[length:100%_4px] opacity-20" />

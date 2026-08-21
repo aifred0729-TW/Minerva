@@ -452,13 +452,13 @@ export const MachineGraphView = ({ machines, currentCallback, navigate }: { mach
                     <line key={`line-${i}`}
                         x1={graphNodes[0].x} y1={graphNodes[0].y}
                         x2={node.x} y2={node.y}
-                        stroke={node.machine.alive ? "#22c55e" : "#ef4444"}
+                        stroke={node.machine.alive ? "#4ade80" : "#ef4444"}
                         strokeWidth={node.machine.alive ? 1.5 : 0.8}
                         strokeDasharray={node.machine.alive ? "none" : "4 2"}
                         opacity={0.4}
                     />
                 ))}
-                <circle cx={graphNodes[0]?.x} cy={graphNodes[0]?.y} r="20" fill="none" stroke="#22c55e" strokeWidth="0.5" opacity="0.3">
+                <circle cx={graphNodes[0]?.x} cy={graphNodes[0]?.y} r="20" fill="none" stroke="#4ade80" strokeWidth="0.5" opacity="0.3">
                     <animate attributeName="r" values="20;35;20" dur="3s" repeatCount="indefinite" />
                     <animate attributeName="opacity" values="0.3;0;0.3" dur="3s" repeatCount="indefinite" />
                 </circle>
@@ -490,7 +490,7 @@ export const MachineGraphView = ({ machines, currentCallback, navigate }: { mach
                             <div className={cn(
                                 "w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors",
                                 node.isSelf 
-                                    ? "bg-signal/30 border-signal text-signal shadow-[0_0_10px_rgba(34,197,94,0.5)]"
+                                    ? "bg-signal/30 border-signal text-signal shadow-[0_0_10px_rgba(74,222,128,0.5)]"
                                     : isDead
                                         ? "bg-red-500 border-red-400 text-black"
                                         : "bg-black/80 border-signal/50 text-signal group-hover:border-signal"

@@ -22,16 +22,42 @@ import {
     Trash2,
     Plus,
     XCircle,
+    RotateCw,
+    Copy,
+    Cpu,
+    ShieldOff,
+    Flame,
+    KeyRound,
 }from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import {
+    useAnchoredPanel as useAnchoredMenu,
+    PanelShell as MenuPanel,
+    PanelGroup as MenuGroup,
+    PanelRow as MenuRow,
+    PanelReadout as MenuReadout,
+    PanelPrimary as MenuPrimary,
+} from '../../components/CyberPanel';
 import { cn, isCallbackAlive } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
 import { Vector3 } from 'three';
 import type { ThreeEvent } from '@react-three/fiber';
 import { UPDATE_CALLBACK_DESCRIPTION_MUTATION, UPDATE_IPS_MUTATION } from '../../lib/api';
 import type { TopoNode, TopoNodeData, TopoEdge, SubnetZone } from '../../types/topology';
-import { extractPrimaryIP, getOSFullLabel, getPrivilegeLabel } from './topology';
+import { extractPrimaryIP, getOSFullLabel, getPrivilege } from './topology';
 import { extractAllIPs } from '../../lib/quickhacks';
+import { cycleDefense, hostKeyOf, useHostDefense } from './defenseMarks';
+import { MatrixRow, markState, type MatrixState } from './defenseMatrix';
 import { CyberEnvironment, SmartOrbitControls, SubnetSystem, DataBeamEdge, NodeSphere, createSubnetRegistry } from './SceneObjects';
+
+/* =============================================================================
+   3D CONTEXT MENUS
+   -----------------------------------------------------------------------------
+   Node, scene-background and subnet right-click menus. The panel language —
+   glass shell, framed rows, state chips, targeting bar, roving focus — lives
+   in `components/CyberPanel`, shared with LINK_TO_PARENT and the QuickHack
+   stack so all three floating surfaces stay one instrument.
+============================================================================= */
 
 export const ContextMenu3D = ({
     x, y, node, onClose,
@@ -47,7 +73,9 @@ export const ContextMenu3D = ({
     onClose: () => void;
     onNavigateConsole: (displayId: number) => void;
     onLock: (displayId: number, locked: boolean) => void;
-    onHide: (displayId: number) => void;
+    /** Hides the whole machine — every session on it, not just the
+     *  representative one (see handleHideNode). */
+    onHide: (node: TopoNode) => void;
     onViewDetails: (node: TopoNode) => void;
     onEditDescription: (node: TopoNode) => void;
     onEditCustomNode: (node: TopoNode) => void;
@@ -69,65 +97,64 @@ export const ContextMenu3D = ({
      *  (current behaviour). */
     preferredDisplayId?: number | null;
 }) => {
-    const ref = useRef<HTMLDivElement>(null);
-    const [adjustedPos, setAdjustedPos] = useState<{ top: number; left: number }>({ top: y, left: x });
-
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [onClose]);
-
-    useEffect(() => {
-        if (!ref.current) return;
-        const rect = ref.current.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const pad = 8;
-        let newTop = y;
-        let newLeft = x;
-        if (y + rect.height > vh - pad) {
-            newTop = Math.max(pad, vh - rect.height - pad);
-        }
-        if (x + rect.width > vw - pad) {
-            newLeft = Math.max(pad, vw - rect.width - pad);
-        }
-        if (newTop !== adjustedPos.top || newLeft !== adjustedPos.left) {
-            setAdjustedPos({ top: newTop, left: newLeft });
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [x, y]);
+    const { ref, pos, onKeyDown } = useAnchoredMenu(x, y, onClose);
 
     const isCallback = node.type === 'callback';
     const isCustom = node.type === 'custom';
     const cb = node.data!;
     const nodeIdForFocus = String(cb?.id ?? node.id);
     const isFocused = linkFocusNodeId === nodeIdForFocus;
-    const hasParent = cb?.id != null && getParentEdge(cb.id);
+    const hasParent = cb?.id != null && !!getParentEdge(cb.id);
+    // A topology node is a MACHINE, so "hide node" has to account for every
+    // session living on it — hiding only the representative left the node on
+    // screen, which read as the action doing nothing.
+    const sessionCount = (node.allCallbacks?.length ?? (node.data ? 1 : 0));
 
-    const menuStyle: React.CSSProperties = {
-        top: adjustedPos.top,
-        left: adjustedPos.left,
-    };
+    // One derived state feeds the header icon, the badge and its tone, so the
+    // panel can never read "ALIVE" in one place and "LOCKED" in another.
+    const headerBadge = cb?.locked ? 'LOCKED' : node.type === 'core' ? 'HUB' : isCustom ? 'CUSTOM' : node.alive ? 'ALIVE' : 'DEAD';
+    const headerTone = cb?.locked ? 'text-red-400' : node.type === 'core' ? 'text-accent' : isCustom ? 'text-signal opacity-70' : node.alive ? 'text-accent' : 'text-red-400';
+    const headerIcon = node.type === 'core' ? Cpu : isCustom ? Edit : Terminal;
+    const primaryIp = extractPrimaryIP(cb?.ip) || '';
 
-    const btnClass = "w-full flex items-center gap-2 px-3 py-2 text-left text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 transition-colors";
-    const sepClass = "border-t border-white/10 my-1";
+    const focusRow = (
+        <MenuRow
+            icon={Crosshair}
+            label="LINK FOCUS"
+            status={isFocused ? 'ON' : undefined}
+            tone={isFocused ? 'active' : 'default'}
+            checked={isFocused}
+            onClick={() => {
+                if (isFocused) onClearLinkFocus();
+                else onSetLinkFocus(nodeIdForFocus, cb?.host || cb?.description || `#${cb?.display_id ?? node.label}`);
+                onClose();
+            }}
+        />
+    );
+
+    const parentRows = (
+        <>
+            <MenuRow icon={GitBranch} label="PARENT LINK" onClick={() => onSetParent(node)} />
+            {hasParent && (
+                <MenuRow icon={X} label="PARENT CUT" tone="danger" onClick={() => onDisconnectParent(node)} />
+            )}
+        </>
+    );
 
     return createPortal(
-        <div
-            ref={ref}
-            className="fixed z-[9999] w-56 bg-[#0a0a0a]/95 backdrop-blur-md border border-cyan-500/30 shadow-[0_0_20px_rgba(34,211,238,0.15)] py-1 font-mono text-xs overflow-visible pointer-events-auto"
-            style={menuStyle}
-            onMouseDown={e => e.stopPropagation()}
+        <MenuPanel
+            innerRef={ref}
+            pos={pos}
+            onKeyDown={onKeyDown}
+            width={272}
+            icon={headerIcon}
+            iconTone={headerTone}
+            title={node.label}
+            badge={headerBadge}
+            badgeTone={headerTone}
+            footerLeft={isCallback ? (primaryIp || getOSFullLabel(cb) || 'CALLBACK') : isCustom ? 'CUSTOM NODE' : 'MINERVA CORE'}
+            footerRight={isCallback && cb?.display_id != null ? `C-${cb.display_id}` : undefined}
         >
-            {/* Header */}
-            <div className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-widest border-b border-white/10 mb-1 flex items-center justify-between">
-                <span>{node.label} — {node.type.toUpperCase()}</span>
-                {isCallback && cb?.locked && <Lock size={10} className="text-red-500" />}
-            </div>
-
             {isCallback && (
                 <>
                     {/* Interact (Console)
@@ -135,171 +162,99 @@ export const ContextMenu3D = ({
                      *  DetailPanel (`preferredDisplayId`), navigate into
                      *  *that* session — otherwise fall back to the
                      *  representative callback on the node. */}
-                    <button className={`${btnClass} text-cyan-400 font-semibold`}
+                    <MenuPrimary
+                        icon={Terminal}
+                        label="INTERACT"
+                        hint={preferredDisplayId != null && preferredDisplayId !== cb.display_id ? `C-${preferredDisplayId}` : undefined}
                         onClick={() => {
                             const targetId = preferredDisplayId ?? cb.display_id ?? 0;
                             onNavigateConsole(targetId);
                             onClose();
-                        }}>
-                        <Terminal size={12} className="text-cyan-400" /> Interact (Console)
-                        {preferredDisplayId != null && preferredDisplayId !== cb.display_id && (
-                            <span className="ml-auto text-[10px] text-cyan-400/70 tabular-nums">→ C-{preferredDisplayId}</span>
-                        )}
-                    </button>
-                    <div className={sepClass} />
+                        }}
+                    />
 
-                    {/* View Details */}
-                    <button className={btnClass} onClick={() => onViewDetails(node)}>
-                        <Info size={12} className="text-gray-500" /> View Details
-                    </button>
+                    <MenuGroup label="SESSION">
+                        <MenuRow icon={Info} label="VIEW DETAILS" onClick={() => onViewDetails(node)} />
+                        <MenuRow icon={Edit} label="DESCRIPTION" onClick={() => onEditDescription(node)} />
+                        <MenuRow
+                            icon={cb?.locked ? Unlock : Lock}
+                            label="CALLBACK LOCK"
+                            status={cb?.locked ? 'LOCKED' : 'OPEN'}
+                            tone={cb?.locked ? 'danger' : 'default'}
+                            checked={!!cb?.locked}
+                            onClick={() => { onLock(cb.display_id ?? 0, !cb.locked); onClose(); }}
+                        />
+                        <MenuRow
+                            icon={EyeOff}
+                            label="HIDE NODE"
+                            status={sessionCount > 1 ? `${sessionCount}` : undefined}
+                            title={
+                                sessionCount > 1
+                                    ? `Hides all ${sessionCount} sessions on this machine — restore from the scene menu's HIDDEN NODES layer`
+                                    : "Reversible — restore from the scene menu's HIDDEN NODES layer"
+                            }
+                            onClick={() => { onHide(node); onClose(); }}
+                        />
+                    </MenuGroup>
 
-                    {/* Edit Description */}
-                    <button className={btnClass} onClick={() => onEditDescription(node)}>
-                        <Edit size={12} className="text-gray-500" /> Edit Description
-                    </button>
+                    <MenuGroup label="LINK">
+                        {focusRow}
+                        {parentRows}
+                    </MenuGroup>
 
-                    {/* Lock/Unlock */}
-                    <button className={btnClass}
-                        onClick={() => { onLock(cb.display_id ?? 0, !cb.locked); onClose(); }}>
-                        {cb.locked
-                            ? <><Unlock size={12} className="text-yellow-400" /> Unlock Callback</>
-                            : <><Lock size={12} className="text-red-400" /> Lock Callback</>}
-                    </button>
-                    <div className={sepClass} />
+                    <MenuGroup label="EDGE">
+                        <MenuRow icon={Link2} label="EDGE TASK" onClick={() => onTaskForEdge(node)} />
+                        <MenuRow icon={Plus} label="P2P EDGE" onClick={() => onAddP2PEdge(node)} />
+                        <MenuRow icon={Trash2} label="EDGE REMOVE" tone="danger" onClick={() => onRemoveEdge(node)} />
+                    </MenuGroup>
 
-                    {/* Link Focus */}
-                    {isFocused ? (
-                        <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-amber-400 hover:bg-amber-900/30 hover:text-amber-300 transition-colors"
-                            onClick={() => { onClearLinkFocus(); onClose(); }}>
-                            <Crosshair size={12} className="text-amber-400" /> Clear Link Focus
-                        </button>
-                    ) : (
-                        <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-amber-500/80 hover:bg-amber-900/20 hover:text-amber-400 transition-colors"
-                            onClick={() => { onSetLinkFocus(nodeIdForFocus, cb.host || `#${cb.display_id}`); onClose(); }}>
-                            <Crosshair size={12} className="text-amber-500/80" /> Set as Link Focus
-                        </button>
-                    )}
-
-                    {/* Link to Parent */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-blue-400 hover:bg-blue-900/30 hover:text-blue-300 transition-colors"
-                        onClick={() => onSetParent(node)}>
-                        <GitBranch size={12} className="text-blue-500" /> Link to Parent
-                    </button>
-
-                    {/* Disconnect from Parent */}
-                    {hasParent && (
-                        <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-orange-400 hover:bg-orange-900/30 hover:text-orange-300 transition-colors"
-                            onClick={() => onDisconnectParent(node)}>
-                            <X size={12} className="text-orange-500" /> Disconnect from Parent
-                        </button>
-                    )}
-                    <div className={sepClass} />
-
-                    {/* Hide Callback */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors"
-                        onClick={() => { onHide(cb.display_id ?? 0); onClose(); }}>
-                        <EyeOff size={12} className="text-red-500" /> Hide Callback
-                    </button>
-                    <div className={sepClass} />
-
-                    {/* Task for Edge */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-blue-400 hover:bg-blue-900/30 hover:text-blue-300 transition-colors"
-                        onClick={() => onTaskForEdge(node)}>
-                        <Link2 size={12} className="text-blue-400" /> Task for Edge
-                    </button>
-
-                    {/* Remove Edge */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-orange-400 hover:bg-orange-900/30 hover:text-orange-300 transition-colors"
-                        onClick={() => onRemoveEdge(node)}>
-                        <Trash2 size={12} className="text-orange-500" /> Remove Edge
-                    </button>
-
-                    {/* Add P2P Edge */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-cyan-400 hover:bg-cyan-900/30 hover:text-cyan-300 transition-colors"
-                        onClick={() => onAddP2PEdge(node)}>
-                        <Plus size={12} className="text-cyan-500" /> Add P2P Edge
-                    </button>
-                    <div className={sepClass} />
-
-                    {/* Trigger Eventing */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-purple-400 hover:bg-purple-900/30 hover:text-purple-300 transition-colors"
-                        onClick={() => onEventing(node)}>
-                        <Zap size={12} className="text-purple-400" /> Trigger Eventing
-                    </button>
-                    <div className={sepClass} />
-
-                    {/* ── QUICKHACK — opens floating panel near node ── */}
-                    {node.alive ? (
-                        <button
-                            className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[#ff003c]/10"
-                            style={{ color: '#ff003c' }}
+                    <MenuGroup label="OPS">
+                        <MenuRow icon={Zap} label="EVENTING" onClick={() => onEventing(node)} />
+                        {/* QUICKHACK — opens the floating panel near the node */}
+                        <MenuRow
+                            icon={Shield}
+                            label="QUICKHACK"
+                            status={node.alive ? 'ARMED' : 'OFFLINE'}
+                            tone="danger"
+                            disabled={!node.alive}
+                            title={node.alive ? undefined : 'Target offline — quickhack unavailable'}
                             onClick={() => { onQuickHack(node); onClose(); }}
-                        >
-                            <Shield size={12} style={{ color: '#ff003c' }} />
-                            <span className="font-bold tracking-wider text-[11px]">QUICKHACK</span>
-                        </button>
-                    ) : (
-                        <div
-                            className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-not-allowed opacity-40"
-                            style={{ color: '#666' }}
-                            title="Target offline — quickhack unavailable"
-                        >
-                            <Shield size={12} style={{ color: '#666' }} />
-                            <span className="font-bold tracking-wider text-[11px]">QUICKHACK</span>
-                            <span className="ml-auto text-[9px] text-red-500/60">OFFLINE</span>
-                        </div>
-                    )}
+                        />
+                    </MenuGroup>
                 </>
             )}
 
             {isCustom && (
                 <>
-                    {/* Edit Custom Node */}
-                    <button className={btnClass} onClick={() => onEditCustomNode(node)}>
-                        <Edit size={12} className="text-gray-500" /> Edit Node
-                    </button>
-                    <div className={sepClass} />
+                    <MenuPrimary icon={Edit} label="EDIT NODE" onClick={() => onEditCustomNode(node)} />
 
-                    {/* Link Focus */}
-                    {isFocused ? (
-                        <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-amber-400 hover:bg-amber-900/30 hover:text-amber-300 transition-colors"
-                            onClick={() => { onClearLinkFocus(); onClose(); }}>
-                            <Crosshair size={12} className="text-amber-400" /> Clear Link Focus
-                        </button>
-                    ) : (
-                        <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-amber-500/80 hover:bg-amber-900/20 hover:text-amber-400 transition-colors"
-                            onClick={() => { onSetLinkFocus(nodeIdForFocus, cb?.host || cb?.description || `Node ${cb?.display_id}`); onClose(); }}>
-                            <Crosshair size={12} className="text-amber-500/80" /> Set as Link Focus
-                        </button>
-                    )}
+                    <MenuGroup label="LINK">
+                        {focusRow}
+                        {parentRows}
+                    </MenuGroup>
 
-                    {/* Link to Parent */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-blue-400 hover:bg-blue-900/30 hover:text-blue-300 transition-colors"
-                        onClick={() => onSetParent(node)}>
-                        <GitBranch size={12} className="text-blue-500" /> Link to Parent
-                    </button>
-
-                    {/* Disconnect from Parent */}
-                    {hasParent && (
-                        <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-orange-400 hover:bg-orange-900/30 hover:text-orange-300 transition-colors"
-                            onClick={() => onDisconnectParent(node)}>
-                            <X size={12} className="text-orange-500" /> Disconnect from Parent
-                        </button>
-                    )}
-                    <div className={sepClass} />
-
-                    {/* Delete Custom Node */}
-                    <button className="w-full flex items-center gap-2 px-3 py-2 text-left text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors"
-                        onClick={() => onDeleteCustomNode(node)}>
-                        <X size={12} className="text-red-500" /> Delete Node
-                    </button>
+                    <MenuGroup label="NODE">
+                        {/* The only irreversible row in these menus — it deletes
+                            straight through to agentstorage, so it arms first. */}
+                        <MenuRow
+                            icon={XCircle}
+                            label="DELETE NODE"
+                            tone="danger"
+                            confirmLabel="CONFIRM WIPE"
+                            confirmStatus="AGAIN"
+                            onClick={() => onDeleteCustomNode(node)}
+                        />
+                    </MenuGroup>
                 </>
             )}
 
             {node.type === 'core' && (
-                <div className="px-3 py-2 text-gray-500 italic text-[10px]">Central Minerva hub</div>
+                <>
+                    <MenuReadout label="ROLE" value="HUB" />
+                    <MenuReadout label="STATE" value="ONLINE" valueTone="text-accent" />
+                </>
             )}
-        </div>,
+        </MenuPanel>,
         document.body
     );
 };
@@ -311,7 +266,7 @@ export const BackgroundContextMenu3D = ({
     onToggleSubnets, showSubnets,
     onToggleInactive, showInactive,
     onToggleHidden, showHidden,
-    hiddenSubnetCount, onRestoreAllSubnets,
+    hiddenSubnets, onRestoreSubnet, onRestoreAllSubnets,
 }: {
     x: number; y: number;
     onClose: () => void;
@@ -323,108 +278,85 @@ export const BackgroundContextMenu3D = ({
     showInactive: boolean;
     onToggleHidden: () => void;
     showHidden: boolean;
-    /** Per-CIDR hide tracking — when >0 we surface a one-shot restore
-     *  entry so the operator can recover from "hide all the things"
-     *  without remembering which network spaces they buried. */
-    hiddenSubnetCount?: number;
+    /** Network spaces the operator has hidden. Persisted across reloads, so
+     *  this menu is the only way back — it lists them by CIDR so a space can
+     *  be restored individually, plus a bulk undo for "hide all the things". */
+    hiddenSubnets?: string[];
+    onRestoreSubnet?: (cidr: string) => void;
     onRestoreAllSubnets?: () => void;
 }) => {
-    const ref = useRef<HTMLDivElement>(null);
-    const [adjustedPos, setAdjustedPos] = useState<{ top: number; left: number }>({ top: y, left: x });
+    const { ref, pos, onKeyDown } = useAnchoredMenu(x, y, onClose);
+    const layersOn = [showSubnets, showInactive, showHidden].filter(Boolean).length;
+    const hidden = hiddenSubnets ?? [];
 
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [onClose]);
-
-    useEffect(() => {
-        if (!ref.current) return;
-        const rect = ref.current.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const pad = 8;
-        let newTop = y;
-        let newLeft = x;
-        if (y + rect.height > vh - pad) newTop = Math.max(pad, vh - rect.height - pad);
-        if (x + rect.width > vw - pad) newLeft = Math.max(pad, vw - rect.width - pad);
-        if (newTop !== adjustedPos.top || newLeft !== adjustedPos.left) {
-            setAdjustedPos({ top: newTop, left: newLeft });
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [x, y]);
-
-    const btnClass = "w-full flex items-center gap-2 px-3 py-2 text-left text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 transition-colors";
-    const sepClass = "border-t border-white/10 my-1";
+    /** Toggle rows borrow the checklist's ON / PENDING tones so the whole
+     *  layer stack reads down the right edge in one glance. */
+    const toggle = (icon: LucideIcon, label: string, on: boolean, fn: () => void) => (
+        <MenuRow
+            icon={icon}
+            label={label}
+            status={on ? 'ON' : 'OFF'}
+            tone={on ? 'active' : 'default'}
+            statusTone={on ? 'active' : 'muted'}
+            checked={on}
+            onClick={() => { fn(); onClose(); }}
+        />
+    );
 
     return createPortal(
-        <div
-            ref={ref}
-            className="fixed z-[9999] w-56 bg-[#0a0a0a]/95 backdrop-blur-md border border-cyan-500/30 shadow-[0_0_20px_rgba(34,211,238,0.15)] py-1 font-mono text-xs overflow-visible pointer-events-auto"
-            style={{ top: adjustedPos.top, left: adjustedPos.left }}
-            onMouseDown={e => e.stopPropagation()}
-            onContextMenu={e => e.preventDefault()}
+        <MenuPanel
+            innerRef={ref}
+            pos={pos}
+            onKeyDown={onKeyDown}
+            width={268}
+            icon={Crosshair}
+            title="TOPOLOGY"
+            badge="SCENE"
+            footerLeft={hidden.length > 0 ? `${hidden.length} SPACE${hidden.length > 1 ? 'S' : ''} HIDDEN` : 'SCENE CONTROL'}
+            footerRight={`${layersOn} / 3 ON`}
         >
-            <div className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-widest border-b border-white/10 mb-1">
-                Topology Actions
-            </div>
+            <MenuPrimary icon={Plus} label="NEW NODE" onClick={() => { onCreateCustomNode(); onClose(); }} />
 
-            <button className={`${btnClass} text-cyan-400 font-semibold`}
-                onClick={() => { onCreateCustomNode(); onClose(); }}>
-                <Plus size={12} className="text-cyan-400" /> New Custom Node
-            </button>
+            <MenuGroup label="SCENE">
+                <MenuRow icon={RotateCw} label="REFRESH" onClick={() => { onRefresh(); onClose(); }} />
+            </MenuGroup>
 
-            <button className={btnClass}
-                onClick={() => { onRefresh(); onClose(); }}>
-                <Crosshair size={12} className="text-gray-500" /> Refresh Topology
-            </button>
+            <MenuGroup label="LAYERS">
+                {toggle(Globe, 'SUBNET ZONES', showSubnets, onToggleSubnets)}
+                {toggle(Link2, 'INACTIVE EDGES', showInactive, onToggleInactive)}
+                {toggle(EyeOff, 'HIDDEN NODES', showHidden, onToggleHidden)}
+            </MenuGroup>
 
-            <div className={sepClass} />
-
-            <button className={btnClass}
-                onClick={() => { onToggleSubnets(); onClose(); }}>
-                <Globe size={12} className={showSubnets ? 'text-emerald-400' : 'text-gray-500'} />
-                <span>Subnet Zones</span>
-                <span className={`ml-auto text-[10px] px-1.5 py-0.5 border ${showSubnets ? 'border-emerald-500/30 text-emerald-400' : 'border-white/10 text-gray-600'}`}>
-                    {showSubnets ? 'ON' : 'OFF'}
-                </span>
-            </button>
-
-            {/* Per-CIDR restore entry — only rendered when at least one
-                network space is individually hidden via the subnet
-                context menu. Bulk-undo so the operator doesn't have to
-                hunt for the volumes they hid. */}
-            {hiddenSubnetCount != null && hiddenSubnetCount > 0 && onRestoreAllSubnets && (
-                <button className={btnClass}
-                    onClick={() => { onRestoreAllSubnets(); onClose(); }}>
-                    <Eye size={12} className="text-emerald-400" />
-                    <span>Restore Hidden Network Spaces</span>
-                    <span className="ml-auto text-[10px] px-1.5 py-0.5 border border-emerald-500/30 text-emerald-400">
-                        {hiddenSubnetCount}
-                    </span>
-                </button>
+            {/* Hidden network spaces — the way back. The hide list survives
+                reloads, so without this group a buried CIDR would be gone for
+                good. Each row restores one space; the last row restores the
+                lot. Rows stay listed even when the CIDR is absent from the
+                current scene, because it reappears the moment a callback in
+                that space checks in again. */}
+            {hidden.length > 0 && (
+                <MenuGroup label="HIDDEN SPACES" count={hidden.length}>
+                    {hidden.map(cidr => (
+                        <MenuRow
+                            key={cidr}
+                            icon={Eye}
+                            label={cidr}
+                            status="SHOW"
+                            tone="active"
+                            title={`Restore ${cidr}`}
+                            onClick={() => { onRestoreSubnet?.(cidr); onClose(); }}
+                        />
+                    ))}
+                    {hidden.length > 1 && onRestoreAllSubnets && (
+                        <MenuRow
+                            icon={Eye}
+                            label="RESTORE ALL"
+                            status={String(hidden.length)}
+                            onClick={() => { onRestoreAllSubnets(); onClose(); }}
+                        />
+                    )}
+                </MenuGroup>
             )}
-
-            <button className={btnClass}
-                onClick={() => { onToggleInactive(); onClose(); }}>
-                <Info size={12} className={showInactive ? 'text-cyan-400' : 'text-gray-500'} />
-                <span>Inactive Edges</span>
-                <span className={`ml-auto text-[10px] px-1.5 py-0.5 border ${showInactive ? 'border-cyan-500/30 text-cyan-400' : 'border-white/10 text-gray-600'}`}>
-                    {showInactive ? 'ON' : 'OFF'}
-                </span>
-            </button>
-
-            <button className={btnClass}
-                onClick={() => { onToggleHidden(); onClose(); }}>
-                <EyeOff size={12} className={showHidden ? 'text-cyan-400' : 'text-gray-500'} />
-                <span>Hidden Callbacks</span>
-                <span className={`ml-auto text-[10px] px-1.5 py-0.5 border ${showHidden ? 'border-cyan-500/30 text-cyan-400' : 'border-white/10 text-gray-600'}`}>
-                    {showHidden ? 'ON' : 'OFF'}
-                </span>
-            </button>
-        </div>,
+        </MenuPanel>,
         document.body
     );
 };
@@ -445,32 +377,7 @@ export const SubnetContextMenu3D = ({
     onClose: () => void;
     onHide: (cidr: string) => void;
 }) => {
-    const ref = useRef<HTMLDivElement>(null);
-    const [adjustedPos, setAdjustedPos] = useState<{ top: number; left: number }>({ top: y, left: x });
-
-    useEffect(() => {
-        const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [onClose]);
-
-    useEffect(() => {
-        if (!ref.current) return;
-        const rect = ref.current.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const pad = 8;
-        let newTop = y;
-        let newLeft = x;
-        if (y + rect.height > vh - pad) newTop = Math.max(pad, vh - rect.height - pad);
-        if (x + rect.width > vw - pad)  newLeft = Math.max(pad, vw - rect.width - pad);
-        if (newTop !== adjustedPos.top || newLeft !== adjustedPos.left) {
-            setAdjustedPos({ top: newTop, left: newLeft });
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [x, y]);
+    const { ref, pos, onKeyDown } = useAnchoredMenu(x, y, onClose);
 
     const copyCidr = useCallback(() => {
         try { navigator.clipboard?.writeText?.(cidr); } catch { /* clipboard denied */ }
@@ -478,35 +385,30 @@ export const SubnetContextMenu3D = ({
         onClose();
     }, [cidr, onClose]);
 
+    const mask = cidr.includes('/') ? `/${cidr.split('/')[1]}` : '';
+
     return createPortal(
-        <div
-            ref={ref}
-            className="fixed z-[9999] w-60 bg-[#0a0a0a]/95 backdrop-blur-md border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.18)] py-1 font-mono text-xs overflow-visible pointer-events-auto"
-            style={{ top: adjustedPos.top, left: adjustedPos.left }}
-            onMouseDown={e => e.stopPropagation()}
-            onContextMenu={e => e.preventDefault()}
+        <MenuPanel
+            innerRef={ref}
+            pos={pos}
+            onKeyDown={onKeyDown}
+            width={256}
+            icon={Globe}
+            title={cidr}
+            badge="SUBNET"
+            footerLeft="NETWORK SPACE"
+            footerRight={mask || undefined}
         >
-            <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] text-emerald-400/80 uppercase tracking-widest border-b border-white/10 mb-1">
-                <Globe size={11} className="text-emerald-400" />
-                <span className="truncate">{cidr}</span>
-            </div>
-
-            <button
-                className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-300 hover:bg-red-500/15 hover:text-red-300 transition-colors"
-                onClick={() => { onHide(cidr); onClose(); }}
-            >
-                <EyeOff size={12} className="text-red-400" />
-                Hide This Network Space
-            </button>
-
-            <button
-                className="w-full flex items-center gap-2 px-3 py-2 text-left text-gray-300 hover:bg-cyan-500/10 hover:text-cyan-400 transition-colors"
-                onClick={copyCidr}
-            >
-                <Crosshair size={12} className="text-gray-500" />
-                Copy CIDR
-            </button>
-        </div>,
+            <MenuGroup label="SPACE">
+                <MenuRow icon={Copy} label="COPY CIDR" onClick={copyCidr} />
+                <MenuRow
+                    icon={EyeOff}
+                    label="HIDE SPACE"
+                    title="Reversible — restore from the scene menu's HIDDEN SPACES group"
+                    onClick={() => { onHide(cidr); onClose(); }}
+                />
+            </MenuGroup>
+        </MenuPanel>,
         document.body,
     );
 };
@@ -621,6 +523,13 @@ export const DetailPanel = ({
         setShowIPPicker(false);
     }, [cb?.display_id, allIPs, updateIPs]);
 
+    // ── Defence matrix state ───────────────────────────────────────────
+    // AV/EDR and firewall are operator marks (Mythic reports neither);
+    // privilege is derived live so it can never go stale. Read above the
+    // `!node` guard — hooks cannot sit behind an early return.
+    const hostKey = hostKeyOf(cb?.host || node?.label);
+    const defense = useHostDefense(hostKey);
+
     if (!node) return null;
     const isCallback = node.type === 'callback';
 
@@ -628,10 +537,17 @@ export const DetailPanel = ({
     // signal/red for dead/unknown. Per design language: no saturated
     // emerald, no opacity on text.
     const alive = isCallback && cb ? (cb.active !== false && isCallbackAlive(cb, edges)) : null;
-    const priv = isCallback && cb ? getPrivilegeLabel(cb) : '';
-    const privClass = priv === 'SYSTEM' || priv === 'root'
+    const privInfo = isCallback && cb ? getPrivilege(cb) : { label: '', tier: 'unknown' as const, unix: false };
+    const priv = privInfo.label;
+
+    const privState: MatrixState =
+        privInfo.tier === 'max' ? 'won'
+        : privInfo.tier === 'elevated' || privInfo.tier === 'unknown' ? 'unknown'
+        : 'lost';
+    const wonCount = [markState(defense.av), markState(defense.fw), privState].filter(v => v === 'won').length;
+    const privClass = privInfo.tier === 'max'
         ? 'text-red-500'
-        : priv === 'Admin'
+        : privInfo.tier === 'elevated'
             ? 'text-amber-400'
             : 'text-signal';
 
@@ -644,36 +560,43 @@ export const DetailPanel = ({
             className="absolute right-4 top-20 w-[380px] z-50 bg-void/85 backdrop-blur-md border border-signal/20 rounded-md overflow-hidden"
             style={{ boxShadow: '0 0 24px rgba(0,0,0,0.55)' }}
         >
-            {/* Header — label + agent chip + status dot + close */}
-            <header className="flex items-start gap-3 px-4 py-3 border-b border-signal/15 bg-machine/40">
-                <span
-                    className={cn(
-                        'mt-1.5 w-2 h-2 rounded-full shrink-0',
-                        alive === true && 'bg-accent animate-pulse',
-                        alive === false && 'bg-red-500',
-                        alive === null && 'bg-signal/40',
-                    )}
-                />
-                <div className="flex-1 min-w-0">
-                    <div className="text-base font-bold tracking-[0.18em] text-signal truncate uppercase">
+            {/* Header — a filled, inverted strip in the netrunner-console idiom:
+                the machine's name reads as a plate, the fill carries liveness,
+                and the machine-readable meta sits on the right at readout size. */}
+            <header className={cn(
+                'flex items-center gap-3 px-4 py-2.5',
+                alive === false ? 'bg-red-400 text-void' : alive === true ? 'bg-accent text-void' : 'bg-signal text-void',
+            )}>
+                <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-bold uppercase tracking-[0.2em]">
                         {node.label}
                     </div>
-                    <div className="text-[10px] tracking-[0.25em] text-signal uppercase mt-0.5 truncate">
-                        {isCallback && cb
-                            ? <>{cb.payload?.payloadtype?.name || 'AGENT'} · #{cb.display_id}</>
-                            : node.type === 'core'
-                                ? 'MINERVA CORE'
-                                : node.type.toUpperCase()}
-                    </div>
+                </div>
+                <div className="hidden sm:block shrink-0 text-right text-[10px] font-bold leading-[1.35] tracking-[0.12em] tabular-nums text-void/80">
+                    <div>{isCallback && cb ? `C-${cb.display_id}` : node.type.toUpperCase()}</div>
+                    <div>{alive === false ? 'LINK DOWN' : alive === true ? 'LINK LIVE' : 'NO LINK'}</div>
                 </div>
                 <button
                     onClick={onClose}
-                    className="text-signal hover:text-red-500 transition-colors p-1 -m-1"
+                    className="shrink-0 rounded-sm border border-void/40 p-1 text-void transition-colors hover:bg-void/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-void"
                     title="Close"
+                    aria-label="Close"
                 >
-                    <XCircle size={16} />
+                    <XCircle size={13} strokeWidth={2} aria-hidden="true" />
                 </button>
             </header>
+
+            {/* Meta line — the reference's PAGE TYPE / LOAD ADDRESS block, but
+                carrying facts the operator can act on. */}
+            <div className="flex items-center gap-2 border-b border-signal/15 px-4 py-1.5 text-[10px] tracking-[0.12em] text-signal opacity-70">
+                <span className="truncate">
+                    {isCallback && cb
+                        ? [cb.payload?.payloadtype?.name?.toUpperCase() || 'AGENT', getOSFullLabel(cb).toUpperCase(), cb.architecture?.toUpperCase()].filter(Boolean).join(' · ')
+                        : node.type === 'core' ? 'MINERVA CORE' : 'CUSTOM NODE'}
+                </span>
+                <span aria-hidden="true" className="flex-1" />
+                {isCallback && cb?.pid != null && <span className="shrink-0 tabular-nums">PID {cb.pid}</span>}
+            </div>
 
             {/* Status strip — alive + priv + pid in one compact row */}
             {isCallback && cb && (
@@ -740,7 +663,8 @@ export const DetailPanel = ({
                                             <div className="border border-signal/15 bg-void/80 rounded-md max-h-48 overflow-y-auto cyber-scrollbar">
                                                 {sessions.map((s: any, i: number) => {
                                                     const sAlive = s.active !== false && isCallbackAlive(s, edges);
-                                                    const sPriv = getPrivilegeLabel(s);
+                                                    const sPrivInfo = getPrivilege(s);
+                                                    const sPriv = sPrivInfo.label;
                                                     const isFocused = i === selectedSessionIdx;
                                                     return (
                                                         <button
@@ -782,8 +706,8 @@ export const DetailPanel = ({
                                                             <span
                                                                 className={cn(
                                                                     'text-[10px] tracking-[0.12em] shrink-0 uppercase',
-                                                                    sPriv === 'SYSTEM' || sPriv === 'root' ? 'text-red-500' :
-                                                                        sPriv === 'Admin' ? 'text-amber-400' : 'text-signal',
+                                                                    sPrivInfo.tier === 'max' ? 'text-red-500' :
+                                                                        sPrivInfo.tier === 'elevated' ? 'text-amber-400' : 'text-signal',
                                                                 )}
                                                             >
                                                                 {sPriv || '—'}
@@ -946,6 +870,63 @@ export const DetailPanel = ({
                     </div>
                 )}
             </div>
+
+            {/* DEFENCE MATRIX — pinned to the bottom of the panel, the last
+                thing read before a decision: is anything still watching, is
+                anything still blocking, and do we own the box. */}
+            {isCallback && cb && (
+                <div className="border-t border-signal/15 px-3 pb-3 pt-2">
+                    <div className="mb-1.5 flex items-center gap-2.5 px-1">
+                        <span className="shrink-0 text-[10px] font-bold tracking-[0.25em] text-signal opacity-70">
+                            {'//DEFENCE_MATRIX'}
+                        </span>
+                        <span aria-hidden="true" className="h-px flex-1 bg-signal/15" />
+                        <span className="shrink-0 text-[10px] font-bold tabular-nums tracking-[0.15em] text-signal opacity-70">
+                            {wonCount} / 3
+                        </span>
+                    </div>
+                    <div className="space-y-1">
+                        <MatrixRow
+                            state={markState(defense.av)}
+                            badge={defense.av === 'bypassed' ? 'BYPASSED' : defense.av === 'active' ? 'ACTIVE' : 'UNKNOWN'}
+                            title="ANTI-VIRUS / EDR"
+                            detail={
+                                defense.av === 'bypassed' ? 'Endpoint protection neutralised'
+                                : defense.av === 'active' ? 'Endpoint protection still running'
+                                : 'Not assessed — click to mark'
+                            }
+                            icon={defense.av === 'bypassed' ? ShieldOff : Shield}
+                            hint="Click to cycle: UNKNOWN → BYPASSED → ACTIVE"
+                            onClick={() => cycleDefense(hostKey, 'av')}
+                        />
+                        <MatrixRow
+                            state={markState(defense.fw)}
+                            badge={defense.fw === 'bypassed' ? 'DISABLED' : defense.fw === 'active' ? 'ACTIVE' : 'UNKNOWN'}
+                            title="FIREWALL"
+                            detail={
+                                defense.fw === 'bypassed' ? 'Host firewall down or holed'
+                                : defense.fw === 'active' ? 'Host firewall still filtering'
+                                : 'Not assessed — click to mark'
+                            }
+                            icon={Flame}
+                            hint="Click to cycle: UNKNOWN → DISABLED → ACTIVE"
+                            onClick={() => cycleDefense(hostKey, 'fw')}
+                        />
+                        <MatrixRow
+                            state={privState}
+                            badge={priv || 'UNKNOWN'}
+                            title="PRIVILEGE"
+                            detail={
+                                privState === 'won' ? (privInfo.unix ? 'Running as root — full control' : 'Running as SYSTEM — full control')
+                                : privInfo.tier === 'elevated' ? 'Elevated admin, but not SYSTEM'
+                                : 'Unprivileged session'
+                            }
+                            icon={KeyRound}
+                            hint="Derived from the session's integrity level"
+                        />
+                    </div>
+                </div>
+            )}
         </motion.div>
     );
 };

@@ -33,9 +33,28 @@ import { DELETE_MSF_PAYLOAD, UPSERT_MSF_PAYLOAD, msfPayloadUniqueIdFor } from '.
 import { useReactiveVar } from '@apollo/client/react';
 import { meState } from '../../lib/state';
 import { toLocalTime } from '../../lib/time';
-import { BuildStatusBadge } from './components';
+import { BuildStatusBadge, CHIP, chipTone, EmDash } from './components';
+import { LABEL, type Tone } from '../../components/Instrument';
 
 const MENU_MIN_SPACE_BELOW = 280;
+
+/* Row furniture — deliberately the same strings PayloadRow uses, so the two
+ * kinds of row cannot drift apart visually. */
+const CELL_OPEN = 'cursor-pointer transition-colors hover:bg-signal/[0.06]';
+const ICON_BTN =
+    'inline-flex h-8 w-8 items-center justify-center rounded-sm text-signal transition-colors ' +
+    'hover:bg-signal/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal';
+const MENU_ITEM =
+    'flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors ' +
+    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal';
+const MENU_SECTION =
+    'border-y border-signal/10 bg-signal/[0.04] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-signal';
+const GHOST_BTN =
+    'inline-flex min-h-[32px] items-center gap-1.5 rounded-sm border border-signal/25 px-3 text-[12px] font-bold uppercase ' +
+    'tracking-[0.1em] text-signal transition-colors hover:bg-signal/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal';
+const PRIMARY_BTN =
+    'inline-flex min-h-[32px] items-center gap-1.5 rounded-sm border border-accent bg-accent px-3.5 text-[12px] font-bold uppercase ' +
+    'tracking-[0.1em] text-void transition-colors hover:bg-accent/85 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:ring-offset-void focus-visible:ring-accent';
 
 interface MsfPayloadRowProps {
     record: MsfPayloadRecord;
@@ -211,11 +230,12 @@ export const MsfPayloadRow: React.FC<MsfPayloadRowProps> = ({ record, onDeleted,
         ? `${(record.size / (1024 * 1024)).toFixed(2)} MB`
         : `${sizeKb} KB`;
 
-    /* C2 pill — green if we have a host AND port (looks "wired up"), yellow
-       if we only have one half, red if neither. For exec/single-stage payloads
-       with no networking the column shows N/A like Mythic does. */
+    /* C2 pill — `live` when we have a host AND a port (the payload is wired
+       up), `warn` when only half of the pair is set, `fail` when neither is.
+       For exec/single-stage payloads with no networking at all the column
+       shows an em-dash, the same as a Mythic payload with no profile. */
     const hasConn = !!(lhost || lport || rhosts);
-    const c2Color = (lhost && lport) ? 'green' : (lhost || lport || rhosts) ? 'yellow' : 'red';
+    const connTone: Tone = (lhost && lport) ? 'live' : (lhost || lport || rhosts) ? 'warn' : 'fail';
 
     return (
         <>
@@ -224,169 +244,161 @@ export const MsfPayloadRow: React.FC<MsfPayloadRowProps> = ({ record, onDeleted,
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: isCombat ? 0.08 : 0.15 }}
-                className="border-b border-gray-800 hover:bg-white/5 transition-colors"
+                className="border-b border-signal/10 transition-colors hover:bg-signal/[0.03]"
             >
                 {/* Actions */}
-                <td className="px-3 py-4">
-                    <div className="flex items-center gap-1">
+                <td className="px-3 py-3 align-top">
+                    <div className="flex items-center gap-0.5">
                         <button
                             ref={buttonRef}
                             onClick={() => (showMenu ? setShowMenu(false) : openMenu())}
-                            className="p-1.5 rounded hover:bg-signal/10 text-gray-500 hover:text-signal transition-colors"
+                            aria-label="Payload actions"
+                            aria-haspopup="menu"
+                            aria-expanded={showMenu}
+                            title="Payload actions"
+                            className={ICON_BTN}
                         >
-                            <MoreVertical size={16} />
+                            <MoreVertical size={15} strokeWidth={2} />
                         </button>
                         <button
                             onClick={handleCopyPublicLink}
                             disabled={linkBusy}
-                            className={cn(
-                                'p-1.5 rounded text-gray-500 transition-colors',
-                                linkBusy
-                                    ? 'opacity-50 cursor-wait'
-                                    : 'hover:bg-signal/10 hover:text-signal',
-                            )}
+                            className={cn(ICON_BTN, linkBusy && 'cursor-wait opacity-50 hover:bg-transparent')}
                             title={record.uploadedFileId ? 'Copy Public Download Link' : 'Publish & Copy Public Download Link'}
+                            aria-label={record.uploadedFileId ? 'Copy public download link' : 'Publish and copy public download link'}
                         >
-                            <LinkIcon size={16} />
+                            <LinkIcon size={15} strokeWidth={2} />
                         </button>
                         <button
                             onClick={handleDownload}
-                            className="p-1.5 rounded hover:bg-green-400/10 text-gray-500 hover:text-green-400 transition-colors"
+                            className={cn(ICON_BTN, 'hover:bg-signal/10 hover:text-accent')}
                             title="Download Payload"
+                            aria-label="Download payload"
                         >
-                            <Download size={16} />
+                            <Download size={15} strokeWidth={2} />
                         </button>
                     </div>
                 </td>
 
-                {/* Agent Type — same shape as Mythic's PayloadRow. Stage (e.g.
-                    meterpreter, shell) takes the place of the Mythic payload
-                    type name; the colored package square keeps the visual
-                    identical so MSF rows blend in. */}
-                <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded flex items-center justify-center border bg-green-400/10 border-green-400/30">
-                            <Package size={16} className="text-green-400" />
-                        </div>
-                        <div>
-                            <div className="font-mono text-sm text-green-400">
-                                {stageLabel}
+                {/* Agent / module — the same shape a Mythic row uses, so an
+                    msfvenom payload sits in the list as a peer rather than as a
+                    visitor. The stage (meterpreter, shell, …) stands in for the
+                    Mythic payload type name. */}
+                <td className="px-3 py-3 align-top">
+                    {/* Centred against the square, exactly as PayloadRow is —
+                        the two row kinds sit in the same column. */}
+                    <div className="flex items-center gap-2.5">
+                        <span className={cn(
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border",
+                            chipTone('live'),
+                        )}>
+                            <Package size={15} strokeWidth={2} aria-hidden="true" />
+                        </span>
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="truncate font-mono text-[13px] font-bold text-signal">{stageLabel}</span>
+                                <span className={cn(CHIP, chipTone('signal'), 'cursor-default')} title="Generated with msfvenom">
+                                    MSF
+                                </span>
                             </div>
-                            <div className="text-[10px] text-gray-500 font-mono">
-                                {facets.platform}{facets.arch !== 'any' && ` · ${facets.arch}`}
-                            </div>
+                            <span className="mt-1 flex items-center gap-1.5 font-mono text-[11px] text-signal">
+                                <span className="opacity-70">{facets.platform}</span>
+                                {facets.arch !== 'any' && (
+                                    <>
+                                        <span className="opacity-40">·</span>
+                                        <span className="font-bold">{facets.arch}</span>
+                                    </>
+                                )}
+                            </span>
                         </div>
                     </div>
                 </td>
 
-                {/* Filename — operator-renamable. Click opens options modal
-                    same way clicking a Mythic filename opens details. */}
+                {/* File — operator-renamable. Clicking it opens the options
+                    modal, the same way clicking a Mythic filename opens that
+                    payload's configuration. */}
                 <td
-                    className="px-4 py-3 cursor-pointer hover:bg-signal/5"
+                    className={cn(CELL_OPEN, "px-3 py-3 align-top")}
                     onClick={() => setShowOptions(true)}
                 >
-                    <div className="flex flex-col">
-                        <span className="font-mono text-sm text-white truncate max-w-[250px] hover:text-signal transition-colors" title={filename}>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="max-w-[250px] truncate font-mono text-[13px] text-signal" title={filename}>
                             {filename}
                         </span>
-                        <span className="text-xs text-gray-500 font-mono">
-                            {record.id.substring(0, 8)}...
+                        <span className="font-mono text-[11px] tabular-nums text-signal opacity-60">
+                            {record.id.substring(0, 8)}…
                         </span>
                     </div>
                 </td>
 
-                {/* Build Status — MSF generation is one-shot, but we still
-                    surface the same SUCCESS badge plus an inline step ribbon
-                    listing module · format · encoder · size so the column
-                    isn't empty next to a Mythic row with build steps. */}
-                <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
+                {/* Progress — msfvenom generation is one-shot, so instead of a
+                    step ribbon the column enumerates the facts of the build:
+                    staging, format, encoder, size. */}
+                <td className="px-3 py-3 align-top">
+                    <div className="flex flex-col items-start gap-1">
                         <BuildStatusBadge phase="success" />
-                        <div className="flex items-center gap-1 flex-wrap">
-                            <StepPill label={facets.staging.toUpperCase()} />
-                            <StepPill label={record.format.toUpperCase()} />
+                        <div className="flex flex-wrap items-center gap-1">
+                            <StepPill label={facets.staging} />
+                            <StepPill label={record.format} />
                             {record.encoder && record.encoder !== 'none' && (
-                                <StepPill label={record.encoder} variant="accent" />
+                                <StepPill label={record.encoder} tone="live" />
                             )}
-                            <StepPill label={sizeStr} variant="muted" />
+                            <StepPill label={sizeStr} tone="idle" />
                         </div>
                     </div>
                 </td>
 
-                {/* Description — show the full module path so operators see
-                    exactly what was built (windows/meterpreter/reverse_tcp).
-                    Below: who/when. */}
+                {/* Description — the full module path, because that is exactly
+                    what was built (windows/meterpreter/reverse_tcp), with the
+                    provenance line under it. */}
                 <td
-                    className="px-4 py-3 cursor-pointer hover:bg-signal/5"
+                    className={cn(CELL_OPEN, "px-3 py-3 align-top")}
                     onClick={() => setShowOptions(true)}
                 >
-                    <div className="flex flex-col">
-                        <span className="font-mono text-sm text-gray-300 truncate max-w-md" title={record.module}>
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="max-w-md truncate font-mono text-[13px] text-signal" title={record.module}>
                             {record.module}
                         </span>
-                        <span className="text-[10px] text-gray-500 font-mono">
+                        <span className="font-mono text-[11px] text-signal opacity-60">
                             {toLocalTime(record.createdAt, false)}{record.createdBy ? ` · ${record.createdBy}` : ''}
                         </span>
                     </div>
                 </td>
 
-                {/* C2 Status — mirror Mythic's profile pill with
-                    HOST:PORT (or RHOSTS for bind-style payloads). The
-                    connection style (reverse_tcp / bind_tcp / ...) takes the
-                    place of the c2profile.name. */}
+                {/* C2 Status — the same pill a Mythic row shows, with the
+                    connection style (reverse_tcp / bind_tcp / …) standing in
+                    for the profile name and HOST:PORT beneath it. */}
                 <td
-                    className="px-4 py-3 cursor-pointer hover:bg-signal/5"
+                    className={cn(CELL_OPEN, "px-3 py-3 align-top")}
                     onClick={() => setShowOptions(true)}
                 >
                     {hasConn ? (
-                        <div className="flex flex-col gap-0.5">
-                            <span className={cn(
-                                'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono border w-fit',
-                                c2Color === 'green'  && 'text-green-400 bg-green-400/10 border-green-400/30',
-                                c2Color === 'yellow' && 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30',
-                                c2Color === 'red'    && 'text-red-400 bg-red-400/10 border-red-400/30',
-                            )}>
-                                <span className={cn(
-                                    'w-1.5 h-1.5 rounded-full',
-                                    c2Color === 'green'  && 'bg-green-400',
-                                    c2Color === 'yellow' && 'bg-yellow-400 animate-pulse',
-                                    c2Color === 'red'    && 'bg-red-400',
+                        <div className="flex min-w-0 flex-col gap-1">
+                            <span className={cn(CHIP, chipTone(connTone))}>
+                                <span aria-hidden="true" className={cn(
+                                    'h-1.5 w-1.5 shrink-0 rounded-full',
+                                    connTone === 'live' ? 'bg-accent' : connTone === 'warn' ? 'bg-amber-400 animate-pulse' : 'bg-red-400',
                                 )} />
-                                {connLabel}
+                                <span className="normal-case tracking-normal">{connLabel}</span>
                             </span>
-                            <div className="flex items-center gap-1 text-[10px] font-mono text-gray-500 pl-1">
-                                <Globe2 size={9} className="text-signal/40" />
-                                {lhost && (
-                                    <span className="text-signal/70 truncate max-w-[150px]">{lhost}</span>
-                                )}
-                                {rhosts && !lhost && (
-                                    <span className="text-signal/70 truncate max-w-[150px]">{rhosts}</span>
-                                )}
-                                {(lhost || rhosts) && lport && <span>:</span>}
-                                {lport && <span className="text-yellow-400/80 font-bold">{lport}</span>}
-                            </div>
+                            <span className="flex min-w-0 items-center gap-1.5 pl-0.5 font-mono text-[11px] text-signal">
+                                <Globe2 size={10} strokeWidth={2} aria-hidden="true" className="shrink-0 opacity-60" />
+                                {lhost && <span className="truncate opacity-70">{lhost}</span>}
+                                {rhosts && !lhost && <span className="truncate opacity-70">{rhosts}</span>}
+                                {(lhost || rhosts) && lport && <span className="opacity-40">:</span>}
+                                {lport && <span className="shrink-0 font-bold tabular-nums">{lport}</span>}
+                            </span>
                         </div>
-                    ) : (
-                        <span className="text-gray-500 text-xs font-mono">—</span>
-                    )}
+                    ) : <EmDash />}
                 </td>
 
-                {/* Tags — encoder is the closest analogue MSF carries. */}
-                <td className="px-4 py-3">
+                {/* Tags — the encoder is the closest analogue msfvenom carries. */}
+                <td className="px-3 py-3 align-top">
                     {record.encoder && record.encoder !== 'none' ? (
-                        <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono"
-                            style={{
-                                backgroundColor: 'rgba(34,197,94,0.12)',
-                                color: '#22c55e',
-                                border: '1px solid rgba(34,197,94,0.30)',
-                            }}
-                        >
+                        <span className={cn(CHIP, chipTone('live'), 'normal-case tracking-normal')}>
                             {record.encoder}
                         </span>
-                    ) : (
-                        <span className="text-gray-500 text-xs font-mono">—</span>
-                    )}
+                    ) : <EmDash />}
                 </td>
             </motion.tr>
 
@@ -397,9 +409,11 @@ export const MsfPayloadRow: React.FC<MsfPayloadRowProps> = ({ record, onDeleted,
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
                     style={{ top: menuPos.top, left: menuPos.left, position: 'fixed', zIndex: 9999 }}
-                    className="w-64 bg-void/95 backdrop-blur-md border border-signal/30 shadow-2xl shadow-signal/10 py-1 overflow-y-auto"
+                    role="menu"
+                    aria-label="Payload actions"
+                    className="cyber-scrollbar w-64 overflow-y-auto rounded-md border border-signal/20 bg-void/95 py-1 font-mono shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-sm"
                 >
-                    <div className="px-3 py-1 text-xs font-mono text-signal/50 uppercase tracking-wider border-b border-signal/10 bg-signal/5">File</div>
+                    <div className={cn(MENU_SECTION, 'border-t-0')}>File</div>
                     <MenuItem icon={<Edit3 size={14} />}    label="Rename"             onClick={() => { setShowRename(true); setShowMenu(false); }} />
                     <MenuItem icon={<Download size={14} />} label="Download Payload"   onClick={handleDownload} />
                     <MenuItem
@@ -409,10 +423,10 @@ export const MsfPayloadRow: React.FC<MsfPayloadRowProps> = ({ record, onDeleted,
                     />
                     <MenuItem icon={<Copy size={14} />}     label="Copy msfvenom Cmd"  onClick={handleCopyOptions} />
                     <div className="border-t border-signal/10 my-1" />
-                    <div className="px-3 py-1 text-xs font-mono text-ghost/50 uppercase tracking-wider">View</div>
+                    <div className={MENU_SECTION}>View</div>
                     <MenuItem icon={<Info size={14} />}     label="View Options"       onClick={() => { setShowOptions(true); setShowMenu(false); }} />
                     <div className="border-t border-signal/10 my-1" />
-                    <div className="px-3 py-1 text-xs font-mono text-red-400/50 uppercase tracking-wider border-b border-red-400/10 bg-red-400/5">Danger</div>
+                    <div className="border-y border-red-400/20 bg-red-400/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-red-400">Danger</div>
                     <MenuItem icon={<Trash2 size={14} />}   label="Delete Payload"     onClick={handleDelete} danger />
                 </motion.div>,
                 document.body,
@@ -445,18 +459,26 @@ export const MsfPayloadRow: React.FC<MsfPayloadRowProps> = ({ record, onDeleted,
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.95, opacity: 0 }}
                         onClick={e => e.stopPropagation()}
-                        className="w-[560px] max-h-[80vh] flex flex-col bg-black border border-signal/40 shadow-lg shadow-signal/10 font-mono"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Payload options"
+                        className="flex max-h-[80vh] w-[560px] flex-col overflow-hidden rounded-md border border-signal/20 bg-void/95 font-mono shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-sm"
                     >
-                        <div className="flex items-center justify-between border-b border-signal/30 px-4 py-3">
-                            <div className="flex items-center gap-2 text-signal">
-                                <Package size={14} className="text-green-400" />
-                                <span className="text-[11px] tracking-[0.3em]">PAYLOAD · OPTIONS</span>
+                        {/* Header strip — what this is, and how it is doing. */}
+                        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-signal/15 px-4 py-3">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                                <Package size={14} strokeWidth={2} className="shrink-0 text-accent" aria-hidden="true" />
+                                <span className={cn('truncate text-signal', LABEL)}>Payload · options</span>
                             </div>
-                            <button onClick={() => setShowOptions(false)} className="text-signal hover:text-accent">
-                                <X size={14} />
+                            <button
+                                onClick={() => setShowOptions(false)}
+                                aria-label="Close"
+                                className={ICON_BTN}
+                            >
+                                <X size={14} strokeWidth={2} />
                             </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3 cyber-scrollbar text-xs">
+                        <div className="cyber-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
                             <Field label="MODULE"   value={record.module} />
                             <Field label="STAGE"    value={`${stageLabel} (${facets.staging})`} />
                             <Field label="PLATFORM" value={`${facets.platform}${facets.arch !== 'any' ? ` · ${facets.arch}` : ''}`} />
@@ -466,29 +488,29 @@ export const MsfPayloadRow: React.FC<MsfPayloadRowProps> = ({ record, onDeleted,
                             <Field label="CREATED"  value={`${toLocalTime(record.createdAt, false)}${record.createdBy ? ' · ' + record.createdBy : ''}`} />
                             <Field label="FILENAME" value={filename} />
                             <div className="pt-2">
-                                <div className="text-[10px] tracking-[0.25em] text-green-400 mb-2">OPTIONS</div>
-                                <div className="border border-signal/30 bg-signal/[0.03] divide-y divide-signal/15">
+                                <div className={cn('mb-2 text-signal', LABEL)}>Options</div>
+                                <div className="divide-y divide-signal/10 rounded-sm border border-signal/15 bg-signal/[0.03]">
                                     {Object.entries(record.options).filter(([_, v]) => v != null && v !== '').map(([k, v]) => (
                                         <div key={k} className="flex items-baseline gap-3 px-3 py-1.5">
-                                            <span className="text-signal/70 text-[10px] tracking-widest w-32 shrink-0">{k}</span>
-                                            <span className="text-signal break-all">{String(v)}</span>
+                                            <span className={cn('w-32 shrink-0 text-signal opacity-70', LABEL)}>{k}</span>
+                                            <span className="break-all text-[13px] font-bold text-signal">{String(v)}</span>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         </div>
-                        <div className="border-t border-signal/30 px-4 py-3 flex justify-end gap-2">
-                            <button
-                                onClick={handleDownload}
-                                className="flex items-center gap-1.5 px-4 py-1.5 border border-green-400 bg-green-400 text-void font-mono text-[11px] tracking-[0.25em] font-bold hover:bg-signal hover:border-signal"
-                            >
-                                <Download size={11} /> DOWNLOAD
-                            </button>
+                        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-signal/15 px-4 py-2.5">
                             <button
                                 onClick={() => setShowOptions(false)}
-                                className="px-4 py-1.5 border border-signal/40 font-mono text-[11px] tracking-[0.25em] text-signal hover:bg-signal/10"
+                                className={GHOST_BTN}
                             >
-                                CLOSE
+                                Close
+                            </button>
+                            <button
+                                onClick={handleDownload}
+                                className={PRIMARY_BTN}
+                            >
+                                <Download size={12} strokeWidth={2} aria-hidden="true" /> Download
                             </button>
                         </div>
                     </motion.div>
@@ -504,11 +526,10 @@ export const MsfPayloadRow: React.FC<MsfPayloadRowProps> = ({ record, onDeleted,
 const MenuItem: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }> = ({ icon, label, onClick, danger }) => (
     <button
         onClick={onClick}
+        role="menuitem"
         className={cn(
-            'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors text-left',
-            danger
-                ? 'text-red-400 hover:bg-red-500/10'
-                : 'text-gray-300 hover:bg-signal/10 hover:text-signal',
+            MENU_ITEM,
+            danger ? 'text-red-400 hover:bg-red-400/10' : 'text-signal hover:bg-signal/10',
         )}
     >
         {icon} {label}
@@ -517,21 +538,16 @@ const MenuItem: React.FC<{ icon: React.ReactNode; label: string; onClick: () => 
 
 const Field: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <div className="flex items-baseline gap-3">
-        <span className="text-signal/70 text-[10px] tracking-[0.25em] uppercase w-24 shrink-0">{label}</span>
-        <span className="text-signal break-all">{value}</span>
+        <span className={cn('w-24 shrink-0 text-signal opacity-70', LABEL)}>{label}</span>
+        <span className="break-all text-[13px] font-bold text-signal">{value}</span>
     </div>
 );
 
-/** Small pill used in the Build Status column to enumerate generation
- *  facts (staging, format, encoder, size). Three visual variants keep the
- *  hierarchy readable without colour overload. */
-const StepPill: React.FC<{ label: string; variant?: 'default' | 'accent' | 'muted' }> = ({ label, variant = 'default' }) => (
-    <span className={cn(
-        'inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono tracking-wider border rounded',
-        variant === 'accent' && 'text-green-400 bg-green-400/10 border-green-400/30',
-        variant === 'muted'  && 'text-gray-500 border-gray-700',
-        variant === 'default' && 'text-signal/80 border-signal/30 bg-signal/5',
-    )}>
+/** Small pill used in the PROGRESS column to enumerate generation facts
+ *  (staging, format, encoder, size). Tones come from the shared chip scale, so
+ *  it is the same object the rest of the table is built from. */
+const StepPill: React.FC<{ label: string; tone?: Tone }> = ({ label, tone = 'signal' }) => (
+    <span className={cn(CHIP, chipTone(tone), 'px-1.5 py-0 text-[10px] tracking-[0.08em]')}>
         {label}
     </span>
 );
@@ -553,42 +569,40 @@ const RenameDialog: React.FC<{ initial: string; onClose: () => void; onSave: (v:
             <motion.div
                 initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
                 onClick={e => e.stopPropagation()}
-                className="w-[440px] bg-black border border-signal/40 shadow-lg shadow-signal/10 font-mono"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Rename payload"
+                className="w-[440px] overflow-hidden rounded-md border border-signal/20 bg-void/95 font-mono shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-sm"
             >
-                <div className="flex items-center justify-between border-b border-signal/30 px-4 py-3">
-                    <div className="flex items-center gap-2 text-signal">
-                        <Edit3 size={14} className="text-green-400" />
-                        <span className="text-[11px] tracking-[0.3em]">RENAME · PAYLOAD</span>
+                <div className="flex items-center justify-between gap-3 border-b border-signal/15 px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                        <Edit3 size={14} strokeWidth={2} className="shrink-0 text-accent" aria-hidden="true" />
+                        <span className={cn('truncate text-signal', LABEL)}>Rename · payload</span>
                     </div>
-                    <button onClick={onClose} className="text-signal hover:text-accent">
-                        <X size={14} />
+                    <button onClick={onClose} aria-label="Close" className={ICON_BTN}>
+                        <X size={14} strokeWidth={2} />
                     </button>
                 </div>
-                <div className="p-4 space-y-3">
-                    <div className="text-[10px] text-signal/60 tracking-widest uppercase">Display Name</div>
+                <div className="space-y-2.5 p-4">
+                    <label htmlFor="msf-rename" className={cn('block text-signal', LABEL)}>Display name</label>
                     <input
+                        id="msf-rename"
                         ref={inputRef}
                         value={value}
                         onChange={e => setValue(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') onSave(value); if (e.key === 'Escape') onClose(); }}
-                        className="w-full bg-black border border-signal/30 text-signal text-sm font-mono px-3 py-2 outline-none focus:border-green-400/60"
+                        className="min-h-[38px] w-full rounded-sm border border-signal/20 bg-black/40 px-3 py-2 font-mono text-[13px] text-signal transition-colors hover:border-signal/40 focus:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                     />
-                    <div className="text-[10px] text-signal/50 font-mono">
+                    <p className="text-[11px] text-signal opacity-70">
                         File extension follows the chosen format automatically.
-                    </div>
+                    </p>
                 </div>
-                <div className="border-t border-signal/30 px-4 py-3 flex justify-end gap-2">
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-1.5 border border-signal/40 font-mono text-[11px] tracking-[0.25em] text-signal hover:bg-signal/10"
-                    >
-                        CANCEL
+                <div className="flex items-center justify-end gap-2 border-t border-signal/15 px-4 py-2.5">
+                    <button onClick={onClose} className={GHOST_BTN}>
+                        Cancel
                     </button>
-                    <button
-                        onClick={() => onSave(value)}
-                        className="flex items-center gap-1.5 px-4 py-1.5 border border-green-400 bg-green-400 text-void font-mono text-[11px] tracking-[0.25em] font-bold hover:bg-signal hover:border-signal"
-                    >
-                        <CheckCircle size={11} /> SAVE
+                    <button onClick={() => onSave(value)} className={PRIMARY_BTN}>
+                        <CheckCircle size={12} strokeWidth={2} aria-hidden="true" /> Save
                     </button>
                 </div>
             </motion.div>

@@ -58,8 +58,13 @@ const OperatorSettingsSection = () => {
     const CTX_OPTS=['impersonation_context','cwd','user','host','ip','pid','process_short_name','extra_info','architecture'].sort();
     const prefs=useReactiveVar(mePreferences);
     const fileInputRef=useRef<HTMLInputElement>(null);
-    const handleExport=()=>{navigator.clipboard.writeText(JSON.stringify(prefs,null,2)).then(()=>snackActions.success('Preferences copied to clipboard')).catch(()=>{downloadBlob(new Blob([JSON.stringify(prefs,null,2)],{type:'application/json'}),'mythic_preferences.json')})};
-    const handleImport=(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const i=JSON.parse(ev.target?.result as string);mePreferences({...operatorSettingDefaults,...i});snackActions.success('Preferences imported')}catch{snackActions.error('Invalid JSON')}};r.readAsText(f);e.target.value=''};
+    // mythicKVStore writes the MSF bag (minerva_msf_state) into the same
+    // preferences var — it carries minerva_msf_tasks_* with full response_text,
+    // i.e. hashdump / creds_all output. Exporting "UI settings" must not put
+    // that on the clipboard or in a file.
+    const exportablePrefs=()=>{const {minerva_msf_state:_omit,...rest}=(prefs??{}) as Record<string,unknown>;void _omit;return rest;};
+    const handleExport=()=>{navigator.clipboard.writeText(JSON.stringify(exportablePrefs(),null,2)).then(()=>snackActions.success('Preferences copied to clipboard')).catch(()=>{downloadBlob(new Blob([JSON.stringify(exportablePrefs(),null,2)],{type:'application/json'}),'mythic_preferences.json')})};
+    const handleImport=(e:React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const i=JSON.parse(ev.target?.result as string);const keep=(mePreferences()??{}) as Record<string,unknown>;mePreferences({...operatorSettingDefaults,...i,minerva_msf_state:keep.minerva_msf_state});snackActions.success('Preferences imported')}catch{snackActions.error('Invalid JSON')}};r.readAsText(f);e.target.value=''};
 
     return (
         <div className="space-y-3">

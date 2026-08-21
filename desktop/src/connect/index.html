@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+    <title>Minerva — Link Configuration</title>
+    <link rel="stylesheet" href="connect.css">
+</head>
+<body>
+<!--
+    Screen Frame scale (DESIGN_LANGUAGE.md §6): this window is an instrument,
+    not a page. Four corners of fixed chrome, one docked panel doing the work,
+    live glass behind it. Permitted only because the operator has not logged in
+    yet — none of this may follow them into the console.
+-->
+<canvas id="backdrop" aria-hidden="true"></canvas>
+<div class="scanlines" aria-hidden="true"></div>
+
+<!-- ── Screen-edge chrome — never moves, only the readings change ────────── -->
+<div class="chrome" aria-hidden="true">
+    <div class="chrome-tl">
+        <span class="brand">MINERVA C2</span>
+        <span class="sep">·</span>
+        <span>DESKTOP CONSOLE</span>
+    </div>
+    <div class="chrome-tr">
+        <span id="chrome-node" class="truncate">NODE —</span>
+        <span class="sep">·</span>
+        <span class="status"><i id="chrome-dot" class="dot"></i><span id="chrome-state">STANDBY</span></span>
+    </div>
+    <div class="chrome-bl">
+        <span id="chrome-port">PORT —</span>
+        <span class="sep">·</span>
+        <span id="chrome-scheme">HTTPS</span>
+    </div>
+    <div class="chrome-br">
+        <span id="chrome-clock" class="num">--:--:--</span>
+        <span class="sep">·</span>
+        <span id="chrome-build">BUILD —</span>
+    </div>
+</div>
+
+<!-- ── Docked panel — right-stopped, three strips ────────────────────────── -->
+<main class="dock">
+    <section class="panel" aria-labelledby="panel-title">
+        <header class="strip strip-top">
+            <span class="strip-left">
+                <svg class="glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3.2"></circle>
+                </svg>
+                <span>LINK CONFIGURATION</span>
+            </span>
+            <span id="panel-badge" class="badge">STANDBY</span>
+        </header>
+
+        <div class="body">
+            <h1 id="panel-title" class="title">ESTABLISH LINK</h1>
+            <p class="subtitle" id="panel-subtitle">TARGET REQUIRED BEFORE AUTHENTICATION</p>
+
+            <form id="link-form" autocomplete="off" novalidate>
+                <label class="field-label" for="mythic-address">MYTHIC ADDRESS</label>
+                <div class="input-row">
+                    <span class="prefix" aria-hidden="true">&gt;</span>
+                    <input id="mythic-address" name="mythic-address" type="text" spellcheck="false"
+                           placeholder="https://10.0.0.5:7443" aria-describedby="address-hint">
+                </div>
+                <p id="address-hint" class="hint">HOST ALONE IMPLIES HTTPS ON 7443</p>
+
+                <div class="toggles">
+                    <button type="button" class="toggle" id="toggle-tls" aria-pressed="false">
+                        <span class="mark" aria-hidden="true"></span>
+                        <span class="toggle-text">
+                            <span class="toggle-name">TRUST SELF-SIGNED CERTIFICATE</span>
+                            <span class="toggle-note">Mythic self-signs by default</span>
+                        </span>
+                    </button>
+
+                    <button type="button" class="toggle" id="toggle-assets" aria-pressed="false">
+                        <span class="mark" aria-hidden="true"></span>
+                        <span class="toggle-text">
+                            <span class="toggle-name">ALLOW REMOTE ASSETS</span>
+                            <span class="toggle-note">Off blocks all egress except Mythic</span>
+                        </span>
+                    </button>
+
+                    <button type="button" class="toggle" id="toggle-msf" aria-pressed="false" aria-controls="msf-fields">
+                        <span class="mark" aria-hidden="true"></span>
+                        <span class="toggle-text">
+                            <span class="toggle-name">METASPLOIT RPC</span>
+                            <span class="toggle-note">Route /msf-rpc/ to an msfrpcd</span>
+                        </span>
+                    </button>
+                </div>
+
+                <div id="msf-fields" class="msf" hidden>
+                    <label class="field-label" for="msf-address">MSF-RPC ADDRESS</label>
+                    <div class="input-row">
+                        <span class="prefix" aria-hidden="true">&gt;</span>
+                        <input id="msf-address" type="text" spellcheck="false" placeholder="http://127.0.0.1:55553">
+                    </div>
+
+                    <div class="msf-pair">
+                        <div>
+                            <label class="field-label" for="msf-user">USER</label>
+                            <div class="input-row">
+                                <span class="prefix" aria-hidden="true">&gt;</span>
+                                <input id="msf-user" type="text" spellcheck="false" placeholder="msf">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="field-label" for="msf-password">PASSWORD</label>
+                            <div class="input-row">
+                                <svg class="prefix glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <rect x="4" y="10.5" width="16" height="10" rx="1.5"></rect>
+                                    <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path>
+                                </svg>
+                                <input id="msf-password" type="password" placeholder="•••">
+                            </div>
+                        </div>
+                    </div>
+                    <p class="hint" id="msf-hint">FROM .env.msf ON THE MINERVA HOST</p>
+                </div>
+
+                <!-- Dotted-leader checklist — the screen frame's signature line -->
+                <ul class="checklist" id="checklist" aria-live="polite">
+                    <li data-step="SERVER_REACHABLE">
+                        <span class="ck-label">SERVER_REACHABLE</span>
+                        <span class="leader" aria-hidden="true"></span>
+                        <span class="ck-status pending">PENDING</span>
+                    </li>
+                    <li data-step="TLS_HANDSHAKE">
+                        <span class="ck-label">TLS_HANDSHAKE</span>
+                        <span class="leader" aria-hidden="true"></span>
+                        <span class="ck-status pending">PENDING</span>
+                    </li>
+                    <li data-step="MYTHIC_ENDPOINT">
+                        <span class="ck-label">MYTHIC_ENDPOINT</span>
+                        <span class="leader" aria-hidden="true"></span>
+                        <span class="ck-status pending">PENDING</span>
+                    </li>
+                </ul>
+
+                <div class="rail-row">
+                    <div class="rail"><div class="rail-inner"><div id="rail-fill" class="rail-fill"></div></div></div>
+                    <span id="rail-step" class="rail-step num">STEP 0 / 3</span>
+                </div>
+
+                <p id="detail-line" class="detail" role="status"></p>
+
+                <button type="submit" id="cta" class="cta">
+                    <span id="cta-label">VERIFY LINK</span>
+                    <span class="cta-caret" aria-hidden="true">›</span>
+                </button>
+            </form>
+        </div>
+
+        <footer class="strip strip-bottom">
+            <span>AUTHORIZED OPERATORS ONLY</span>
+            <span id="footer-state">NO LINK</span>
+        </footer>
+    </section>
+</main>
+
+<script src="connect.js"></script>
+</body>
+</html>

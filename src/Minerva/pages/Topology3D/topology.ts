@@ -76,17 +76,72 @@ export function extractPrimaryIP(ip: any): string {
 }
 
 /** Get privilege/integrity display string */
+export type PrivilegeTier = 'max' | 'elevated' | 'user' | 'unknown';
+
+export interface PrivilegeInfo {
+    /** What to print: SYSTEM / ROOT / ADMIN / USER / LOW, or '' when unknown. */
+    label: string;
+    tier: PrivilegeTier;
+    /** True for linux/macOS/BSD/Android sessions — callers say "root", not "SYSTEM". */
+    unix: boolean;
+}
+
+/** Windows integrity levels are numeric (or the names Mythic sometimes sends). */
+function integrityNumber(il: unknown): number {
+    if (typeof il === 'number') return il;
+    if (il === 'SYSTEM') return 4;
+    if (il === 'High') return 3;
+    if (il === 'Medium') return 2;
+    if (il === 'Low') return 1;
+    return NaN;
+}
+
+function isUnixSession(data: TopoNodeData, user: string): boolean {
+    const os = String(data?.os || data?.operating_system || '').toLowerCase();
+    if (os.includes('windows')) return false;
+    if (/linux|mac|darwin|bsd|unix|android|solaris/.test(os)) return true;
+    // OS not reported: the account name still gives it away.
+    if (user === 'root' || user.startsWith('root@') || user.includes('uid=0')) return true;
+    if (user.includes('nt authority') || user.includes('\\')) return false;
+    return false;
+}
+
+/**
+ * Privilege, read the way the target platform actually works.
+ *
+ * Windows has a ladder — SYSTEM sits above an elevated admin, which sits above
+ * a normal user — so `integrity_level` carries real meaning there.
+ *
+ * Unix does not. The question is binary: is this session uid 0 or not. A
+ * `sudo`-capable account still runs unprivileged until it escalates, and
+ * Mythic reports no sudo membership, so there is no honest "elevated" tier to
+ * show on Linux/macOS — and calling root "SYSTEM" was simply the wrong word.
+ * Several Linux agents also report a Windows-ish integrity level for root, so
+ * `il >= 3` is accepted as a root signal alongside the account name.
+ */
+export function getPrivilege(data: TopoNodeData): PrivilegeInfo {
+    const user = String(data?.user || '').trim().toLowerCase();
+    const unix = isUnixSession(data, user);
+    const il = integrityNumber(data?.integrity_level);
+
+    if (unix) {
+        const isRoot = user === 'root' || user.startsWith('root@') || user.includes('uid=0') || il >= 3;
+        if (isRoot) return { label: 'ROOT', tier: 'max', unix };
+        if (!user && !Number.isFinite(il)) return { label: '', tier: 'unknown', unix };
+        return { label: 'USER', tier: 'user', unix };
+    }
+
+    if (il >= 4 || user === 'system' || user.includes('nt authority')) return { label: 'SYSTEM', tier: 'max', unix };
+    if (il === 3) return { label: 'ADMIN', tier: 'elevated', unix };
+    if (il === 2) return { label: 'USER', tier: 'user', unix };
+    if (il === 1) return { label: 'LOW', tier: 'user', unix };
+    if (user) return { label: user.toUpperCase(), tier: 'unknown', unix };
+    return { label: '', tier: 'unknown', unix };
+}
+
+/** Display label only — see `getPrivilege` for the tier a caller should branch on. */
 export function getPrivilegeLabel(data: TopoNodeData): string {
-    const il = data?.integrity_level as number | string | undefined;
-    if (il === 4 || il === 'SYSTEM') return 'SYSTEM';
-    if (il === 3 || il === 'High')   return 'Admin';
-    if (il === 2 || il === 'Medium') return 'User';
-    if (il === 1 || il === 'Low')    return 'Low';
-    // Fallback: check user field for hints
-    const user = String(data?.user || '').toLowerCase();
-    if (user === 'root' || user === 'system' || user.includes('nt authority')) return 'SYSTEM';
-    if (data?.user) return String(data.user);
-    return '';
+    return getPrivilege(data).label;
 }
 
 // ═══════════════════════════════════════════════
@@ -568,7 +623,7 @@ export function buildTopology(
     // siblings under the same parent, and to draw subnet bounding zones.
     // A node lands in EVERY subnet any of its IPs maps to (see nodeSubnets
     // above), so a multi-homed pivot belongs to both the 10.0.0/24 zone
-    // and the 172.20.210/24 zone simultaneously and the operator sees both
+    // and the 192.0.2.0/24 zone simultaneously and the operator sees both
     // network spaces enclose it.
     const subnetMap = new Map<string, string[]>();
     nodeSubnets.forEach((cidrs, nodeId) => {

@@ -244,8 +244,13 @@ export const ConsoleTerminal = ({
     // so the stream naturally re-fires and delivers fresh inline responses.
     const [taskMap, setTaskMap] = useState<Map<number, any>>(new Map());
     const { loading: taskStreamLoading } = useSubscription<any>(STREAM_CALLBACK_TASKS, {
+        // no-cache: `taskMap` below is the only reader, and Mythic's
+        // `response_update_task_timestamp` trigger bumps `task.timestamp` on
+        // every response insert — so a streaming task re-emits its whole row
+        // continuously, and each emission was re-normalising that row into the
+        // cache and broadcasting to every watcher of `task:N`.
+        fetchPolicy: "no-cache",
         variables: { callback_display_id: callbackId },
-        fetchPolicy: "network-only",
         shouldResubscribe: true,
         skip: isMsfMode,
         onData: ({ data: streamData }: any) => {
@@ -1145,7 +1150,7 @@ export const ConsoleTerminal = ({
 
     return (
         <OutputCallbackContext.Provider value={callbackId}>
-            <div className="flex flex-col h-full font-mono text-sm relative overflow-hidden bg-black/80 border border-signal/30 shadow-[0_0_20px_rgba(34,197,94,0.1)]">
+            <div className="flex flex-col h-full font-mono text-sm relative overflow-hidden bg-black/80 border border-signal/30 shadow-[0_0_20px_rgba(74,222,128,0.1)]">
             <div className="absolute inset-0 pointer-events-none opacity-5 bg-[linear-gradient(transparent_50%,rgba(0,0,0,0.5)_50%)] bg-[length:100%_4px]"></div>
             {/* Terminal header */}
             <div className={cn(
@@ -1270,7 +1275,7 @@ export const ConsoleTerminal = ({
                                         onClick={() => setFilterOptions(f => ({ ...f, [key]: !active }))}
                                         className={cn(
                                             'flex items-center gap-1.5 px-3 py-1.5 border rounded text-xs font-medium transition-colors',
-                                            active ? activeClass : 'border-white/10 text-gray-400 hover:text-white hover:border-white/30 bg-white/3'
+                                            active ? activeClass : 'border-white/10 text-gray-400 hover:text-white hover:border-white/30 bg-white/[0.03]'
                                         )}
                                     >
                                         {icon}{label}
@@ -1488,7 +1493,7 @@ export const ConsoleTerminal = ({
                             {selectedToken ? selectedToken.user.split('\\').pop() || selectedToken.user : 'TOKEN'}
                         </button>
                         {showTokenMenu && (
-                            <div className="absolute bottom-full mb-1 left-0 w-52 bg-black/97 border border-orange-500/30 shadow-lg z-50 py-1 font-mono text-xs">
+                            <div className="absolute bottom-full mb-1 left-0 w-52 bg-black/95 border border-orange-500/30 shadow-lg z-50 py-1 font-mono text-xs">
                                 <div className="px-3 py-1.5 text-[10px] text-gray-600 uppercase tracking-widest border-b border-white/10 mb-1">
                                     TOKEN_IMPERSONATION
                                 </div>
@@ -1583,7 +1588,7 @@ export const ConsoleTerminal = ({
             {/* ── Command Disambiguation Dialog ─────────────── */}
             {!isMsfMode && showDisambiguation && disambiguationOptions.length > 0 && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]" onClick={() => setShowDisambiguation(false)}>
-                    <div className="bg-[#0a0f0a] border border-signal/40 p-5 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(34,197,94,0.15)]"
+                    <div className="bg-[#0a0f0a] border border-signal/40 p-5 max-w-md w-full mx-4 shadow-[0_0_40px_rgba(74,222,128,0.15)]"
                          onClick={e => e.stopPropagation()}
                          style={{ clipPath: 'polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%)' }}>
                         <div className="flex items-center gap-2 mb-3">

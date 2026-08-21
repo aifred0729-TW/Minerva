@@ -1,1297 +1,1958 @@
 import React, { useMemo, useEffect, useState } from 'react';
-import { Activity, Box, Terminal, Layers, Cpu, Server, Database, Key, Download, Upload, Image, Shield, Users, Clock, CheckCircle, PieChart as PieChartIcon, AlertTriangle, Gauge, Radio, Zap, TrendingUp, TrendingDown, Minus, Wifi, Signal as SignalIcon, Hexagon, Timer, Calendar } from 'lucide-react';
+import {
+    Activity, Box, Terminal, Server, Key, Download, Upload, Image, Shield,
+    Clock, CheckCircle, AlertTriangle, Radio, Zap, Timer, Calendar,
+    TrendingUp, TrendingDown, Minus, Siren, Footprints, Network, Crosshair,
+} from 'lucide-react';
 import { tDelta } from '../lib/operationSchedule';
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { getSkewedNow } from '../lib/time';
+import { isCallbackAlive } from '../lib/utils';
+import { cn } from '../lib/utils';
+import {
+    InstrumentPanel, DataRow, Readout, ChannelRow, Donut, LegendRow,
+    Meter, RadialArc, LineChart, StatusTile, ShareRing, Avatar,
+    StatusWord, NoData, toneText, toneStroke, toneFill, LABEL, type Tone,
+} from './Instrument';
 
-function cn(...inputs: (string | undefined | null | false)[]) {
-  return twMerge(clsx(inputs));
-}
+/**
+ * Dashboard widgets, built on the console panel kit.
+ *
+ * Each widget is one instrument: a header strip saying what it is and how it is
+ * doing, a body of readouts / rows / ranked bars, and a footer strip giving the
+ * numbers their provenance.
+ *
+ * Legibility rules that override the login screen's own styling, because this
+ * is a surface an operator reads for an hour rather than four seconds:
+ * body text is 13px (never the login's 10–11px), values keep their real casing
+ * so word shapes stay recognisable, and only short labels are uppercased.
+ *
+ * Three DESIGN_LANGUAGE.md violations the old cards had accumulated are fixed
+ * here on the way past:
+ *   - `text-gray-100/200/300/400` throughout (anti-pattern 12) and faded white
+ *     on black (anti-pattern 1) — now Minerva palette, full-strength ink.
+ *   - `-500`-level saturated colour and a ten-entry cycling chart palette
+ *     (anti-pattern 3) — now semantic tones only, no categorical palette at all.
+ *   - An SVG noise wash plus scanline overlay on every card (anti-pattern 2).
+ *
+ * @see docs/DESIGN_LANGUAGE.md Section 6 (screen frame) and Section 7 (motion)
+ */
 
-interface CardProps {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-  delay?: number;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 
-export function DashboardCard({ title, icon, children, className, delay = 0 }: CardProps) {
-  return (
-    <div className={cn(
-      "border border-ghost/30 bg-black/40 backdrop-blur-md rounded p-6 relative group overflow-hidden hover:border-signal/60 transition-colors duration-500 h-full",
-      className
-    )}>
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4 text-gray-100 group-hover:text-signal transition-colors duration-300">
-        {icon}
-        <h3 className="font-mono text-base tracking-widest uppercase font-semibold">{title}</h3>
-      </div>
-
-      {/* Content */}
-      <div className="relative z-10">
-        {children}
-      </div>
-
-      {/* Background Noise/Scanline */}
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22300%22%20height%3D%22300%22%3E%3Cfilter%20id%3D%22n%22%3E%3CfeTurbulence%20type%3D%22fractalNoise%22%20baseFrequency%3D%220.65%22%20numOctaves%3D%223%22%20stitchTiles%3D%22stitch%22%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%22100%25%22%20height%3D%22100%25%22%20filter%3D%22url(%23n)%22%2F%3E%3C%2Fsvg%3E')] opacity-[0.03] pointer-events-none"></div>
-    </div>
-  );
-}
-
-// -----------------------------------------------------------------------------
-// SPECIFIC CARDS
-// -----------------------------------------------------------------------------
-
-export function ActiveCallbacksCard({ count = 0, totalCount = 0 }: { count?: number; totalCount?: number }) {
-  return (
-    <DashboardCard title="Active Callbacks" icon={<Activity size={18} />}>
-      <div className="flex items-end gap-2">
-        <span className="text-5xl font-bold text-signal font-mono">{count}</span>
-        <span className="text-gray-200 font-mono mb-2 text-sm">/ {totalCount} TOTAL</span>
-      </div>
-      <div className="mt-4 h-1.5 w-full bg-ghost/30">
-        <div className="h-full bg-signal transition-all duration-1000" style={{ width: totalCount > 0 ? `${(count / totalCount) * 100}%` : '0%' }}></div>
-      </div>
-      <div className="mt-2 text-sm text-gray-200 font-mono flex justify-between">
-        <span>SIGNAL_STRENGTH</span>
-        <span className={count > 0 ? "text-signal font-semibold" : ""}>{count > 0 ? "STRONG" : "NO_SIGNAL"}</span>
-      </div>
-    </DashboardCard>
-  );
-}
-
-export function PayloadStatsCard({ count = 0 }: { count?: number }) {
-  return (
-    <DashboardCard title="Total Payloads" icon={<Database size={18} />}>
-      <div className="flex items-end gap-2">
-        <span className="text-5xl font-bold text-signal font-mono">{count}</span>
-        <span className="text-gray-200 font-mono mb-2 text-sm">GENERATED</span>
-      </div>
-      <div className="mt-4 h-1.5 w-full bg-ghost/30">
-        <div className="h-full bg-signal transition-all duration-1000" style={{ width: `${Math.min(count * 2, 100)}%` }}></div>
-      </div>
-      <div className="mt-2 text-sm text-gray-200 font-mono flex justify-between">
-        <span>REPOSITORY</span>
-        <span className={count > 0 ? "text-signal font-semibold" : ""}>{count > 0 ? "POPULATED" : "EMPTY"}</span>
-      </div>
-    </DashboardCard>
-  );
-}
-
-// Helper to decode Base64 filename
+/** Payload filenames arrive base64-encoded often enough to be worth decoding. */
 function decodeFilename(filename: string | undefined): string {
-  if (!filename) return "Unknown";
-  try {
-    // Check if it looks like Base64
-    if (/^[A-Za-z0-9+/=]+$/.test(filename) && filename.length > 10) {
-      const decoded = atob(filename);
-      // Check if decoded result is printable
-      if (/^[\x20-\x7E]+$/.test(decoded)) {
-        return decoded;
-      }
+    if (!filename) return 'Unknown';
+    try {
+        if (/^[A-Za-z0-9+/=]+$/.test(filename) && filename.length > 10) {
+            const decoded = atob(filename);
+            if (/^[\x20-\x7E]+$/.test(decoded)) return decoded;
+        }
+        return filename;
+    } catch {
+        return filename;
     }
-    return filename;
-  } catch {
-    return filename;
-  }
 }
 
-export function RecentPayloadsCard({ payloads = [] }: { payloads?: any[] }) {
-  return (
-    <DashboardCard title="Recent Payloads" icon={<Box size={18} />}>
-      <div className="space-y-2.5">
-        {payloads.map((p, i) => {
-          const filename = decodeFilename(p.filemetum?.filename_text);
-          return (
-            <div key={p.id || i} className="flex items-center justify-between text-sm font-mono border-b border-ghost/30 pb-2 last:border-0 group/item">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-2 h-2 bg-signal rounded-full group-hover/item:bg-white transition-colors flex-shrink-0"></div>
-                <span className="text-signal truncate max-w-[200px]" title={filename}>{filename}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-200 text-xs">
-                <span className="uppercase">{p.payloadtype?.name}</span>
-                <span className={cn(
-                  "hidden sm:inline-block px-2 py-0.5 rounded text-xs font-semibold",
-                  p.build_phase === "success" ? "bg-green-500/25 text-green-300" :
-                    p.build_phase === "building" ? "bg-yellow-500/25 text-yellow-300 animate-pulse" :
-                      "bg-gray-500/30 text-gray-200"
-                )}>{p.build_phase}</span>
-              </div>
-            </div>
-          );
-        })}
-        {payloads.length === 0 && <div className="text-gray-300 text-sm">NO PAYLOADS DETECTED</div>}
-      </div>
-    </DashboardCard>
-  );
+/** Mythic hands back naive UTC strings; normalise before parsing. */
+function parseStamp(v: unknown): number {
+    if (typeof v !== 'string' || !v) return 0;
+    const ms = new Date(v.endsWith('Z') ? v : `${v}Z`).getTime();
+    return Number.isFinite(ms) ? ms : 0;
 }
 
-export function OngoingOperationsCard({ operations = [], currentOpId, totalOperations = 0 }: { operations?: any[], currentOpId?: number, totalOperations?: number }) {
-  const currentOp = operations.find(op => op.id === currentOpId) || operations[0];
-  // Count members from operatoroperations array
-  const memberCount = currentOp?.operatoroperations?.length || 0;
-
-  return (
-    <DashboardCard title="Operation Status" icon={<Layers size={18} />}>
-      {currentOp ? (
-        <>
-          <div className="flex justify-between items-center mb-4 gap-2">
-            <div className="text-xl text-signal font-mono break-all font-semibold" title={currentOp.name}>{currentOp.name}</div>
-            <div className="px-2.5 py-1 border border-signal text-signal text-xs font-mono uppercase flex-shrink-0 font-semibold">Active</div>
-          </div>
-          <div className="grid grid-cols-2 gap-4 text-sm font-mono text-gray-200">
-            <div>
-              <div className="mb-1 text-xs uppercase tracking-widest">OPERATORS</div>
-              <div className="text-signal text-2xl font-bold">{memberCount}</div>
-            </div>
-            <div>
-              <div className="mb-1 text-xs uppercase tracking-widest">TOTAL OPS</div>
-              <div className="text-signal text-2xl font-bold">{totalOperations}</div>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="text-gray-300 text-sm font-mono">NO ACTIVE OPERATIONS</div>
-      )}
-    </DashboardCard>
-  );
+/**
+ * When the operator issued this task.
+ *
+ * NOT `timestamp`. That column is the row's last-updated time and lands within
+ * microseconds of completion, so using it here plots when work *finished*
+ * while the axis says it was issued. `status_timestamp_preprocessing` is the
+ * real submission clock; `timestamp` is only a fallback for rows so old or so
+ * broken that the status clock never got written.
+ */
+function taskIssuedAt(t: any): number {
+    return parseStamp(t?.status_timestamp_preprocessing) || parseStamp(t?.timestamp);
 }
 
-export function SystemHealthCard() {
-  return (
-    <DashboardCard title="System Health" icon={<Cpu size={18} />}>
-      <div className="space-y-4">
-        <div>
-          <div className="flex justify-between text-xs font-mono text-gray-400 mb-1">
-            <span>CPU_LOAD</span>
-            <span>12%</span>
-          </div>
-          <div className="h-1 bg-ghost/20 w-full overflow-hidden">
-            <div className="h-full bg-signal w-[12%] animate-pulse"></div>
-          </div>
-        </div>
-        <div>
-          <div className="flex justify-between text-xs font-mono text-gray-400 mb-1">
-            <span>MEMORY</span>
-            <span>4.2GB / 16GB</span>
-          </div>
-          <div className="h-1 bg-ghost/20 w-full overflow-hidden">
-            <div className="h-full bg-signal w-[26%]"></div>
-          </div>
-        </div>
-      </div>
-    </DashboardCard>
-  )
+/** When the agent finished. 0 when the task is still outstanding. */
+function taskFinishedAt(t: any): number {
+    return parseStamp(t?.status_timestamp_processed);
 }
 
-interface CommandStatsProps {
-  tasks?: any[];
-  totalTasks?: number;
-  completedTasks?: number;
-  errorTasks?: number;
-  opsecTasks?: number;
+/** Round-trip latency in ms, or null while the task is still outstanding. */
+function taskLatency(t: any): number | null {
+    const a = taskIssuedAt(t);
+    const b = taskFinishedAt(t);
+    if (!a || !b) return null;
+    const d = b - a;
+    return d >= 0 ? d : null;
 }
 
-export function CommandStatsCard({ tasks = [], totalTasks = 0, completedTasks = 0, errorTasks = 0, opsecTasks = 0 }: CommandStatsProps) {
-  // Calculate command frequency from recent tasks
-  const commandFrequency = useMemo(() => {
-    const freq: Record<string, number> = {};
-    tasks.forEach(t => {
-      if (t.command_name) {
-        freq[t.command_name] = (freq[t.command_name] || 0) + 1;
-      }
-    });
-    return Object.entries(freq)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
-  }, [tasks]);
-
-  const maxFreq = commandFrequency.length > 0 ? Math.max(...commandFrequency.map(c => c[1])) : 1;
-
-  return (
-    <DashboardCard title="Command Statistics" icon={<Terminal size={18} />}>
-      <div className="space-y-4">
-        {/* Stats Row */}
-        <div className="grid grid-cols-4 gap-2 text-center border-b border-ghost/30 pb-4">
-          <div>
-            <div className="text-3xl font-mono text-signal font-bold">{totalTasks}</div>
-            <div className="text-xs text-gray-300 font-mono uppercase tracking-widest mt-1">TOTAL</div>
-          </div>
-          <div>
-            <div className="text-3xl font-mono text-green-400 font-bold">{completedTasks}</div>
-            <div className="text-xs text-gray-300 font-mono uppercase tracking-widest mt-1">DONE</div>
-          </div>
-          <div>
-            <div className="text-3xl font-mono text-red-400 font-bold">{errorTasks}</div>
-            <div className="text-xs text-gray-300 font-mono uppercase tracking-widest mt-1">ERROR</div>
-          </div>
-          <div>
-            <div className="text-3xl font-mono text-yellow-400 font-bold">{opsecTasks}</div>
-            <div className="text-xs text-gray-300 font-mono uppercase tracking-widest mt-1">OPSEC</div>
-          </div>
-        </div>
-
-        {/* Command Frequency */}
-        <div className="space-y-2.5">
-          <div className="text-xs text-gray-300 font-mono mb-3 uppercase tracking-widest">RECENT COMMAND FREQUENCY</div>
-          {commandFrequency.length > 0 ? (
-            commandFrequency.map(([cmd, count]) => (
-              <div key={cmd} className="flex items-center gap-3">
-                <span className="text-sm font-mono text-signal w-24 truncate">{cmd}</span>
-                <div className="flex-1 h-2 bg-ghost/30 overflow-hidden rounded-sm">
-                  <div
-                    className="h-full bg-signal/80 transition-all duration-500"
-                    style={{ width: `${(count / maxFreq) * 100}%` }}
-                  />
-                </div>
-                <span className="text-sm font-mono text-gray-100 w-8 text-right tabular-nums">{count}</span>
-              </div>
-            ))
-          ) : (
-            <div className="text-gray-300 text-sm font-mono text-center py-4">NO COMMANDS EXECUTED</div>
-          )}
-        </div>
-      </div>
-    </DashboardCard>
-  )
-}
-
-export function C2StatusCard({ profiles = [] }: { profiles?: any[] }) {
-  const runningCount = profiles.filter(p => p.running).length;
-  const totalCount = profiles.length;
-
-  return (
-    <DashboardCard title="C2 Infrastructure" icon={<Server size={18} />}>
-      <div className="flex items-end gap-2 mb-4">
-        <span className={cn(
-          "text-4xl font-bold font-mono",
-          totalCount > 0 ? "text-signal" : "text-gray-300"
-        )}>{runningCount}</span>
-        <span className="text-gray-200 font-mono mb-1 text-sm">/ {totalCount} RUNNING</span>
-      </div>
-
-      <div className="space-y-2 max-h-[140px] overflow-y-auto cyber-scrollbar pr-1">
-        {profiles.map(p => (
-          <div key={p.id} className="flex items-center justify-between text-sm font-mono border-b border-ghost/30 pb-1.5 last:border-0">
-            <span className={cn(
-              "truncate max-w-[140px]",
-              p.running ? "text-signal" : "text-gray-300"
-            )}>{p.name}</span>
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "w-2 h-2 rounded-full",
-                p.running ? "bg-signal animate-pulse" : "bg-red-500"
-              )} />
-              <span className={cn("text-xs font-semibold", p.running ? "text-signal" : "text-red-400")}>
-                {p.running ? "UP" : "DOWN"}
-              </span>
-            </div>
-          </div>
-        ))}
-        {profiles.length === 0 && <div className="text-gray-300 text-sm italic">NO PROFILES FOUND</div>}
-      </div>
-    </DashboardCard>
-  );
-}
-
-// New Cards for additional stats
-
-interface QuickStatsCardProps {
-  credentials?: number;
-  keylogs?: number;
-  downloads?: number;
-  uploads?: number;
-  screenshots?: number;
-}
-
-export function QuickStatsCard({ credentials = 0, keylogs = 0, downloads = 0, uploads = 0, screenshots = 0 }: QuickStatsCardProps) {
-  const stats = [
-    { label: "CREDENTIALS", value: credentials, icon: Key, color: "text-yellow-400" },
-    { label: "DOWNLOADS", value: downloads, icon: Download, color: "text-blue-400" },
-    { label: "UPLOADS", value: uploads, icon: Upload, color: "text-purple-400" },
-    { label: "SCREENSHOTS", value: screenshots, icon: Image, color: "text-cyan-400" },
-  ];
-
-  return (
-    <DashboardCard title="Asset Collection" icon={<Shield size={18} />}>
-      <div className="grid grid-cols-2 gap-4">
-        {stats.map(s => (
-          <div key={s.label} className="flex items-center gap-2.5">
-            <s.icon size={20} className={cn("opacity-90", s.color)} />
-            <div>
-              <div className={cn("text-2xl font-mono font-bold leading-none", s.value > 0 ? s.color : "text-gray-400")}>{s.value}</div>
-              <div className="text-xs text-gray-300 font-mono mt-1 uppercase tracking-widest">{s.label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </DashboardCard>
-  );
-}
-
-interface ActiveOperatorsCardProps {
-  operators?: any[];
-}
-
-export function ActiveOperatorsCard({ operators = [] }: ActiveOperatorsCardProps) {
-  return (
-    <DashboardCard title="Active Operators" icon={<Users size={18} />}>
-      <div className="flex items-end gap-2 mb-4">
-        <span className="text-4xl font-bold text-signal font-mono">{operators.length}</span>
-        <span className="text-gray-200 font-mono mb-1 text-sm uppercase tracking-widest">ONLINE</span>
-      </div>
-      <div className="space-y-1.5 max-h-[120px] overflow-y-auto cyber-scrollbar">
-        {operators.slice(0, 5).map(op => (
-          <div key={op.id} className="flex items-center justify-between text-sm font-mono border-b border-ghost/30 pb-1.5 last:border-0">
-            <span className="text-signal">{op.username}</span>
-            {op.last_login && (
-              <span className="text-gray-300 text-xs">
-                {new Date(op.last_login).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-        ))}
-        {operators.length === 0 && <div className="text-gray-300 text-sm">NO OPERATORS ONLINE</div>}
-      </div>
-    </DashboardCard>
-  );
-}
-
-interface RecentActivityCardProps {
-  tasks?: any[];
-}
-
-export function RecentActivityCard({ tasks = [] }: RecentActivityCardProps) {
-  const recentTasks = tasks.slice(0, 8);
-
-  return (
-    <DashboardCard title="Recent Activity" icon={<Clock size={18} />}>
-      <div className="space-y-1.5 max-h-[200px] overflow-y-auto cyber-scrollbar pr-1">
-        {recentTasks.map(task => (
-          <div key={task.id} className="flex items-center gap-2.5 text-sm font-mono border-b border-ghost/30 pb-1.5 last:border-0">
-            <div className={cn(
-              "w-2 h-2 rounded-full flex-shrink-0",
-              task.status === "completed" ? "bg-green-500" :
-                task.status === "error" ? "bg-red-500" :
-                  task.status === "processing" ? "bg-blue-500 animate-pulse" :
-                    "bg-yellow-500 animate-pulse"
-            )} />
-            <span className="text-signal truncate flex-1">{task.command_name}</span>
-            <span className="text-gray-300 text-xs flex-shrink-0">
-              {task.callback?.host?.substring(0, 12) || "—"}
-            </span>
-          </div>
-        ))}
-        {recentTasks.length === 0 && <div className="text-gray-300 text-sm text-center py-4">NO RECENT ACTIVITY</div>}
-      </div>
-    </DashboardCard>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SVG DONUT CHART (pure CSS/SVG — no charting library)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const DONUT_COLORS = ['#00ffd1', '#ff5555', '#ffaa44', '#aa66ff', '#44aaff', '#ff66aa', '#66ff88', '#ffdd44', '#44ffcc', '#ff8844'];
-
-interface PieSlice { label: string; value: number; color?: string; }
-
-function CyberDonutChart({ slices, size = 120 }: { slices: PieSlice[]; size?: number }) {
-  const total = slices.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return <div className="flex items-center justify-center text-gray-300 text-sm font-mono" style={{ width: size, height: size }}>NO DATA</div>;
-
-  const r = size / 2;
-  const stroke = size * 0.2;
-  const innerR = r - stroke;
-  const cx = r, cy = r;
-  let cumAngle = -90; // start from top
-
-  const arcs = slices.filter(s => s.value > 0).map((s, i) => {
-    const angle = (s.value / total) * 360;
-    const startAngle = cumAngle;
-    cumAngle += angle;
-    const endAngle = cumAngle;
-
-    const toRad = (deg: number) => (deg * Math.PI) / 180;
-    const x1 = cx + innerR * Math.cos(toRad(startAngle));
-    const y1 = cy + innerR * Math.sin(toRad(startAngle));
-    const x2 = cx + innerR * Math.cos(toRad(endAngle));
-    const y2 = cy + innerR * Math.sin(toRad(endAngle));
-    const ox1 = cx + r * Math.cos(toRad(startAngle));
-    const oy1 = cy + r * Math.sin(toRad(startAngle));
-    const ox2 = cx + r * Math.cos(toRad(endAngle));
-    const oy2 = cy + r * Math.sin(toRad(endAngle));
-
-    const largeArc = angle > 180 ? 1 : 0;
-    const color = s.color || DONUT_COLORS[i % DONUT_COLORS.length];
-
-    const d = [
-      `M ${ox1} ${oy1}`,
-      `A ${r} ${r} 0 ${largeArc} 1 ${ox2} ${oy2}`,
-      `L ${x2} ${y2}`,
-      `A ${innerR} ${innerR} 0 ${largeArc} 0 ${x1} ${y1}`,
-      'Z'
-    ].join(' ');
-
-    return <path key={i} d={d} fill={color} opacity={0.85} className="transition-opacity hover:opacity-100" />;
-  });
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {arcs}
-      <text x={cx} y={cy - 2} textAnchor="middle" fill="white" fontSize={size * 0.22} fontFamily="JetBrains Mono, monospace" fontWeight="bold">{total}</text>
-      <text x={cx} y={cy + size * 0.16} textAnchor="middle" fill="#d1d5db" fontSize={size * 0.10} fontFamily="JetBrains Mono, monospace" fontWeight="600" letterSpacing="2">TOTAL</text>
-    </svg>
-  );
-}
-
-function DonutLegend({ slices }: { slices: PieSlice[] }) {
-  const total = slices.reduce((s, d) => s + d.value, 0);
-  return (
-    <div className="space-y-1.5 overflow-auto cyber-scrollbar max-h-[160px]">
-      {slices.filter(s => s.value > 0).map((s, i) => (
-        <div key={s.label} className="flex items-center gap-2 text-sm font-mono">
-          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color || DONUT_COLORS[i % DONUT_COLORS.length] }} />
-          <span className="text-gray-100 truncate flex-1" title={s.label}>{s.label}</span>
-          <span className="text-white font-semibold">{s.value}</span>
-          {total > 0 && <span className="text-gray-300 w-10 text-right">{Math.round((s.value / total) * 100)}%</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Chart-Based Widgets ─────────────────────────────────────────────────────
-
-export function TopCommandsPieCard({ tasks = [] }: { tasks?: any[] }) {
-  const slices = useMemo(() => {
-    const freq: Record<string, number> = {};
-    tasks.forEach(t => { if (t.command_name) freq[t.command_name] = (freq[t.command_name] || 0) + 1; });
-    return Object.entries(freq)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([label, value], i) => ({ label, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }));
-  }, [tasks]);
-
-  return (
-    <DashboardCard title="Top Commands" icon={<PieChartIcon size={18} />}>
-      <div className="flex items-start gap-4">
-        <CyberDonutChart slices={slices} size={110} />
-        <div className="flex-1 min-w-0"><DonutLegend slices={slices} /></div>
-      </div>
-    </DashboardCard>
-  );
-}
-
-export function TaskStatusPieCard({ tasks = [] }: { tasks?: any[] }) {
-  const slices = useMemo(() => {
-    let completed = 0, error = 0, processing = 0, submitted = 0, other = 0;
-    tasks.forEach(t => {
-      if (t.status === 'completed' || t.completed) completed++;
-      else if (t.status === 'error') error++;
-      else if (t.status === 'processing' || t.status === 'delegating' || t.status === 'processed') processing++;
-      else if (t.status === 'submitted' || t.status === 'preprocessing') submitted++;
-      else other++;
-    });
-    return [
-      { label: 'Completed', value: completed, color: '#22c55e' },
-      { label: 'Error', value: error, color: '#ef4444' },
-      { label: 'Processing', value: processing, color: '#3b82f6' },
-      { label: 'Submitted', value: submitted, color: '#eab308' },
-      { label: 'Other', value: other, color: '#6b7280' },
-    ].filter(s => s.value > 0);
-  }, [tasks]);
-
-  return (
-    <DashboardCard title="Task Status" icon={<CheckCircle size={18} />}>
-      <div className="flex items-start gap-4">
-        <CyberDonutChart slices={slices} size={110} />
-        <div className="flex-1 min-w-0"><DonutLegend slices={slices} /></div>
-      </div>
-    </DashboardCard>
-  );
-}
-
-export function HostContextPieCard({ callbacks = [] }: { callbacks?: any[] }) {
-  const slices = useMemo(() => {
-    const freq: Record<string, number> = {};
-    callbacks.forEach(c => {
-      const host = c.host || 'Unknown';
-      freq[host] = (freq[host] || 0) + 1;
-    });
-    return Object.entries(freq)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([label, value], i) => ({ label, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }));
-  }, [callbacks]);
-
-  return (
-    <DashboardCard title="Callbacks by Host" icon={<Activity size={18} />}>
-      <div className="flex items-start gap-4">
-        <CyberDonutChart slices={slices} size={110} />
-        <div className="flex-1 min-w-0"><DonutLegend slices={slices} /></div>
-      </div>
-    </DashboardCard>
-  );
-}
-
-export function UserContextPieCard({ callbacks = [] }: { callbacks?: any[] }) {
-  const slices = useMemo(() => {
-    const freq: Record<string, number> = {};
-    callbacks.forEach(c => {
-      const user = c.user || 'Unknown';
-      freq[user] = (freq[user] || 0) + 1;
-    });
-    return Object.entries(freq)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([label, value], i) => ({ label, value, color: DONUT_COLORS[i % DONUT_COLORS.length] }));
-  }, [callbacks]);
-
-  return (
-    <DashboardCard title="Callbacks by User" icon={<Users size={18} />}>
-      <div className="flex items-start gap-4">
-        <CyberDonutChart slices={slices} size={110} />
-        <div className="flex-1 min-w-0"><DonutLegend slices={slices} /></div>
-      </div>
-    </DashboardCard>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// REDESIGNED DASHBOARD — Mission Control widgets
-// ─────────────────────────────────────────────────────────────────────────────
-
+/** Kept for the activity stream, which wants "last activity", not issue time. */
 function parseTaskTime(t: any): number {
-  if (!t?.timestamp) return 0;
-  const s = typeof t.timestamp === 'string' && !t.timestamp.endsWith('Z') ? `${t.timestamp}Z` : t.timestamp;
-  const ms = new Date(s).getTime();
-  return Number.isFinite(ms) ? ms : 0;
+    return parseStamp(t?.timestamp) || taskIssuedAt(t);
 }
 
 function bucketByMinute(tasks: any[], buckets = 30, windowMs = 30 * 60 * 1000): number[] {
-  const now = Date.now();
-  const arr = new Array(buckets).fill(0);
-  tasks.forEach(t => {
-    const ts = parseTaskTime(t);
-    if (!ts) return;
-    const age = now - ts;
-    if (age < 0 || age > windowMs) return;
-    const idx = Math.min(buckets - 1, Math.floor((windowMs - age) / (windowMs / buckets)));
-    arr[idx]++;
-  });
-  return arr;
+    const now = Date.now();
+    const arr = new Array(buckets).fill(0);
+    tasks.forEach(t => {
+        const ts = parseTaskTime(t);
+        if (!ts) return;
+        const age = now - ts;
+        if (age < 0 || age > windowMs) return;
+        const idx = Math.min(buckets - 1, Math.floor((windowMs - age) / (windowMs / buckets)));
+        arr[idx]++;
+    });
+    return arr;
 }
 
-function bucketByHour24(tasks: any[]): number[] {
-  const now = Date.now();
-  const arr = new Array(24).fill(0);
-  const windowMs = 24 * 60 * 60 * 1000;
-  tasks.forEach(t => {
-    const ts = parseTaskTime(t);
-    if (!ts) return;
-    const age = now - ts;
-    if (age < 0 || age > windowMs) return;
-    const idx = Math.min(23, Math.floor((windowMs - age) / (60 * 60 * 1000)));
-    arr[idx]++;
-  });
-  return arr;
+/**
+ * Bucket tasks by issue time, into a window the data can actually support.
+ *
+ * The query returns the newest N tasks, not a fixed time window, so the span
+ * is measured from the data rather than assumed. There is deliberately NO cap:
+ * an operation that has been running for weeks should show weeks. The measured
+ * span is returned so the axis can be labelled with the truth, whatever it
+ * turns out to be.
+ *
+ * Buckets by `status_timestamp_preprocessing` — the true submission clock.
+ * The obvious choice, `timestamp`, is the row's last-updated time and sits
+ * microseconds from completion, so bucketing by it silently turns a
+ * "tasks issued" chart into a "tasks finished" chart.
+ *
+ * Outcomes are counted against the bucket the task was *issued* in, which is
+ * the more useful reading: it shows when the failures were being created.
+ */
+function bucketTempo(tasks: any[], buckets = 48) {
+    const stamped = tasks.map(t => ({ t, ts: taskIssuedAt(t) })).filter(x => x.ts > 0);
+    const issued = new Array(buckets).fill(0);
+    const completed = new Array(buckets).fill(0);
+    const errored = new Array(buckets).fill(0);
+    if (stamped.length === 0) return { issued, completed, errored, spanMs: 0, endMs: Date.now() };
+
+    const endMs = Date.now();
+    // reduce, not Math.min(...spread): the history query is unbounded, and a
+    // spread of ~150k arguments throws RangeError in V8.
+    const oldest = stamped.reduce((m, x) => (x.ts < m ? x.ts : m), stamped[0].ts);
+    const spanMs = Math.max(60_000, endMs - oldest);
+    const step = spanMs / buckets;
+
+    stamped.forEach(({ t, ts }) => {
+        const age = endMs - ts;
+        if (age < 0 || age > spanMs) return;
+        const idx = Math.min(buckets - 1, Math.floor((spanMs - age) / step));
+        issued[idx]++;
+        const { word } = taskState(t);
+        if (word === 'Done') completed[idx]++;
+        else if (word === 'Error') errored[idx]++;
+    });
+    return { issued, completed, errored, spanMs, endMs };
 }
 
-// ── Sparkline ────────────────────────────────────────────────────────────────
-
-interface SparklineProps {
-  values: number[];
-  width?: number;
-  height?: number;
-  color?: string;
-  fill?: boolean;
-  className?: string;
+/** "45m" / "3h 20m" / "12d" — the window is no longer bounded to a day, so
+ *  this has to stay readable when an operation has been running for months. */
+function humanSpan(ms: number): string {
+    if (ms <= 0) return '—';
+    const m = Math.round(ms / 60_000);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 48) {
+        const rem = m % 60;
+        return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+    }
+    const d = Math.floor(h / 24);
+    const remH = h % 24;
+    return remH === 0 ? `${d}d` : `${d}d ${remH}h`;
 }
 
-export function Sparkline({ values, width = 120, height = 32, color, fill = true, className }: SparklineProps) {
-  if (!values || values.length === 0) {
-    return <svg width={width} height={height} className={className} />;
-  }
-  const max = Math.max(1, ...values);
-  const stepX = width / Math.max(1, values.length - 1);
-  const points = values.map((v, i) => {
-    const x = i * stepX;
-    const y = height - 2 - (v / max) * (height - 4);
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
-  const linePath = `M ${points.join(' L ')}`;
-  const areaPath = `${linePath} L ${width},${height} L 0,${height} Z`;
-  const stroke = color || 'rgb(var(--color-signal))';
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={className} preserveAspectRatio="none">
-      {fill && <path d={areaPath} fill={stroke} opacity={0.12} />}
-      <path d={linePath} fill="none" stroke={stroke} strokeWidth={1.4} strokeLinejoin="round" strokeLinecap="round" />
-      {values.length > 0 && (() => {
-        const last = values[values.length - 1];
-        const lx = (values.length - 1) * stepX;
-        const ly = height - 2 - (last / max) * (height - 4);
-        return <circle cx={lx} cy={ly} r={2} fill={stroke} />;
-      })()}
-    </svg>
-  );
-}
-
-// ── KPI Tile (hero KPIs with sparkline + delta) ─────────────────────────────
-
-interface KpiTileProps {
-  label: string;
-  value: number | string;
-  unit?: string;
-  icon?: React.ReactNode;
-  spark?: number[];
-  delta?: number; // % change
-  tone?: 'signal' | 'green' | 'yellow' | 'red' | 'blue';
-  hint?: string;
-  onClick?: () => void;
-}
-
-const TONE_FG: Record<string, string> = {
-  signal: 'text-signal',
-  green: 'text-green-400',
-  yellow: 'text-yellow-400',
-  red: 'text-red-400',
-  blue: 'text-blue-400',
-};
-const TONE_HEX: Record<string, string> = {
-  signal: 'rgb(var(--color-signal))',
-  green: '#4ade80',
-  yellow: '#facc15',
-  red: '#f87171',
-  blue: '#60a5fa',
-};
-
-export function KpiTile({ label, value, unit, icon, spark, delta, tone = 'signal', hint, onClick }: KpiTileProps) {
-  const fg = TONE_FG[tone];
-  const hex = TONE_HEX[tone];
-  const TrendIcon = typeof delta === 'number' ? (delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus) : null;
-  return (
-    <div
-      onClick={onClick}
-      className={cn(
-        'relative border border-ghost/30 bg-black/40 backdrop-blur-md rounded px-5 py-4 group overflow-hidden transition-all duration-300',
-        onClick && 'cursor-pointer hover:border-signal/60 hover:bg-black/60'
-      )}
-    >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex items-center gap-2 text-xs font-mono tracking-widest uppercase text-gray-300">
-          {icon && <span className={cn('opacity-90', fg)}>{icon}</span>}
-          {label}
-        </div>
-        {TrendIcon && (
-          <div className={cn('flex items-center gap-1 text-xs font-mono', delta! > 0 ? 'text-green-400' : delta! < 0 ? 'text-red-400' : 'text-gray-300')}>
-            <TrendIcon size={12} />
-            {Math.abs(delta!).toFixed(0)}%
-          </div>
-        )}
-      </div>
-      <div className="flex items-end justify-between gap-3">
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className={cn('text-4xl font-mono font-bold leading-none', fg)}>{value}</span>
-          {unit && <span className="text-xs font-mono text-gray-300 tracking-widest uppercase">{unit}</span>}
-        </div>
-        {spark && spark.length > 0 && (
-          <Sparkline values={spark} color={hex} width={96} height={32} />
-        )}
-      </div>
-      {hint && <div className="mt-2 text-xs font-mono text-gray-300 tracking-wide">{hint}</div>}
-    </div>
-  );
-}
-
-// ── Live Clock ───────────────────────────────────────────────────────────────
-
-function useLiveClock(intervalMs = 1000) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
+function timeAgo(ts: number): string {
+    if (!ts) return '—';
+    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h`;
+    return `${Math.floor(h / 24)}d`;
 }
 
 function pad2(n: number) { return n < 10 ? `0${n}` : `${n}`; }
 
-// ── Threat Level Gauge ───────────────────────────────────────────────────────
+/**
+ * A clock that re-renders ONLY itself.
+ *
+ * `useLiveClock` re-renders whatever component calls it. At 1Hz in a panel
+ * that also draws an avatar list or a three-bay hero, that is a full subtree
+ * reconciliation every second to move one digit. Anything ticking faster than
+ * the 10s poll should be a leaf like this instead.
+ */
+const LiveTime = React.memo(function LiveTime({ format, intervalMs = 1000 }: {
+    format: (now: Date) => React.ReactNode;
+    intervalMs?: number;
+}) {
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), intervalMs);
+        return () => clearInterval(id);
+    }, [intervalMs]);
+    return <>{format(now)}</>;
+});
 
-interface ThreatGaugeProps {
-  score: number; // 0-100
-  size?: number;
+function useLiveClock(intervalMs = 1000) {
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), intervalMs);
+        return () => clearInterval(id);
+    }, [intervalMs]);
+    return now;
 }
 
-export function ThreatGauge({ score, size = 120 }: ThreatGaugeProps) {
-  const clamped = Math.max(0, Math.min(100, score));
-  const r = size / 2;
-  const stroke = size * 0.11;
-  const innerR = r - stroke / 2 - 2;
-  const cx = r, cy = r;
-  // Half-circle gauge (180°), starting bottom-left at angle 180°, ending bottom-right at 360°
-  const startAngle = 180;
-  const endAngle = 360;
-  const span = endAngle - startAngle;
-  const valueAngle = startAngle + (clamped / 100) * span;
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const arc = (a1: number, a2: number) => {
-    const x1 = cx + innerR * Math.cos(toRad(a1));
-    const y1 = cy + innerR * Math.sin(toRad(a1));
-    const x2 = cx + innerR * Math.cos(toRad(a2));
-    const y2 = cy + innerR * Math.sin(toRad(a2));
-    const large = a2 - a1 > 180 ? 1 : 0;
-    return `M ${x1} ${y1} A ${innerR} ${innerR} 0 ${large} 1 ${x2} ${y2}`;
-  };
-
-  const tone = clamped < 25 ? '#22c55e' : clamped < 60 ? '#facc15' : clamped < 85 ? '#fb923c' : '#ef4444';
-  const label = clamped < 25 ? 'NOMINAL' : clamped < 60 ? 'ELEVATED' : clamped < 85 ? 'HIGH' : 'CRITICAL';
-
-  // Tick marks every 10%
-  const ticks = Array.from({ length: 11 }, (_, i) => {
-    const a = startAngle + (i / 10) * span;
-    const xo = cx + (innerR + stroke / 2 + 2) * Math.cos(toRad(a));
-    const yo = cy + (innerR + stroke / 2 + 2) * Math.sin(toRad(a));
-    const xi = cx + (innerR - stroke / 2 - 2) * Math.cos(toRad(a));
-    const yi = cy + (innerR - stroke / 2 - 2) * Math.sin(toRad(a));
-    return <line key={i} x1={xo} y1={yo} x2={xi} y2={yi} stroke="rgb(255 255 255 / 0.30)" strokeWidth={1} />;
-  });
-
-  return (
-    <svg width={size} height={size * 0.62} viewBox={`0 ${size * 0.38} ${size} ${size * 0.62}`}>
-      <path d={arc(startAngle, endAngle)} fill="none" stroke="rgb(255 255 255 / 0.18)" strokeWidth={stroke} strokeLinecap="butt" />
-      <path d={arc(startAngle, valueAngle)} fill="none" stroke={tone} strokeWidth={stroke} strokeLinecap="butt" style={{ transition: 'all 600ms ease' }} />
-      {ticks}
-      <text x={cx} y={cy + size * 0.05} textAnchor="middle" fill={tone} fontSize={size * 0.22} fontFamily="JetBrains Mono, monospace" fontWeight="bold">{Math.round(clamped)}</text>
-      <text x={cx} y={cy + size * 0.18} textAnchor="middle" fill="#e5e7eb" fontSize={size * 0.10} fontFamily="JetBrains Mono, monospace" letterSpacing="2" fontWeight="600">{label}</text>
-    </svg>
-  );
+/** Rank a frequency map into rows, folding the tail into one "Other".
+ *
+ *  The fold is the point: past roughly seven rows a ranked list stops being
+ *  scannable and the tail is noise. One row keeps the total honest without
+ *  pretending the 14th command matters. */
+function rankBuckets(freq: Record<string, number>, keep = 6) {
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+    const head = sorted.slice(0, keep);
+    const tail = sorted.slice(keep);
+    const tailSum = tail.reduce((s, [, v]) => s + v, 0);
+    const rows = head.map(([label, value]) => ({ label, value }));
+    if (tailSum > 0) rows.push({ label: `Other (${tail.length})`, value: tailSum });
+    const total = sorted.reduce((s, [, v]) => s + v, 0);
+    const max = rows.length ? Math.max(...rows.map(r => r.value)) : 1;
+    return { rows, total, max };
 }
 
-// ── Mission Hero Banner ──────────────────────────────────────────────────────
+// `callbackGrowth` lived here and charted cumulative footholds from
+// `init_callback`. It went with the ranked-bars version of Callback Surface:
+// that panel is now a table of which nodes exist and whether they are talking,
+// which is the question asked first. Foothold growth over time is still
+// derivable from `callback.init_callback` if it earns a panel of its own —
+// it must not be folded into Operation Tempo, because tasks and callbacks are
+// different units and that would mean a dual axis.
 
-interface MissionHeroProps {
-  operationName: string;
-  operatorName: string;
-  callbackCount: number;
-  totalCallbacks: number;
-  c2Running: number;
-  c2Total: number;
-  threatScore: number;
-  loading?: boolean;
-  error?: boolean;
+/**
+ * `callback.os` is a multi-line uname dump, e.g.
+ *   "Linux\nRedTeamLab\n6.19.14+kali-amd64\n#1 SMP ...\nx86_64"
+ * Rendering it raw turns one table row into five. The first line is the useful
+ * part; the rest belongs in the callback detail view.
+ */
+function shortOs(os: unknown): string {
+    if (typeof os !== 'string' || !os) return '—';
+    return os.split('\n')[0].trim().slice(0, 24) || '—';
 }
 
-export function MissionHeroBanner({ operationName, operatorName, callbackCount, totalCallbacks, c2Running, c2Total, threatScore, loading, error }: MissionHeroProps) {
-  const now = useLiveClock(1000);
-  const utc = `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}:${pad2(now.getUTCSeconds())}`;
-  const local = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
-  const dateStr = now.toISOString().slice(0, 10);
+/** Percentile from an already-sorted array. */
+function percentile(sorted: number[], p: number): number {
+    if (sorted.length === 0) return 0;
+    return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+}
 
-  return (
-    <div className="relative border border-ghost/30 bg-black/40 backdrop-blur-md rounded overflow-hidden">
-      {/* scanline overlay */}
-      <div className="absolute inset-0 pointer-events-none opacity-[0.05]" style={{ backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,0.4) 0, rgba(255,255,255,0.4) 1px, transparent 1px, transparent 3px)' }} />
+/** Human latency: sub-second in ms, then seconds, then minutes. */
+function humanMs(ms: number): string {
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${Math.round(ms / 60_000)}m`;
+}
 
-      <div className="relative grid grid-cols-1 md:grid-cols-3 gap-6 p-7">
-        {/* left — mission identity */}
-        <div className="flex flex-col justify-between min-w-0">
-          <div>
-            <div className="text-xs font-mono text-gray-300 tracking-[0.3em] uppercase mb-3">MISSION CONTROL</div>
-            <div className="text-4xl font-bold text-signal font-mono tracking-tight truncate" title={operationName}>{operationName}</div>
-            <div className="mt-2 text-sm font-mono text-gray-200 truncate">OPERATOR :: <span className="text-signal">{operatorName}</span></div>
-          </div>
-          <div className="mt-5 flex items-center gap-2">
-            <span className={cn('w-2.5 h-2.5 rounded-full', loading ? 'bg-yellow-500 animate-pulse' : error ? 'bg-red-500' : 'bg-signal animate-pulse')} />
-            <span className="text-sm font-mono text-gray-200 tracking-widest uppercase">
-              {error ? 'GATEWAY OFFLINE' : loading ? 'SYNCING…' : 'GATEWAY ONLINE'}
-            </span>
-          </div>
-        </div>
+/** Round-trip latency profile across the fetched window.
+ *
+ *  Buckets are log-ish rather than linear because that is how the data
+ *  actually falls — measured on 417 real paired rows: p50 2.45s, p90 9.83s,
+ *  p99 193s. Linear buckets would put 80% of tasks in one bar. */
+const LATENCY_BUCKETS: [string, number, number][] = [
+    ['Under 1s', 0, 1000],
+    ['1–5s', 1000, 5000],
+    ['5–30s', 5000, 30_000],
+    ['30s–2m', 30_000, 120_000],
+    ['Over 2m', 120_000, Number.POSITIVE_INFINITY],
+];
 
-        {/* middle — clock + counters */}
-        <div className="flex flex-col justify-center items-center text-center border-x border-ghost/30 px-4">
-          <div className="text-xs font-mono text-gray-300 tracking-[0.3em] uppercase">UTC // {dateStr}</div>
-          <div className="text-5xl font-mono font-bold text-signal tracking-wider tabular-nums leading-none my-3">{utc}</div>
-          <div className="text-sm font-mono text-gray-200 tracking-widest">LOCAL {local}</div>
-          <div className="grid grid-cols-2 gap-6 mt-5 w-full max-w-[280px]">
-            <div>
-              <div className="text-3xl font-mono font-bold text-signal">{callbackCount}<span className="text-sm text-gray-300">/{totalCallbacks}</span></div>
-              <div className="text-xs font-mono text-gray-300 tracking-widest uppercase mt-0.5">CALLBACKS</div>
+function latencyProfile(tasks: any[]) {
+    const durs: number[] = [];
+    let outstanding = 0;
+    tasks.forEach(t => {
+        const d = taskLatency(t);
+        if (d === null) { outstanding++; return; }
+        durs.push(d);
+    });
+    durs.sort((a, b) => a - b);
+    const bins = LATENCY_BUCKETS.map(([label, lo, hi]) => ({
+        label, value: durs.filter(d => d >= lo && d < hi).length,
+    }));
+    return {
+        durs, outstanding, bins,
+        p50: percentile(durs, 0.5),
+        p90: percentile(durs, 0.9),
+        p99: percentile(durs, 0.99),
+        max: bins.length ? Math.max(1, ...bins.map(b => b.value)) : 1,
+    };
+}
+
+/** Task status → semantic tone + word. Never a bare colour: see `StatusWord`. */
+function taskState(task: any): { tone: Tone; word: string } {
+    const isOpsec = (task.opsec_pre_blocked && !task.opsec_pre_bypassed)
+        || (task.opsec_post_blocked && !task.opsec_post_bypassed);
+    if (isOpsec) return { tone: 'warn', word: 'OPSEC' };
+    if (task.status === 'error') return { tone: 'fail', word: 'Error' };
+    if (task.completed || task.status === 'completed') return { tone: 'signal', word: 'Done' };
+    if (['processing', 'delegating', 'processed'].includes(task.status)) return { tone: 'signal', word: 'Running' };
+    return { tone: 'idle', word: 'Queued' };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPARKLINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SparklineProps {
+    values: number[];
+    width?: number;
+    height?: number;
+    color?: string;
+    fill?: boolean;
+    className?: string;
+}
+
+/** Trend shape only — deliberately unlabelled and unaxed. The number beside it
+ *  is the value; this says which way it has been going. */
+export function Sparkline({ values, width = 104, height = 32, color, fill = true, className }: SparklineProps) {
+    if (!values || values.length === 0) return <svg width={width} height={height} className={className} aria-hidden="true" />;
+    const max = Math.max(1, ...values);
+    const stepX = width / Math.max(1, values.length - 1);
+    const points = values.map((v, i) => {
+        const x = i * stepX;
+        const y = height - 2 - (v / max) * (height - 4);
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+    });
+    const linePath = `M ${points.join(' L ')}`;
+    const areaPath = `${linePath} L ${width},${height} L 0,${height} Z`;
+    const stroke = color || 'rgb(var(--color-signal))';
+    const last = values[values.length - 1];
+    const lx = (values.length - 1) * stepX;
+    const ly = height - 2 - (last / max) * (height - 4);
+    return (
+        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={className} aria-hidden="true">
+            {fill && <path d={areaPath} fill={stroke} opacity={0.1} />}
+            <path d={linePath} fill="none" stroke={stroke} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            <circle cx={lx} cy={ly} r={2.4} fill={stroke} />
+        </svg>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KPI TILE + STRIP
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TONE_HEX: Record<Tone, string> = {
+    signal: 'rgb(var(--color-signal))',
+    live: 'rgb(var(--color-accent))',
+    warn: '#fbbf24',
+    fail: '#f87171',
+    range: '#c084fc',
+    idle: 'rgb(var(--color-signal) / 0.45)',
+};
+
+interface KpiTileProps {
+    label: string;
+    value: number | string;
+    unit?: string;
+    icon?: React.ReactNode;
+    spark?: number[];
+    delta?: number;
+    tone?: Tone;
+    hint?: string;
+    onClick?: () => void;
+    /** Supply both to draw a meter instead of a sparkline. */
+    ratio?: { value: number; max: number };
+}
+
+/**
+ * One headline number, with the graphic that actually fits it.
+ *
+ * Both references agree on the split, so it is not a taste call: a value with a
+ * real denominator ("12 of 18 callbacks") is a *ratio against a limit* and wants
+ * a meter, while a value with no ceiling ("2.4 tasks/min") is a *current value
+ * plus trend* and wants a sparkline. Putting a sparkline under a bounded ratio
+ * throws away the one fact the reader needs — how much headroom is left.
+ */
+export function KpiTile({ label, value, unit, icon, spark, delta, tone = 'signal', hint, onClick, ratio }: KpiTileProps) {
+    const TrendIcon = typeof delta === 'number' ? (delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus) : null;
+    // Direction, not judgement: higher throughput is not "good", so the
+    // arrow carries the meaning and the colour stays neutral.
+    const trendTone: Tone = typeof delta === 'number' && delta !== 0 ? 'signal' : 'idle';
+    return (
+        <InstrumentPanel
+            title={label}
+            icon={icon}
+            badgeTone={tone}
+            badge={TrendIcon ? (
+                <span className={cn('inline-flex items-center gap-1', toneText(trendTone))}>
+                    <TrendIcon size={12} strokeWidth={2} aria-hidden="true" />
+                    {Math.abs(delta!).toFixed(0)}%
+                </span>
+            ) : undefined}
+            onClick={onClick}
+            footerLeft={hint}
+        >
+            <div className="flex h-full flex-col justify-between gap-3">
+                <div className="flex items-end justify-between gap-3">
+                    {/* No label: the header strip already names this number. */}
+                    <Readout value={value} sub={unit} tone={tone} size="text-[32px]" />
+                    {!ratio && spark && spark.length > 0 && (
+                        <Sparkline values={spark} color={toneStroke(tone)} />
+                    )}
+                </div>
+                {ratio && (
+                    <div className="space-y-1.5">
+                        <Meter value={ratio.value} max={ratio.max} tone={tone} />
+                        <div className="flex justify-between text-[11px] tabular-nums text-signal opacity-55">
+                            <span>0</span>
+                            <span>{ratio.max}</span>
+                        </div>
+                    </div>
+                )}
             </div>
-            <div>
-              <div className="text-3xl font-mono font-bold text-signal">{c2Running}<span className="text-sm text-gray-300">/{c2Total}</span></div>
-              <div className="text-xs font-mono text-gray-300 tracking-widest uppercase mt-0.5">C2 ONLINE</div>
-            </div>
-          </div>
-        </div>
-
-        {/* right — threat gauge */}
-        <div className="flex flex-col items-center justify-center">
-          <div className="text-xs font-mono text-gray-300 tracking-[0.3em] uppercase mb-2">THREAT POSTURE</div>
-          <ThreatGauge score={threatScore} size={190} />
-          <div className="mt-2 flex items-center gap-2 text-xs font-mono text-gray-300 tracking-widest uppercase">
-            <AlertTriangle size={13} className="text-yellow-400" /> COMPOSITE_RISK_INDEX
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+        </InstrumentPanel>
+    );
 }
-
-// ── KPI Strip — 4 hero KPIs derived from data ──────────────────────────────
 
 interface KpiStripProps {
-  callbacks: any[];
-  totalCallbacks: number;
-  tasks: any[];
-  totalTasks: number;
-  completedTasks: number;
-  errorTasks: number;
-  opsecTasks: number;
-  onCallbacks?: () => void;
-  onOpsec?: () => void;
+    callbacks: any[];
+    totalCallbacks: number;
+    tasks: any[];
+    totalTasks: number;
+    completedTasks: number;
+    errorTasks: number;
+    opsecTasks: number;
+    onCallbacks?: () => void;
+    onOpsec?: () => void;
 }
 
-export function KpiStrip({ callbacks, totalCallbacks, tasks, totalTasks, completedTasks, errorTasks, opsecTasks, onCallbacks, onOpsec }: KpiStripProps) {
-  const m30 = useMemo(() => bucketByMinute(tasks, 30, 30 * 60 * 1000), [tasks]);
-  const last5min = useMemo(() => m30.slice(-5).reduce((a, b) => a + b, 0), [m30]);
-  const prev5min = useMemo(() => m30.slice(-10, -5).reduce((a, b) => a + b, 0), [m30]);
-  const tasksPerMinute = (last5min / 5).toFixed(1);
-  const throughputDelta = prev5min === 0 ? (last5min > 0 ? 100 : 0) : ((last5min - prev5min) / prev5min) * 100;
+export const KpiStrip = React.memo(function KpiStrip({
+    callbacks, totalCallbacks, tasks, totalTasks, completedTasks, errorTasks, opsecTasks,
+    onCallbacks, onOpsec,
+}: KpiStripProps) {
+    const m30 = useMemo(() => bucketByMinute(tasks, 30, 30 * 60 * 1000), [tasks]);
+    const last5min = useMemo(() => m30.slice(-5).reduce((a, b) => a + b, 0), [m30]);
+    const prev5min = useMemo(() => m30.slice(-10, -5).reduce((a, b) => a + b, 0), [m30]);
+    const tasksPerMinute = (last5min / 5).toFixed(1);
+    const throughputDelta = prev5min === 0 ? (last5min > 0 ? 100 : 0) : ((last5min - prev5min) / prev5min) * 100;
 
-  const successRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-  const successSpark = useMemo(() => {
-    // Build 12-point "rolling" success rate over last 60 min in 5-min windows
-    const buckets = bucketByMinute(tasks, 12, 60 * 60 * 1000);
-    return buckets;
-  }, [tasks]);
+    const successRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+    const opsecSpark = useMemo(() => bucketByMinute(
+        tasks.filter(t => (t.opsec_pre_blocked && !t.opsec_pre_bypassed) || (t.opsec_post_blocked && !t.opsec_post_bypassed)),
+        24, 60 * 60 * 1000,
+    ), [tasks]);
+    const errorRate = totalTasks > 0 ? (errorTasks / totalTasks) * 100 : 0;
 
-  const callbackSpark = useMemo(() => {
-    // Use task buckets as proxy of callback activity if no creation_time
-    return bucketByMinute(tasks, 24, 60 * 60 * 1000);
-  }, [tasks]);
-
-  const opsecTone = opsecTasks > 0 ? 'red' : 'signal';
-  const errorRate = totalTasks > 0 ? (errorTasks / totalTasks) * 100 : 0;
-
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <KpiTile
-        label="Active Callbacks"
-        value={callbacks.length}
-        unit={`/ ${totalCallbacks}`}
-        icon={<Radio size={11} />}
-        spark={callbackSpark}
-        tone="signal"
-        hint={callbacks.length > 0 ? 'BEACONS LIVE' : 'NO CONTACT'}
-        onClick={onCallbacks}
-      />
-      <KpiTile
-        label="Task Throughput"
-        value={tasksPerMinute}
-        unit="t/min · 5m"
-        icon={<Zap size={11} />}
-        spark={m30}
-        delta={throughputDelta}
-        tone="blue"
-        hint={`${last5min} tasks · 5m window`}
-      />
-      <KpiTile
-        label="Success Rate"
-        value={`${successRate.toFixed(0)}%`}
-        icon={<CheckCircle size={11} />}
-        spark={successSpark}
-        tone={successRate >= 80 ? 'green' : successRate >= 50 ? 'yellow' : 'red'}
-        hint={`${completedTasks}/${totalTasks} completed · err ${errorRate.toFixed(0)}%`}
-      />
-      <KpiTile
-        label="OPSEC Pending"
-        value={opsecTasks}
-        unit={opsecTasks > 0 ? 'REVIEW' : 'CLEAR'}
-        icon={<AlertTriangle size={11} />}
-        tone={opsecTone}
-        hint={opsecTasks > 0 ? 'AWAITING APPROVAL' : 'NO BLOCKED TASKS'}
-        onClick={onOpsec}
-      />
-    </div>
-  );
-}
-
-// ── 24h Activity Heatmap ─────────────────────────────────────────────────────
-
-export function ActivityHeatmapCard({ tasks = [] }: { tasks?: any[] }) {
-  const buckets = useMemo(() => bucketByHour24(tasks), [tasks]);
-  const max = Math.max(1, ...buckets);
-  const peak = buckets.indexOf(Math.max(...buckets));
-  const total24 = buckets.reduce((a, b) => a + b, 0);
-  const now = useLiveClock(60_000);
-  const currentHourLabel = pad2(now.getHours());
-
-  return (
-    <DashboardCard title="24h Task Activity" icon={<Activity size={18} />}>
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-4 pb-3 border-b border-ghost/30">
-          <div>
-            <div className="text-3xl font-mono font-bold text-signal">{total24}</div>
-            <div className="text-xs font-mono text-gray-300 uppercase tracking-widest mt-0.5">TASKS · 24H</div>
-          </div>
-          <div>
-            <div className="text-3xl font-mono font-bold text-signal">{buckets[peak]}</div>
-            <div className="text-xs font-mono text-gray-300 uppercase tracking-widest mt-0.5">PEAK HOUR</div>
-          </div>
+    return (
+        // h-full + overflow so a shortened cell clips this the way every other
+        // widget is clipped by its InstrumentPanel — this is the one root that
+        // is a bare grid rather than a panel.
+        <div className="grid h-full grid-cols-2 gap-4 overflow-y-auto lg:grid-cols-4">
+            <KpiTile
+                label="Active callbacks"
+                value={callbacks.length}
+                unit={`of ${totalCallbacks}`}
+                icon={<Radio size={13} strokeWidth={2} />}
+                ratio={{ value: callbacks.length, max: Math.max(totalCallbacks, 1) }}
+                tone={callbacks.length > 0 ? 'signal' : 'idle'}
+                hint={callbacks.length > 0 ? 'Beacons live' : 'No contact'}
+                onClick={onCallbacks}
+            />
+            <KpiTile
+                label="Task throughput"
+                value={tasksPerMinute}
+                unit="per min"
+                icon={<Zap size={13} strokeWidth={2} />}
+                spark={m30}
+                delta={throughputDelta}
+                tone="signal"
+                hint={`${last5min} tasks in the last 5 minutes`}
+            />
+            <KpiTile
+                label="Success rate"
+                value={`${successRate.toFixed(0)}%`}
+                icon={<CheckCircle size={13} strokeWidth={2} />}
+                ratio={{ value: Math.round(successRate), max: 100 }}
+                tone={successRate >= 80 ? 'signal' : successRate >= 50 ? 'warn' : 'fail'}
+                hint={`${completedTasks} of ${totalTasks} done · ${errorRate.toFixed(0)}% errored`}
+            />
+            <KpiTile
+                label="OPSEC pending"
+                value={opsecTasks}
+                unit={opsecTasks > 0 ? 'to review' : 'clear'}
+                icon={<AlertTriangle size={13} strokeWidth={2} />}
+                spark={opsecSpark}
+                tone={opsecTasks > 0 ? 'warn' : 'signal'}
+                hint={opsecTasks > 0 ? 'Awaiting approval' : 'No blocked tasks'}
+                onClick={onOpsec}
+            />
         </div>
-        <div className="flex items-end gap-[3px] h-[100px]">
-          {buckets.map((v, i) => {
-            const h = max > 0 ? Math.max(3, (v / max) * 90) : 3;
-            const intensity = max > 0 ? v / max : 0;
-            const opacity = 0.4 + intensity * 0.6;
-            const isCurrent = i === buckets.length - 1;
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group/bar relative">
-                <div
-                  className={cn('w-full transition-all duration-500', isCurrent ? 'ring-1 ring-signal/60' : '')}
-                  style={{
-                    height: `${h}px`,
-                    backgroundColor: 'rgb(var(--color-signal))',
-                    opacity,
-                  }}
-                />
-                <div className="absolute -top-7 hidden group-hover/bar:block bg-black border border-signal/60 px-2 py-1 text-xs font-mono whitespace-nowrap z-10 text-gray-100">
-                  {v} tasks · {24 - 1 - i}h ago
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THREAT GAUGE + MISSION HERO
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ThreatGauge and computeThreatScore were removed deliberately.
+//
+// The score was `min(60, opsec*12) + min(30, errRate*60) + min(25, c2Down*40)`
+// — three invented weights summed into a number out of 100 that no operator
+// could explain, act on, or check. A dial that cannot be reasoned about is
+// worse than no dial: it looks authoritative. What it was gesturing at is now
+// answered concretely by Attention Required, which names the actual problem
+// and links to the thing that fixes it.
+
+interface MissionHeroProps {
+    operationName: string;
+    operatorName: string;
+    callbackCount: number;
+    totalCallbacks: number;
+    c2Running: number;
+    c2Total: number;
+    /** Derived from the same issue list Attention Required renders, so the two
+     *  can never disagree about whether the operation is in trouble. */
+    health: { label: string; detail: string; tone: Tone };
+    loading?: boolean;
+    error?: boolean;
+    /** Mythic's per-operator clock preference. */
+    viewUtc?: boolean;
+}
+
+/** The console's headline instrument. Three bays under one set of strips:
+ *  who and where, when, and how exposed. */
+export const MissionHeroBanner = React.memo(function MissionHeroBanner({
+    operationName, operatorName, callbackCount, totalCallbacks,
+    c2Running, c2Total, health, loading, error, viewUtc = false,
+}: MissionHeroProps) {
+    // No useLiveClock here: the hero holds the operation name, health state and
+    // two counters, none of which change every second. Only the clock ticks.
+    // No `new Date()` captured at render: it would freeze beside a live clock,
+    // so at midnight the time reads 00:00:0x next to yesterday's date — the very
+    // pair this panel exists to let an operator cross-check.
+    // The operator's preference decides which clock is the big one. Both stay
+    // on screen — during an operation the offset between them is something you
+    // want to be able to check, not something to hide behind a setting.
+    // primary/secondary now live inside the <LiveTime> leaves below; only the
+    // labels and the date are needed at this level.
+    const primaryLabel = viewUtc ? 'UTC' : 'Local';
+    const secondaryLabel = viewUtc ? 'Local' : 'UTC';
+    const formatDate = (d: Date) => viewUtc
+        ? d.toISOString().slice(0, 10)
+        : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+    const linkTone: Tone = error ? 'fail' : loading ? 'warn' : 'live';
+    const linkWord = error ? 'Gateway offline' : loading ? 'Syncing' : 'Gateway online';
+
+    return (
+        <InstrumentPanel
+            title="Mission control"
+            icon={<Shield size={14} strokeWidth={2} />}
+            badgeTone={linkTone}
+            badge={linkWord}
+            footerLeft={<>Operator <span className="font-medium opacity-100">{operatorName}</span></>}
+            footerRight={<>{primaryLabel} <LiveTime intervalMs={30_000} format={formatDate} /></>}
+            bodyClassName="p-0"
+        >
+            <div className="grid grid-cols-1 md:grid-cols-3">
+                {/* Identity */}
+                <div className="flex min-w-0 flex-col justify-center gap-3 px-5 py-6">
+                    <span className={cn('text-signal opacity-70', LABEL)}>Active operation</span>
+                    <span className="truncate text-[32px] font-bold leading-none text-signal" title={operationName}>
+                        {operationName}
+                    </span>
+                    <StatusWord tone={linkTone} dot>{linkWord}</StatusWord>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex justify-between text-xs font-mono text-gray-300 tracking-widest pt-1">
-          <span>-24h</span>
-          <span>-12h</span>
-          <span>NOW · {currentHourLabel}:00</span>
-        </div>
-      </div>
-    </DashboardCard>
-  );
-}
 
-// ── Live Activity Ticker ─────────────────────────────────────────────────────
+                {/* Clock + counters */}
+                <div className="flex flex-col items-center justify-center gap-2 border-signal/15 px-5 py-6 md:border-x">
+                    <span className={cn('text-signal opacity-70', LABEL)}>{primaryLabel}</span>
+                    <span className="text-[44px] font-bold leading-none tabular-nums tracking-[0.03em] text-signal">
+                        <LiveTime format={d => viewUtc
+                            ? `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`
+                            : `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`} />
+                    </span>
+                    <span className="text-[13px] tabular-nums text-signal opacity-60">
+                        {secondaryLabel}{' '}
+                        <LiveTime format={d => viewUtc
+                            ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+                            : `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`} />
+                    </span>
+                    <div className="mt-3 grid w-full max-w-[260px] grid-cols-2 gap-4">
+                        <Readout
+                            value={callbackCount} sub={`of ${totalCallbacks}`} label="Callbacks"
+                            tone={callbackCount > 0 ? 'signal' : 'idle'} size="text-[26px]"
+                        />
+                        <Readout
+                            value={c2Running} sub={`of ${c2Total}`} label="C2 online"
+                            tone={c2Total > 0 && c2Running === c2Total ? 'signal' : c2Running > 0 ? 'warn' : 'fail'}
+                            size="text-[26px]"
+                        />
+                    </div>
+                </div>
 
-function timeAgo(ts: number): string {
-  if (!ts) return '—';
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
-
-export function LiveActivityFeedCard({ tasks = [] }: { tasks?: any[] }) {
-  // Re-render every 15s so timeAgo stays fresh
-  useLiveClock(15_000);
-  const recent = useMemo(() => tasks.slice(0, 14), [tasks]);
-
-  return (
-    <DashboardCard title="Live Task Stream" icon={<Clock size={18} />}>
-      <div className="space-y-1 max-h-[300px] overflow-y-auto cyber-scrollbar pr-1">
-        {recent.map((task, idx) => {
-          const ts = parseTaskTime(task);
-          const ago = timeAgo(ts);
-          const status = task.status as string | undefined;
-          const isOpsec = (task.opsec_pre_blocked && !task.opsec_pre_bypassed) || (task.opsec_post_blocked && !task.opsec_post_bypassed);
-          const dotClass =
-            isOpsec ? 'bg-yellow-500 animate-pulse' :
-            task.completed ? 'bg-green-500' :
-            status === 'error' ? 'bg-red-500' :
-            status === 'processing' || status === 'delegating' || status === 'processed' ? 'bg-blue-500 animate-pulse' :
-            'bg-gray-400 animate-pulse';
-          return (
-            <div key={task.id || idx} className="flex items-center gap-2.5 text-sm font-mono py-1.5 border-b border-ghost/20 last:border-0 hover:bg-signal/5 px-1.5 -mx-1.5 transition-colors">
-              <div className={cn('w-2 h-2 rounded-full flex-shrink-0', dotClass)} />
-              <span className="text-gray-300 tabular-nums w-10 flex-shrink-0">{ago}</span>
-              <span className="text-signal truncate flex-1" title={task.command_name}>{task.command_name || '—'}</span>
-              <span className="text-gray-300 truncate max-w-[100px]" title={task.callback?.host || task.operator?.username}>
-                {task.operator?.username ? `@${task.operator.username}` : (task.callback?.host || '—')}
-              </span>
-              <span className="text-gray-400 text-xs flex-shrink-0">{task.callback?.display_id ? `#${task.callback.display_id}` : ''}</span>
+                {/* Threat posture */}
+                {/* Health is a STATE, not a score. It says what is wrong and how
+                    many things are wrong — both checkable — instead of an
+                    invented number out of 100 that nobody can argue with. */}
+                <div className="flex flex-col justify-center gap-3 px-5 py-6">
+                    <span className={cn('text-signal opacity-70', LABEL)}>Operation health</span>
+                    <span className={cn('text-[32px] font-bold leading-none', toneText(health.tone))}>
+                        {health.label}
+                    </span>
+                    <span className="text-[13px] text-signal opacity-70">{health.detail}</span>
+                </div>
             </div>
-          );
-        })}
-        {recent.length === 0 && <div className="text-gray-300 text-sm text-center py-6 font-mono">NO TASK STREAM</div>}
-      </div>
-    </DashboardCard>
-  );
-}
+        </InstrumentPanel>
+    );
+});
 
-// ── Improved C2 Health Matrix ────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CALLBACK SURFACE
+// ─────────────────────────────────────────────────────────────────────────────
 
-export function C2MatrixCard({ profiles = [] }: { profiles?: any[] }) {
-  const running = profiles.filter(p => p.running).length;
-  const total = profiles.length;
-  const containers = profiles.filter(p => p.container_running).length;
-  const healthPct = total > 0 ? (running / total) * 100 : 0;
-  const healthTone = healthPct >= 80 ? 'text-green-400' : healthPct >= 50 ? 'text-yellow-400' : 'text-red-400';
-
-  return (
-    <DashboardCard title="C2 Infrastructure" icon={<Server size={18} />}>
-      <div className="grid grid-cols-3 gap-2 pb-3 border-b border-ghost/30 mb-3">
-        <div>
-          <div className={cn('text-3xl font-mono font-bold', healthTone)}>{running}</div>
-          <div className="text-xs font-mono text-gray-300 uppercase tracking-widest mt-0.5">RUNNING</div>
-        </div>
-        <div>
-          <div className="text-3xl font-mono font-bold text-gray-100">{containers}</div>
-          <div className="text-xs font-mono text-gray-300 uppercase tracking-widest mt-0.5">CONTAINERS</div>
-        </div>
-        <div>
-          <div className="text-3xl font-mono font-bold text-gray-100">{total}</div>
-          <div className="text-xs font-mono text-gray-300 uppercase tracking-widest mt-0.5">TOTAL</div>
-        </div>
-      </div>
-      <div className="space-y-1 max-h-[200px] overflow-y-auto cyber-scrollbar pr-1">
-        {profiles.length === 0 && <div className="text-gray-300 text-sm italic font-mono">NO PROFILES FOUND</div>}
-        {profiles.map(p => (
-          <div key={p.id} className="flex items-center gap-2 text-sm font-mono border-b border-ghost/20 last:border-0 py-1.5">
-            <Hexagon size={12} className={cn(p.is_p2p ? 'text-purple-300' : 'text-blue-300', 'flex-shrink-0')} />
-            <span className={cn('truncate flex-1', p.running ? 'text-signal' : 'text-gray-300')}>{p.name}</span>
-            {p.semver && <span className="text-gray-300 text-xs flex-shrink-0">v{p.semver}</span>}
-            <span className={cn('text-xs uppercase tracking-widest flex-shrink-0 font-semibold', p.is_p2p ? 'text-purple-300' : 'text-blue-300')}>
-              {p.is_p2p ? 'P2P' : 'EGRESS'}
-            </span>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <div className={cn('w-2 h-2 rounded-full', p.running ? 'bg-signal animate-pulse' : 'bg-red-500')} />
-              <span className={cn('text-xs font-semibold', p.running ? 'text-signal' : 'text-red-400')}>{p.running ? 'UP' : 'DOWN'}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </DashboardCard>
-  );
-}
-
-// ── Operation Briefing (replaces OngoingOperations with richer detail) ───────
-
-export function OperationBriefingCard({ operations = [], currentOpId, totalOperations = 0 }: { operations?: any[]; currentOpId?: number; totalOperations?: number }) {
-  const currentOp = operations.find(op => op.id === currentOpId) || operations[0];
-  const memberCount = currentOp?.operatoroperations?.length || 0;
-  const otherOps = operations.filter(op => op.id !== currentOp?.id).slice(0, 4);
-
-  return (
-    <DashboardCard title="Operation Briefing" icon={<Layers size={18} />}>
-      {currentOp ? (
-        <>
-          <div className="flex justify-between items-start mb-3 gap-2">
-            <div className="min-w-0">
-              <div className="text-xs font-mono text-gray-300 tracking-widest uppercase">ACTIVE</div>
-              <div className="text-xl text-signal font-mono break-all font-semibold" title={currentOp.name}>{currentOp.name}</div>
-            </div>
-            <div className="px-2.5 py-1 border border-signal/70 text-signal text-xs font-mono uppercase flex-shrink-0 animate-pulse font-semibold">LIVE</div>
-          </div>
-          <div className="grid grid-cols-3 gap-3 text-sm font-mono pb-3 border-b border-ghost/30">
-            <div>
-              <div className="text-signal text-2xl font-bold">{memberCount}</div>
-              <div className="text-xs text-gray-300 uppercase tracking-widest mt-0.5">OPERATORS</div>
-            </div>
-            <div>
-              <div className="text-signal text-2xl font-bold">{operations.length}</div>
-              <div className="text-xs text-gray-300 uppercase tracking-widest mt-0.5">RUNNING</div>
-            </div>
-            <div>
-              <div className="text-signal text-2xl font-bold">{totalOperations}</div>
-              <div className="text-xs text-gray-300 uppercase tracking-widest mt-0.5">TOTAL</div>
-            </div>
-          </div>
-          {otherOps.length > 0 && (
-            <div className="mt-3">
-              <div className="text-xs font-mono text-gray-300 uppercase tracking-widest mb-2">OTHER OPERATIONS</div>
-              <div className="space-y-1">
-                {otherOps.map(op => (
-                  <div key={op.id} className="flex items-center justify-between text-sm font-mono border-b border-ghost/20 last:border-0 py-1">
-                    <span className="text-gray-100 truncate" title={op.name}>{op.name}</span>
-                    <span className="text-gray-300 text-xs">{op.operatoroperations?.length || 0} OPS</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="text-gray-300 text-sm font-mono py-6 text-center">NO ACTIVE OPERATIONS</div>
-      )}
-    </DashboardCard>
-  );
-}
-
-// ── Asset Collection — denser horizontal strip ──────────────────────────────
-
-export function AssetStripCard({ credentials = 0, keylogs = 0, downloads = 0, uploads = 0, screenshots = 0 }: QuickStatsCardProps & { keylogs?: number }) {
-  const stats = [
-    { label: 'CREDENTIALS', value: credentials, icon: Key, color: 'text-yellow-400', hex: '#facc15' },
-    { label: 'KEYLOGS', value: keylogs, icon: Terminal, color: 'text-pink-400', hex: '#f472b6' },
-    { label: 'DOWNLOADS', value: downloads, icon: Download, color: 'text-blue-400', hex: '#60a5fa' },
-    { label: 'UPLOADS', value: uploads, icon: Upload, color: 'text-purple-400', hex: '#c084fc' },
-    { label: 'SCREENSHOTS', value: screenshots, icon: Image, color: 'text-cyan-400', hex: '#22d3ee' },
-  ];
-
-  return (
-    <DashboardCard title="Asset Collection" icon={<Shield size={18} />}>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {stats.map(s => (
-          <div key={s.label} className="relative border border-ghost/30 bg-black/40 backdrop-blur-md rounded px-4 py-3 hover:border-signal/60 transition-colors">
-            <div className="flex items-center justify-between mb-2">
-              <s.icon size={16} className={cn('opacity-90', s.color)} />
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.value > 0 ? s.hex : '#4b5563' }} />
-            </div>
-            <div className={cn('text-3xl font-mono font-bold leading-none', s.value > 0 ? s.color : 'text-gray-400')}>{s.value}</div>
-            <div className="text-xs font-mono text-gray-300 mt-2 tracking-widest font-semibold">{s.label}</div>
-          </div>
-        ))}
-      </div>
-    </DashboardCard>
-  );
-}
-
-// ── Operators Panel — better signal strength visual ─────────────────────────
-
-export function OperatorsPanelCard({ operators = [] }: { operators?: any[] }) {
-  return (
-    <DashboardCard title="Active Operators" icon={<Users size={18} />}>
-      <div className="flex items-end gap-2 mb-3 pb-3 border-b border-ghost/30">
-        <span className="text-4xl font-bold text-signal font-mono leading-none">{operators.length}</span>
-        <span className="text-gray-300 font-mono mb-1 text-xs uppercase tracking-widest">CONNECTED</span>
-      </div>
-      <div className="space-y-1 max-h-[200px] overflow-y-auto cyber-scrollbar">
-        {operators.slice(0, 8).map(op => {
-          const last = op.last_login ? new Date(op.last_login.endsWith?.('Z') ? op.last_login : `${op.last_login}Z`).getTime() : 0;
-          const ago = last ? timeAgo(last) : '—';
-          const initials = (op.username || '?').slice(0, 2).toUpperCase();
-          return (
-            <div key={op.id} className="flex items-center gap-2.5 text-sm font-mono border-b border-ghost/20 last:border-0 py-1.5">
-              <div className="w-7 h-7 flex items-center justify-center bg-signal/15 border border-signal/40 text-signal text-xs font-bold tracking-tight flex-shrink-0">{initials}</div>
-              <span className="text-signal truncate flex-1">{op.username}</span>
-              <SignalIcon size={12} className="text-signal" />
-              <span className="text-gray-300 text-xs tabular-nums w-12 text-right">{ago}</span>
-            </div>
-          );
-        })}
-        {operators.length === 0 && <div className="text-gray-300 text-sm font-mono py-4 text-center">NO OPERATORS ONLINE</div>}
-      </div>
-    </DashboardCard>
-  );
-}
-
-// ── Operation Countdown (T- / T+) ────────────────────────────────────────────
-
-interface OperationCountdownProps {
-  startMs: number | null;
-  operationName?: string;
-}
-
-export function OperationCountdownCard({ startMs, operationName }: OperationCountdownProps) {
-  // 1Hz tick
-  useLiveClock(1000);
-  const td = tDelta(startMs);
-  const isPre = td?.sign === -1;
-  const isPost = td?.sign === 1;
-  const within60s = td && td.sign === -1 && td.totalSeconds <= 60;
-
-  // Timeline progress: position of NOW relative to a 4h pre/post window
-  const WINDOW_S = 4 * 3600;
-  let timelinePct = 50;
-  if (td) {
-    const offset = td.sign * td.totalSeconds; // negative pre, positive post
-    timelinePct = Math.max(0, Math.min(100, ((offset + WINDOW_S) / (2 * WINDOW_S)) * 100));
-  }
-
-  const tone = !td ? 'text-gray-200' : within60s ? 'text-yellow-300' : isPre ? 'text-signal' : 'text-cyan-300';
-  const accent = !td ? 'rgb(var(--color-signal))' : within60s ? '#facc15' : isPre ? 'rgb(var(--color-signal))' : '#67e8f9';
-
-  return (
-    <DashboardCard title="Operation Schedule" icon={<Timer size={18} />}>
-      {!td ? (
-        <div className="py-4">
-          <div className="flex items-center gap-3 text-gray-200">
-            <Calendar size={20} className="text-gray-300" />
-            <div>
-              <div className="text-base font-mono font-semibold">NO START TIME SET</div>
-              <div className="text-sm font-mono text-gray-300 mt-1">Admins can schedule {operationName ? <span className="text-signal">{operationName}</span> : 'this operation'} from Operations → Edit.</div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-xs font-mono text-gray-300 uppercase tracking-widest">{isPre ? 'COUNTDOWN' : 'ELAPSED'}</div>
-            <div className={cn('text-xs font-mono uppercase tracking-widest font-semibold',
-              within60s ? 'text-yellow-300 animate-pulse' : isPost ? 'text-cyan-300' : 'text-signal')}>
-              {within60s ? 'IMMINENT' : isPre ? 'PRE-OPS' : 'IN-OPS'}
-            </div>
-          </div>
-          {/* Big T-/T+ readout */}
-          <div className="flex items-baseline gap-3 mb-4">
-            <span className={cn('text-2xl font-mono font-bold', tone)}>{td.prefix}</span>
-            <span className={cn('text-5xl font-mono font-bold tabular-nums leading-none', tone)}>
-              {td.days > 0 ? `${td.days}d ` : ''}{td.hh}:{td.mm}:{td.ss}
-            </span>
-          </div>
-
-          {/* Timeline bar */}
-          <div className="relative h-2 bg-ghost/30 mb-2 overflow-hidden">
-            <div className="absolute top-0 left-1/2 w-px h-full bg-white/40" />
-            <div
-              className="absolute top-0 h-full transition-all duration-500"
-              style={{
-                left: 0,
-                width: `${timelinePct}%`,
-                backgroundColor: accent,
-                opacity: 0.7,
-              }}
-            />
-            <div
-              className="absolute top-0 h-full w-0.5 transition-all duration-500"
-              style={{ left: `calc(${timelinePct}% - 1px)`, backgroundColor: accent, boxShadow: `0 0 8px ${accent}` }}
-            />
-          </div>
-          <div className="flex justify-between text-xs font-mono text-gray-300 tracking-widest">
-            <span>-4h</span>
-            <span className={cn('font-semibold', isPre ? 'text-yellow-300' : 'text-cyan-300')}>T-0</span>
-            <span>+4h</span>
-          </div>
-
-          {/* Start time display */}
-          <div className="mt-4 pt-3 border-t border-ghost/30 grid grid-cols-2 gap-3 text-sm font-mono">
-            <div>
-              <div className="text-xs text-gray-300 uppercase tracking-widest mb-1">LOCAL</div>
-              <div className="text-gray-100 tabular-nums">{new Date(startMs!).toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="text-xs text-gray-300 uppercase tracking-widest mb-1">UTC</div>
-              <div className="text-gray-100 tabular-nums">{new Date(startMs!).toISOString().replace('T', ' ').slice(0, 16)}Z</div>
-            </div>
-          </div>
-        </>
-      )}
-    </DashboardCard>
-  );
-}
-
-// ── Compute composite threat score ──────────────────────────────────────────
-
-export function computeThreatScore(opts: {
-  opsecTasks: number;
-  errorTasks: number;
-  totalTasks: number;
-  c2Down: number;
-  c2Total: number;
+/**
+ * The nodes themselves, not a chart about them.
+ *
+ * This was two ranked bar charts ("by host", "by user"). Those answer a
+ * distribution question, but the first question an operator asks is *which
+ * boxes do I control, and are they still talking*. So it is a compact table of
+ * the callbacks that matter most, with the full list one click away — the
+ * dashboard summarises, the Callbacks page manages.
+ *
+ * Liveness comes from `isCallbackAlive`, never `callback.dead`: that column
+ * lags by up to a minute and is container-dependent, so live nodes read DEAD.
+ * The helper measures `last_checkin` against a threshold derived from the
+ * agent's own `sleep_info`, which is why a long sleeper is not "silent".
+ */
+export const CallbackSurfaceCard = React.memo(function CallbackSurfaceCard({ callbacks = [], edges = [], onOpen }: {
+    callbacks?: any[];
+    edges?: any[];
+    onOpen?: () => void;
 }) {
-  const { opsecTasks, errorTasks, totalTasks, c2Down, c2Total } = opts;
-  const opsecImpact = Math.min(60, opsecTasks * 12);
-  const errorRate = totalTasks > 0 ? errorTasks / totalTasks : 0;
-  const errorImpact = Math.min(30, errorRate * 60);
-  const c2Ratio = c2Total > 0 ? c2Down / c2Total : 0;
-  const c2Impact = Math.min(25, c2Ratio * 40);
-  return Math.round(Math.min(100, opsecImpact + errorImpact + c2Impact));
+    // The tick is a DEPENDENCY, not just a re-render trigger. isCallbackAlive
+    // reads Date.now(); memoising on `callbacks` alone freezes the Active/Silent
+    // column at the last data change — and a node going quiet is exactly the
+    // case where its row stops changing.
+    const tick = useLiveClock(30_000);
+
+    const rows = useMemo(() => callbacks
+        .map(c => ({ c, alive: isCallbackAlive(c, edges), seen: parseStamp(c.last_checkin) }))
+        // Silent nodes first. A callback that stopped talking is the one worth
+        // seeing, and a plain "newest check-in" sort buries it at the bottom.
+        .sort((a, b) => (a.alive === b.alive ? b.seen - a.seen : a.alive ? 1 : -1))
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        .slice(0, 8), [callbacks, edges, tick]);
+
+    const alive = useMemo(
+        () => callbacks.filter(c => isCallbackAlive(c, edges)).length,
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [callbacks, edges, tick]);
+    const silent = callbacks.length - alive;
+    const hosts = new Set(callbacks.map(c => c.host || 'Unknown')).size;
+    const users = new Set(callbacks.map(c => c.user || 'Unknown')).size;
+    const concentrated = callbacks.length > 2 && users === 1 && hosts > 1;
+
+    return (
+        <InstrumentPanel
+            title="Callback surface"
+            icon={<Radio size={14} strokeWidth={2} />}
+            badgeTone={silent > 0 ? 'warn' : 'signal'}
+            badge={`${alive} of ${callbacks.length} live`}
+            footerLeft={concentrated
+                ? `One account across ${hosts} hosts`
+                : `${hosts} ${hosts === 1 ? 'host' : 'hosts'} · ${users} ${users === 1 ? 'user' : 'users'}`}
+            footerRight={callbacks.length > rows.length ? `View all ${callbacks.length} →` : 'View all →'}
+            onClick={onOpen}
+        >
+            {callbacks.length === 0 ? <NoData>No callbacks in this operation</NoData> : (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-[13px]">
+                        <thead>
+                            <tr className="border-b border-signal/15">
+                                {['Host', 'User', 'Agent', 'OS', 'Last seen', 'Status'].map(h => (
+                                    <th key={h} className={cn('whitespace-nowrap pb-2 pr-4 text-signal opacity-70', LABEL)}>{h}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map(({ c, alive: isAlive, seen }) => (
+                                <tr key={c.id} className="border-b border-signal/10 last:border-0">
+                                    <td className="max-w-[150px] truncate py-2 pr-4 text-signal" title={c.host}>
+                                        {c.host || '—'}
+                                        {c.domain ? <span className="opacity-55"> · {c.domain}</span> : null}
+                                    </td>
+                                    <td className="max-w-[130px] truncate py-2 pr-4 text-signal" title={c.user}>
+                                        {c.user || '—'}
+                                        {Number(c.integrity_level) >= 3
+                                            ? <span className="ml-1.5 text-[11px] font-bold text-amber-400">HIGH</span>
+                                            : null}
+                                    </td>
+                                    <td className="whitespace-nowrap py-2 pr-4 text-signal opacity-70">
+                                        {c.payload?.payloadtype?.name || '—'}
+                                    </td>
+                                    <td className="max-w-[150px] truncate py-2 pr-4 text-signal opacity-70"
+                                        title={typeof c.os === 'string' ? c.os : ''}>
+                                        {shortOs(c.os)}{c.architecture ? ` ${c.architecture}` : ''}
+                                    </td>
+                                    <td className="whitespace-nowrap py-2 pr-4 tabular-nums text-signal opacity-70">
+                                        {seen ? `${timeAgo(seen)} ago` : '—'}
+                                    </td>
+                                    <td className="py-2">
+                                        <StatusWord tone={isAlive ? 'live' : 'warn'} dot>
+                                            {isAlive ? 'Active' : 'Silent'}
+                                        </StatusWord>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+/**
+ * Task pipeline — state, volume and content in one panel.
+ *
+ * Three panels used to split this: a donut of task states, a "Command
+ * statistics" block whose four counters were the same states again, and a "Top
+ * commands" list computed by literally the same `rankBuckets` call as the
+ * statistics block's own frequency chart. The operator was reading the same
+ * numbers three times in three shapes.
+ *
+ * Now: the donut says what shape the queue is in, the counters give the exact
+ * figures, and the ranked bars say what the queue is actually made of. One
+ * panel, one question — "what is the pipeline doing, and with what".
+ *
+ * Donut segment order is deliberate and validated: the achromatic Done and
+ * Queued steps sit between the accent green and the amber, which takes the
+ * worst adjacent pair from ΔE 6.2 to 15.4 under deuteranopia.
+ */
+export const TaskPipelineCard = React.memo(function TaskPipelineCard({ tasks = [], totalTasks = 0, completedTasks = 0, errorTasks = 0, opsecTasks = 0 }: {
+    tasks?: any[]; totalTasks?: number; completedTasks?: number; errorTasks?: number; opsecTasks?: number;
+}) {
+    const segments = useMemo(() => {
+        let done = 0, error = 0, running = 0, queued = 0, opsec = 0;
+        tasks.forEach(t => {
+            const { word } = taskState(t);
+            if (word === 'OPSEC') opsec++;
+            else if (word === 'Error') error++;
+            else if (word === 'Done') done++;
+            else if (word === 'Running') running++;
+            else queued++;
+        });
+        return [
+            { label: 'Done', value: done, hex: TONE_HEX.signal },
+            { label: 'Running', value: running, hex: TONE_HEX.live },
+            { label: 'Queued', value: queued, hex: 'rgb(var(--color-signal) / 0.45)' },
+            { label: 'OPSEC hold', value: opsec, hex: TONE_HEX.warn },
+            { label: 'Error', value: error, hex: TONE_HEX.fail },
+        ];
+    }, [tasks]);
+
+    const { rows, max } = useMemo(() => {
+        const freq: Record<string, number> = {};
+        tasks.forEach(t => { if (t.command_name) freq[t.command_name] = (freq[t.command_name] || 0) + 1; });
+        return rankBuckets(freq, 6);
+    }, [tasks]);
+
+    const latency = useMemo(() => latencyProfile(tasks), [tasks]);
+    const total = segments.reduce((s, b) => s + b.value, 0);
+
+    return (
+        <InstrumentPanel
+            title="Task pipeline"
+            icon={<CheckCircle size={14} strokeWidth={2} />}
+            badgeTone={errorTasks > 0 ? 'fail' : opsecTasks > 0 ? 'warn' : 'signal'}
+            badge={`${totalTasks} tasks`}
+            footerLeft={latency.durs.length > 0
+                ? `Median round trip ${humanMs(latency.p50)} across ${latency.durs.length} completed`
+                : 'State, then what the queue is made of'}
+            footerRight={`${rows.length} distinct commands`}
+        >
+            {total === 0 ? <NoData>No tasks yet</NoData> : (
+                <div className="flex h-full flex-col gap-4">
+                    <div className="flex flex-wrap items-center gap-5">
+                        <Donut segments={segments} total={total} centerLabel="TASKS" size={124} />
+                        <div className="min-w-[160px] flex-1 space-y-2">
+                            {segments.filter(x => x.value > 0).map(x => (
+                                <LegendRow
+                                    key={x.label} hex={x.hex} label={x.label} value={x.value}
+                                    share={`${Math.round((x.value / total) * 100)}%`}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Round-trip latency. Nothing else on the page says how
+                        long the operator waits, and on a C2 that number is the
+                        agent's sleep interval showing through. */}
+                    {latency.durs.length > 0 && (
+                        <div className="border-t border-signal/15 pt-4">
+                            <div className="flex items-baseline justify-between gap-3">
+                                <span className={cn('text-signal opacity-70', LABEL)}>Round-trip latency</span>
+                                <span className="text-[13px] tabular-nums text-signal">
+                                    <span className="opacity-60">p50</span> {humanMs(latency.p50)}
+                                    <span className="ml-2 opacity-60">p90</span> {humanMs(latency.p90)}
+                                    <span className="ml-2 opacity-60">p99</span> {humanMs(latency.p99)}
+                                </span>
+                            </div>
+                            <div className="mt-3 space-y-2.5">
+                                {latency.bins.map(bin => (
+                                    <ChannelRow
+                                        key={bin.label} label={bin.label} title={bin.label} value={bin.value}
+                                        pct={latency.max > 0 ? (bin.value / latency.max) * 100 : 0}
+                                    />
+                                ))}
+                            </div>
+                            {latency.outstanding > 0 && (
+                                <div className="mt-2.5 text-[11px] text-signal opacity-55">
+                                    {latency.outstanding} still outstanding — not counted
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {rows.length > 0 && (
+                        <div className="space-y-2.5 border-t border-signal/15 pt-4">
+                            <div className={cn('text-signal opacity-70', LABEL)}>Most-run commands</div>
+                            {rows.map(r => (
+                                <ChannelRow key={r.label} label={r.label} title={r.label} value={r.value}
+                                    pct={max > 0 ? (r.value / max) * 100 : 0} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTIVITY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Operation tempo — the page's centrepiece.
+ *
+ * It absorbs what used to be three separate panels' worth of the same
+ * question: a 24h volume chart, a success-rate percentage, and an error count.
+ * Separately they said "there was work", "most of it worked" and "some of it
+ * didn't", and the operator had to hold all three in their head to notice that
+ * the failures were all in the last twenty minutes. Together, on one time axis,
+ * that is the first thing you see.
+ */
+export const OperationTempoCard = React.memo(function OperationTempoCard({ tasks = [], full = false, sliceSize = 0 }: {
+    tasks?: any[];
+    /** True when fed by the on-demand unbounded history rather than the poll. */
+    full?: boolean;
+    /** How many rows the live poll carries, for the "partial" caption. */
+    sliceSize?: number;
+}) {
+    const { issued, completed, errored, spanMs } = useMemo(() => bucketTempo(tasks), [tasks]);
+    const totalIssued = issued.reduce((a, b) => a + b, 0);
+    const totalErrored = errored.reduce((a, b) => a + b, 0);
+    const totalDone = completed.reduce((a, b) => a + b, 0);
+    const errRate = totalIssued > 0 ? (totalErrored / totalIssued) * 100 : 0;
+    const tone: Tone = errRate >= 20 ? 'fail' : errRate >= 5 ? 'warn' : 'signal';
+    const span = humanSpan(spanMs);
+    const half = humanSpan(spanMs / 2);
+
+    return (
+        <InstrumentPanel
+            title="Operation tempo"
+            icon={<Activity size={14} strokeWidth={2} />}
+            badgeTone={tone}
+            badge={totalIssued > 0 ? `${errRate.toFixed(0)}% errored` : undefined}
+            // The window is whatever the fetched rows genuinely cover, so it is
+            // stated rather than assumed. Claiming "24h" over twenty minutes of
+            // data is the kind of chart that gets someone killed.
+            footerLeft={totalIssued === 0
+                ? 'No tasks in range'
+                : full
+                    ? `Full history · ${totalIssued} tasks over ${span}`
+                    : `Newest ${sliceSize || totalIssued} tasks · ${span} — use "Analyse all" for the whole operation`}
+            footerRight={`${totalDone} done · ${totalErrored} errored`}
+        >
+            {totalIssued === 0 ? <NoData>No task history yet</NoData> : (
+                <LineChart
+                    envelope={{ label: 'Issued', values: issued }}
+                    series={[
+                        { label: 'Completed', values: completed, tone: 'signal' },
+                        { label: 'Errored', values: errored, tone: 'fail' },
+                    ]}
+                    xLabels={[`${span} ago`, `${half} ago`, 'Now']}
+                    formatTip={i => (
+                        <span className="tabular-nums">
+                            {issued[i]} issued · {completed[i]} done · {errored[i]} errored
+                        </span>
+                    )}
+                />
+            )}
+        </InstrumentPanel>
+    );
+});
+
+/**
+ * Live activity — a product event timeline, not a log tail.
+ *
+ * The old version listed tasks. An operation produces more kinds of event than
+ * that, and the interesting ones are often not tasks at all: a new foothold
+ * landing, a credential dropping out of a task's output. Those were visible
+ * only as a counter ticking up somewhere else on the page.
+ *
+ * Each entry is typed, names its primary entity, carries one line of context
+ * and a relative time. Deliberately no stdout, no raw response bodies, no full
+ * event messages — this answers "what just happened", and anything longer
+ * belongs on the page that owns it.
+ */
+export const ActivityStreamCard = React.memo(function ActivityStreamCard({ tasks = [], callbacks = [], credentials = [], edges = [], onOpen }: {
+    tasks?: any[];
+    callbacks?: any[];
+    credentials?: any[];
+    edges?: any[];
+    onOpen?: () => void;
+}) {
+    useLiveClock(15_000);
+
+    const events = useMemo(() => {
+        type Ev = { id: string; kind: string; entity: string; context?: string; at: number; tone: Tone };
+        const out: Ev[] = [];
+
+        tasks.forEach((t, i) => {
+            // Only the word is reused here; the feed maps its own tone below,
+            // because a routine completed task should not be as loud in a
+            // timeline as it is in a status column.
+            const { word } = taskState(t);
+            const who = t.operator?.username ? `@${t.operator.username}` : (t.callback?.host || '');
+            out.push({
+                id: `t-${t.id ?? i}`,
+                kind: word === 'Error' ? 'Task failed' : word === 'OPSEC' ? 'Task held' : 'Task',
+                entity: t.command_name || '—',
+                context: [who, t.callback?.host && who !== t.callback.host ? t.callback.host : null]
+                    .filter(Boolean).join(' · ') || undefined,
+                at: parseStamp(t.timestamp) || taskIssuedAt(t),
+                tone: word === 'Error' ? 'fail' : word === 'OPSEC' ? 'warn' : 'signal',
+            });
+        });
+
+        // A new foothold is the single most interesting thing that can happen
+        // during an operation and it never appeared in this feed before.
+        callbacks.forEach(c => {
+            const at = parseStamp(c.init_callback);
+            if (!at) return;
+            out.push({
+                id: `c-${c.id}`,
+                kind: 'New callback',
+                entity: c.host || `#${c.display_id}`,
+                context: [c.user, c.payload?.payloadtype?.name].filter(Boolean).join(' · ') || undefined,
+                at,
+                tone: 'live',
+            });
+        });
+
+        credentials.forEach(cr => {
+            const at = parseStamp(cr.timestamp);
+            if (!at) return;
+            out.push({
+                id: `cr-${cr.id}`,
+                kind: 'Credential',
+                entity: cr.account || 'credential',
+                context: cr.realm || undefined,
+                at,
+                tone: 'range',
+            });
+        });
+
+        return out.filter(e => e.at > 0).sort((a, b) => b.at - a.at).slice(0, 18);
+    }, [tasks, callbacks, credentials]);
+
+    const failures = events.filter(e => e.tone === 'fail').length;
+
+    return (
+        <InstrumentPanel
+            title="Live activity"
+            icon={<Clock size={14} strokeWidth={2} />}
+            badgeTone={failures > 0 ? 'fail' : events.length > 0 ? 'signal' : 'idle'}
+            badge={failures > 0 ? `${failures} failed` : events.length > 0 ? 'Streaming' : 'Idle'}
+            footerLeft="Tasks, footholds and collection, newest first"
+            footerRight="View event feed →"
+            onClick={onOpen}
+        >
+            {events.length === 0 ? <NoData>Nothing has happened yet</NoData> : (
+                <div className="cyber-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
+                    {events.map(e => (
+                        <div key={e.id} className="flex items-baseline gap-3 border-b border-signal/10 py-2 text-[13px] last:border-0">
+                            <span className="w-11 shrink-0 tabular-nums text-signal opacity-55">{timeAgo(e.at)}</span>
+                            <StatusWord tone={e.tone} className="w-[96px] shrink-0">{e.kind}</StatusWord>
+                            <span className="min-w-0 flex-1 truncate text-signal" title={e.entity}>{e.entity}</span>
+                            {e.context && (
+                                <span className="hidden max-w-[160px] shrink-0 truncate text-signal opacity-60 sm:inline" title={e.context}>
+                                    {e.context}
+                                </span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INFRASTRUCTURE / OPERATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Infrastructure reads as a fleet, not a list: one tile per profile so the
+ *  shape of the outage is visible before any name is read, with a ring giving
+ *  the single "how much of it is up" number. */
+export const C2MatrixCard = React.memo(function C2MatrixCard({ profiles = [] }: { profiles?: any[] }) {
+    const running = profiles.filter(p => p.running).length;
+    const total = profiles.length;
+    const containers = profiles.filter(p => p.container_running).length;
+    const healthPct = total > 0 ? (running / total) * 100 : 0;
+    const tone: Tone = total === 0 ? 'idle' : healthPct === 100 ? 'signal' : healthPct >= 50 ? 'warn' : 'fail';
+
+    return (
+        <InstrumentPanel
+            title="C2 infrastructure"
+            icon={<Server size={14} strokeWidth={2} />}
+            badgeTone={tone}
+            badge={`${running} of ${total} up`}
+            footerLeft={`${containers} containers running`}
+            footerRight={`${Math.round(healthPct)}% healthy`}
+        >
+            {total === 0 ? <NoData>No C2 profiles found</NoData> : (
+                <div className="flex h-full flex-wrap items-start gap-5">
+                    <div className="flex flex-col items-center gap-2">
+                        <RadialArc pct={healthPct} tone={tone} size={116} thickness={9}>
+                            <span className={cn('text-[26px] font-bold leading-none tabular-nums', toneText(tone))}>
+                                {running}
+                            </span>
+                            <span className="mt-1 text-[11px] text-signal opacity-55">of {total} up</span>
+                        </RadialArc>
+                    </div>
+                    <div className="grid min-w-[220px] flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
+                        {profiles.map(p => (
+                            <StatusTile
+                                key={p.id}
+                                label={p.name}
+                                state={p.running ? 'Up' : 'Down'}
+                                tone={p.running ? 'signal' : 'fail'}
+                                meta={p.is_p2p ? 'P2P' : 'Egress'}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+/**
+ * Half-spans for the T-timeline axis, in milliseconds.
+ *
+ * The axis takes the smallest step that still leaves NOW inside the window, so
+ * the marker never pins against an edge and the scale steps up on its own as
+ * the operation runs: minutes out it is a five-minute axis, a week in it is a
+ * thirty-day one. Same instrument, honest scale, no operator input.
+ */
+const TIMELINE_HALVES = [
+    5 * 60_000, 15 * 60_000, 60 * 60_000, 6 * 3_600_000, 24 * 3_600_000,
+    3 * 86_400_000, 7 * 86_400_000, 30 * 86_400_000, 90 * 86_400_000,
+    365 * 86_400_000,
+];
+
+/** One-unit duration for an axis end label: 5m, 6h, 30d. */
+function formatSpan(ms: number): string {
+    if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))}s`;
+    if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+    if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`;
+    return `${Math.round(ms / 86_400_000)}d`;
 }
+
+/**
+ * The operation timeline — one number line with T-0 nailed to the centre.
+ *
+ * The countdown above it says HOW LONG. This says WHERE: which side of the
+ * start we stand on, and how far along, against a span the axis states at both
+ * ends. That stated span is the whole difference from the radial arc this card
+ * used to carry — the ring encoded position in an unlabelled window, so the
+ * graphic meant nothing without the number sitting inside it. A number line
+ * with its ends labelled is readable on its own.
+ *
+ * Own clock, own subtree. The avatar roster under it must not reconcile every
+ * second to move a marker, so this ticks as a leaf — and only as fast as the
+ * marker actually moves: at a 30-day span a 1 Hz tick is a repaint for a
+ * fraction of a pixel.
+ */
+const ScheduleTimeline = React.memo(function ScheduleTimeline({ startMs, tone }: {
+    startMs: number;
+    tone: Tone;
+}) {
+    const [nowMs, setNowMs] = useState(() => getSkewedNow().getTime());
+    const delta = nowMs - startMs;           // negative before T-0, positive after
+    const magnitude = Math.abs(delta);
+    const half = TIMELINE_HALVES.find(h => magnitude <= h * 0.9) ?? magnitude / 0.9;
+
+    const tickMs = half <= 15 * 60_000 ? 1_000 : half <= 6 * 3_600_000 ? 5_000 : 30_000;
+    useEffect(() => {
+        const id = setInterval(() => setNowMs(getSkewedNow().getTime()), tickMs);
+        return () => clearInterval(id);
+    }, [tickMs]);
+
+    const nowPct = Math.max(0, Math.min(100, 50 + (delta / half) * 50));
+    // The lit run is always centre-to-marker: before T-0 it is the lead time
+    // still to burn, after T-0 it is the time in play. Direction carries which.
+    const from = Math.min(50, nowPct);
+    const to = Math.max(50, nowPct);
+    const pre = delta < 0;
+    const span = formatSpan(half);
+    const move = 'transition-[left,width] duration-700 ease-out motion-reduce:transition-none';
+
+    return (
+        <div className="mt-3">
+            <div
+                className="relative h-7"
+                role="img"
+                aria-label={`Operation timeline, ${span} either side of T-0, now ${pre ? 'before' : 'after'} start`}
+            >
+                {/* Axis, and the two ends the labels below are naming. */}
+                <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-signal/20" />
+                <div aria-hidden="true" className="absolute inset-y-1.5 left-0 w-px bg-signal/25" />
+                <div aria-hidden="true" className="absolute inset-y-1.5 right-0 w-px bg-signal/25" />
+                {/* Half-way ticks: without them the marker's distance from the
+                    centre is a guess between two labels a card-width apart. */}
+                {[25, 75].map(p => (
+                    <div
+                        key={p} aria-hidden="true"
+                        className="absolute top-1/2 h-2 w-px -translate-y-1/2 bg-signal/15"
+                        style={{ left: `${p}%` }}
+                    />
+                ))}
+
+                <div
+                    aria-hidden="true"
+                    className={cn('absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full', toneFill(tone), move)}
+                    style={{ left: `${from}%`, width: `${to - from}%` }}
+                />
+
+                {/* T-0 last, so the zero line stays legible across the fill. */}
+                <div aria-hidden="true" className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-signal" />
+                {/* NOW: a point plotted on the line, ringed in the page colour
+                    so it separates from the run it sits at the end of. */}
+                <div
+                    aria-hidden="true"
+                    className={cn(
+                        'absolute top-1/2 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-void',
+                        toneFill(tone), move,
+                    )}
+                    style={{ left: `${nowPct}%` }}
+                />
+            </div>
+
+            {/* Full-strength ink on all three, per DESIGN_LANGUAGE.md's contrast
+                rule — the hierarchy is carried by weight and tone, not by
+                fading the ends of the axis into the background. */}
+            <div className="relative mt-1 h-[13px] text-[11px] tabular-nums text-signal">
+                <span className="absolute left-0 top-0">{`T-${span}`}</span>
+                <span className={cn('absolute left-1/2 top-0 -translate-x-1/2 font-bold', toneText(tone))}>T-0</span>
+                <span className="absolute right-0 top-0">{`T+${span}`}</span>
+            </div>
+        </div>
+    );
+});
+
+/**
+ * Operation — the whole "where are we, and who is on it" question.
+ *
+ * Was three panels: a countdown, a briefing that repeated the operation's name
+ * and member count, and an operator roster. They were all facets of one thing,
+ * and split apart the operator had to look in three places to answer "is it
+ * running yet, and is anyone here".
+ */
+export const OperationCard = React.memo(function OperationCard({
+    startMs, operations = [], currentOpId, totalOperations = 0, operators = [], onOpen,
+    viewUtc = false,
+}: {
+    startMs: number | null;
+    operations?: any[];
+    currentOpId?: number;
+    totalOperations?: number;
+    operators?: any[];
+    onOpen?: () => void;
+    viewUtc?: boolean;
+}) {
+    // No useLiveClock: the avatar roster below must not re-render every second.
+    // The countdown itself is a <LiveTime> leaf.
+    const td = tDelta(startMs);
+    const isPre = td?.sign === -1;
+    const within60s = !!td && td.sign === -1 && td.totalSeconds <= 60;
+
+    const currentOp = operations.find(op => op.id === currentOpId) || operations[0];
+    const memberCount = currentOp?.operatoroperations?.length || 0;
+
+    const tone: Tone = !td ? 'idle' : within60s ? 'warn' : 'signal';
+    const phase = !td ? 'Unscheduled' : within60s ? 'Imminent' : isPre ? 'Pre-ops' : 'In-ops';
+
+    return (
+        <InstrumentPanel
+            title="Operation"
+            icon={<Timer size={14} strokeWidth={2} />}
+            badgeTone={tone}
+            badge={phase}
+            footerLeft={startMs
+                ? `${isPre ? 'Starts' : 'Started'} ${viewUtc
+                    ? `${new Date(startMs).toISOString().replace('T', ' ').slice(0, 16)} UTC`
+                    : new Date(startMs).toLocaleString()}`
+                : 'No start time set — schedule it in Operations'}
+            footerRight={`${operations.length} running · ${totalOperations} total`}
+            onClick={onOpen}
+        >
+            <div className="flex h-full flex-col gap-4">
+                <div>
+                    <div className={cn('text-signal opacity-70', LABEL)}>Active</div>
+                    <div className="mt-1.5 truncate text-[26px] font-bold leading-none text-signal" title={currentOp?.name}>
+                        {currentOp?.name || 'None'}
+                    </div>
+                </div>
+
+                {td ? (
+                    /* The clock, then the line it sits on.
+                     *
+                     * This was a radial arc with the time inside it. The ring
+                     * encoded position in an arbitrary ±4h window, which is not
+                     * a quantity anyone reads off a circle — the number was
+                     * doing all the work and the graphic was decoration around
+                     * it. What was missing was never the geometry, it was the
+                     * stated scale: a countdown answers "how long", and an axis
+                     * with both ends labelled answers "where", which is the
+                     * question T-0 exists to anchor. So: readout, then a number
+                     * line running T- through T-0 into T+. */
+                    <div>
+                        <div className={cn('text-signal opacity-70', LABEL)}>
+                            {isPre ? 'Starts in' : 'Running for'}
+                        </div>
+                        {/* One atomic status message rather than a bare live
+                            number, so a screen reader is told what it hears. */}
+                        <div
+                            className="mt-2 flex items-baseline gap-2"
+                            role="status" aria-atomic="true"
+                        >
+                            <span className={cn('text-[16px] font-bold', toneText(tone))}>{td.prefix}</span>
+                            <span className={cn('text-[32px] font-bold leading-none tabular-nums', toneText(tone))}>
+                                <LiveTime format={() => {
+                                    const t = tDelta(startMs);
+                                    return t ? `${t.days > 0 ? `${t.days}d ` : ''}${t.hh}:${t.mm}:${t.ss}` : '—';
+                                }} />
+                            </span>
+                        </div>
+                        <ScheduleTimeline startMs={startMs!} tone={tone} />
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-3 text-[13px]">
+                        <Calendar size={18} strokeWidth={2} className="shrink-0 text-signal opacity-60" aria-hidden="true" />
+                        <span className="text-signal opacity-70">No start time set for this operation.</span>
+                    </div>
+                )}
+
+                <div className="border-t border-signal/15 pt-4">
+                    <div className="flex items-baseline justify-between gap-3">
+                        <span className={cn('text-signal opacity-70', LABEL)}>On this operation</span>
+                        <span className="text-[13px] tabular-nums text-signal">
+                            {operators.length} online · {memberCount} assigned
+                        </span>
+                    </div>
+                    {operators.length === 0 ? (
+                        <div className="mt-3 text-[13px] text-signal opacity-50">No operators online</div>
+                    ) : (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {operators.slice(0, 10).map(op => {
+                                const last = op.last_login
+                                    ? new Date(op.last_login.endsWith?.('Z') ? op.last_login : `${op.last_login}Z`).getTime()
+                                    : 0;
+                                return (
+                                    <span
+                                        key={op.id}
+                                        className="flex items-center gap-2 rounded-sm border border-signal/15 py-1 pl-1 pr-2.5"
+                                        title={`${op.username}${last ? ` · seen ${timeAgo(last)} ago` : ''}`}
+                                    >
+                                        <Avatar name={op.username} size={24} />
+                                        <span className="max-w-[110px] truncate text-[13px] text-signal">{op.username}</span>
+                                    </span>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </InstrumentPanel>
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVENTORY / PEOPLE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const RecentPayloadsCard = React.memo(function RecentPayloadsCard({ payloads = [] }: { payloads?: any[] }) {
+    const built = payloads.filter(p => p.build_phase === 'success').length;
+    return (
+        <InstrumentPanel
+            title="Recent payloads"
+            icon={<Box size={14} strokeWidth={2} />}
+            badgeTone={payloads.length > 0 ? 'signal' : 'idle'}
+            badge={`${built} of ${payloads.length} built`}
+            footerLeft="Filename and build phase"
+            footerRight={`${payloads.length} shown`}
+        >
+            {payloads.length === 0 ? <NoData>No payloads generated yet</NoData> : (
+                <div>
+                    {/* How much of the batch actually built, before any name is
+                        read — the rows below answer "which one" afterwards. */}
+                    <Meter
+                        value={built} max={payloads.length} height={8}
+                        tone={built === payloads.length ? 'signal' : 'warn'}
+                    />
+                    <div className="mt-3">
+                        {payloads.map((p, i) => {
+                            const filename = decodeFilename(p.filemetum?.filename_text);
+                            const phase: string = p.build_phase || 'unknown';
+                            const tone: Tone = phase === 'success' ? 'signal' : phase === 'building' ? 'warn' : 'fail';
+                            return (
+                                <DataRow
+                                    key={p.id || `p-${i}`}
+                                    label={filename}
+                                    meta={p.payloadtype?.name}
+                                    title={filename}
+                                    state={phase.charAt(0).toUpperCase() + phase.slice(1)}
+                                    tone={tone}
+                                />
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+interface AssetStripProps {
+    credentials?: number;
+    keylogs?: number;
+    downloads?: number;
+    uploads?: number;
+    screenshots?: number;
+}
+
+/** Each class gets a ring showing its share of everything collected, so the
+ *  strip answers "what is this operation actually yielding" at a glance rather
+ *  than only "how many of each". */
+export const AssetStripCard = React.memo(function AssetStripCard({
+    credentials = 0, keylogs = 0, downloads = 0, uploads = 0, screenshots = 0, credentialRows = [],
+}: AssetStripProps & { credentialRows?: any[] }) {
+    // Each class keeps its own hue so the strip is navigable without reading:
+    // the eye goes straight to "the amber one" for credentials. This is not
+    // colour-alone — every tile carries an icon and a written label too — and
+    // the five were validated together as a categorical set (worst adjacent
+    // pair ΔE 21.7 deutan, 27.4 normal, all above 3:1 on the void surface).
+    // Deliberately no accent green — that is a reserved status colour and must
+    // not double as "series 3", or a class label starts reading as a health state.
+    const stats = [
+        { label: 'Credentials', value: credentials, Icon: Key, hex: '#fbbf24' },
+        { label: 'Keylogs', value: keylogs, Icon: Terminal, hex: '#f472b6' },
+        { label: 'Downloads', value: downloads, Icon: Download, hex: 'rgb(var(--color-signal))' },
+        { label: 'Uploads', value: uploads, Icon: Upload, hex: '#c084fc' },
+        { label: 'Screenshots', value: screenshots, Icon: Image, hex: '#fb923c' },
+    ];
+    const collected = stats.reduce((s, x) => s + x.value, 0);
+
+    const byRealm = useMemo(() => {
+        const freq: Record<string, number> = {};
+        credentialRows.forEach(c => {
+            const r = (c.realm || '').trim() || 'No realm';
+            freq[r] = (freq[r] || 0) + 1;
+        });
+        return rankBuckets(freq, 5);
+    }, [credentialRows]);
+
+    const byType = useMemo(() => {
+        const freq: Record<string, number> = {};
+        credentialRows.forEach(c => {
+            const t = (c.type || '').trim() || 'Unknown';
+            freq[t] = (freq[t] || 0) + 1;
+        });
+        return rankBuckets(freq, 5);
+    }, [credentialRows]);
+
+    return (
+        <InstrumentPanel
+            title="Asset collection"
+            icon={<Shield size={14} strokeWidth={2} />}
+            badgeTone={collected > 0 ? 'signal' : 'idle'}
+            badge={`${collected} items`}
+            footerLeft={credentialRows.length > 0
+                ? `Credential split across the newest ${credentialRows.length} of ${credentials}`
+                : 'Harvested during this operation'}
+            footerRight={`${stats.filter(s => s.value > 0).length} of ${stats.length} classes`}
+        >
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                {stats.map(({ label, value, Icon, hex }) => {
+                    const share = collected > 0 ? (value / collected) * 100 : 0;
+                    return (
+                        <div key={label} className="flex items-center gap-3 rounded-sm border border-signal/15 px-3.5 py-3">
+                            <div className="relative shrink-0">
+                                <ShareRing pct={share} hex={value > 0 ? hex : 'rgb(var(--color-signal) / 0.2)'} size={40} />
+                                <Icon
+                                    size={16} strokeWidth={2} aria-hidden="true"
+                                    style={value > 0 ? { color: hex } : undefined}
+                                    className={cn('absolute inset-0 m-auto', value === 0 && 'text-signal opacity-30')}
+                                />
+                            </div>
+                            <div className="min-w-0">
+                                <div
+                                    className={cn('text-[26px] font-bold leading-none tabular-nums', value === 0 && 'text-signal opacity-30')}
+                                    style={value > 0 ? { color: hex } : undefined}
+                                >
+                                    {value}
+                                </div>
+                                <div className={cn('mt-1.5 truncate text-signal opacity-70', LABEL)}>{label}</div>
+                                {collected > 0 && (
+                                    <div className="mt-0.5 text-[11px] tabular-nums text-signal opacity-50">
+                                        {Math.round(share)}% of haul
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Credentials were a bare number before. The realm split is what
+                turns "1,248 credentials" into "we own this domain" — and the
+                slice is bounded, so it says what it actually covers. */}
+            {byRealm.rows.length > 0 && (
+                <div className="mt-4 grid gap-x-6 gap-y-4 border-t border-signal/15 pt-4 sm:grid-cols-2">
+                    <div className="space-y-2.5">
+                        <div className={cn('text-signal opacity-70', LABEL)}>Credentials by realm</div>
+                        {byRealm.rows.map(r => (
+                            <ChannelRow key={r.label} label={r.label} title={r.label} value={r.value}
+                                pct={byRealm.max > 0 ? (r.value / byRealm.max) * 100 : 0} />
+                        ))}
+                    </div>
+                    <div className="space-y-2.5">
+                        <div className={cn('text-signal opacity-70', LABEL)}>By type</div>
+                        {byType.rows.map(r => (
+                            <ChannelRow key={r.label} label={r.label} title={r.label} value={r.value}
+                                pct={byType.max > 0 ? (r.value / byType.max) * 100 : 0} />
+                        ))}
+                    </div>
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+export type { Tone };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALERTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Mythic's own event log, which nothing on this console was reading.
+ *
+ * SCOPED TO WARNINGS, and that scoping is the whole design. `resolved` is not
+ * a triage state for every level — nobody ever resolves a login record — so
+ * "unresolved events" counts 3,950 on a real instance, of which 2,774 are
+ * auth and 626 are debug. A badge showing 3,950 would be pure alarm fatigue.
+ * Warnings only gives 86, which is the number that means something, and it is
+ * the same definition EventFeed.tsx and the sidebar badge already use.
+ *
+ * The headline count comes from `operation.alert_count`, computed server-side,
+ * so this panel and the sidebar can never disagree.
+ */
+export const AlertsCard = React.memo(function AlertsCard({ events = [], openAlerts = 0, onOpen }: {
+    events?: any[];
+    openAlerts?: number;
+    onOpen?: () => void;
+}) {
+    useLiveClock(15_000);
+    const open = events.filter(e => !e.resolved);
+    const shown = open.length > 0 ? open : events;
+    const tone: Tone = openAlerts > 0 ? 'warn' : 'signal';
+
+    return (
+        <InstrumentPanel
+            title="Alerts"
+            icon={<Siren size={14} strokeWidth={2} />}
+            badgeTone={tone}
+            badge={openAlerts > 0 ? `${openAlerts} open` : 'All clear'}
+            footerLeft={open.length > 0 ? 'Unresolved first' : 'Recently resolved'}
+            footerRight="Warnings only"
+            onClick={onOpen}
+        >
+            {shown.length === 0 ? <NoData>No warnings raised</NoData> : (
+                <div className="cyber-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
+                    {shown.slice(0, 12).map((e, i) => (
+                        <DataRow
+                            key={e.id ?? `e-${i}`}
+                            label={String(e.message ?? '—').replace(/\s+/g, ' ').slice(0, 90)}
+                            title={String(e.message ?? '')}
+                            meta={e.level}
+                            state={e.resolved ? 'Resolved' : `${timeAgo(parseStamp(e.timestamp))} ago`}
+                            tone={e.resolved ? 'idle' : 'warn'}
+                        />
+                    ))}
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FOOTPRINT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * What this operation has left on other people's disks.
+ *
+ * Two sources that only mean something together: artifacts the agents reported
+ * creating, and payloads actually dropped onto hosts. `payloadonhost` had
+ * never been queried anywhere in Minerva, so "what did we leave, and where"
+ * genuinely had no answer in the product.
+ */
+export const FootprintCard = React.memo(function FootprintCard({ artifacts = [], payloadsOnHost = [], artifactTotal = 0, cleanupPending = 0, hostTotal = 0 }: {
+    artifacts?: any[];
+    payloadsOnHost?: any[];
+    artifactTotal?: number;
+    cleanupPending?: number;
+    hostTotal?: number;
+}) {
+    const byKind = useMemo(() => {
+        const freq: Record<string, number> = {};
+        artifacts.forEach(a => {
+            const k = a.base_artifact || 'Unknown';
+            freq[k] = (freq[k] || 0) + 1;
+        });
+        return rankBuckets(freq, 5);
+    }, [artifacts]);
+
+    const hosts = useMemo(() => {
+        const freq: Record<string, number> = {};
+        [...artifacts, ...payloadsOnHost].forEach(x => {
+            const h = x.host || 'Unknown';
+            freq[h] = (freq[h] || 0) + 1;
+        });
+        return rankBuckets(freq, 5);
+    }, [artifacts, payloadsOnHost]);
+
+    const tone: Tone = cleanupPending > 0 ? 'warn' : 'signal';
+
+    return (
+        <InstrumentPanel
+            title="Footprint"
+            icon={<Footprints size={14} strokeWidth={2} />}
+            badgeTone={tone}
+            badge={cleanupPending > 0 ? `${cleanupPending} to clean up` : `${artifactTotal} artifacts`}
+            footerLeft={hostTotal >= 60
+                ? '60+ payloads dropped on hosts (showing most recent)'
+                : `${hostTotal} ${hostTotal === 1 ? 'payload' : 'payloads'} dropped on hosts`}
+            footerRight={`${byKind.rows.length} artifact kinds`}
+        >
+            {artifactTotal === 0 && hostTotal === 0 ? <NoData>Nothing left behind yet</NoData> : (
+                <div className="flex h-full flex-col gap-4">
+                    <div className="grid grid-cols-3 gap-3">
+                        <Readout value={artifactTotal} label="Artifacts" size="text-[26px]" />
+                        <Readout
+                            value={hostTotal >= 60 ? '60+' : hostTotal} label="On disk" size="text-[26px]"
+                        />
+                        <Readout
+                            value={cleanupPending} label="To clean" size="text-[26px]"
+                            tone={cleanupPending > 0 ? 'warn' : 'idle'}
+                        />
+                    </div>
+                    <div className="grid gap-x-6 gap-y-4 border-t border-signal/15 pt-4 sm:grid-cols-2">
+                        <div className="space-y-2.5">
+                            <div className={cn('text-signal opacity-70', LABEL)}>By kind</div>
+                            {byKind.rows.length === 0 ? <NoData>None</NoData> : byKind.rows.map(r => (
+                                <ChannelRow key={r.label} label={r.label} title={r.label} value={r.value}
+                                    pct={byKind.max > 0 ? (r.value / byKind.max) * 100 : 0} />
+                            ))}
+                        </div>
+                        <div className="space-y-2.5">
+                            <div className={cn('text-signal opacity-70', LABEL)}>By host</div>
+                            {hosts.rows.length === 0 ? <NoData>None</NoData> : hosts.rows.map(r => (
+                                <ChannelRow key={r.label} label={r.label} title={r.label} value={r.value}
+                                    pct={hosts.max > 0 ? (r.value / hosts.max) * 100 : 0} />
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REACH
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How traffic actually moves — P2P relays and tunnel throughput together.
+ *
+ * `callbackgraphedge` gives the mesh (which callback routes through which) and
+ * `callbackport` gives the bytes genuinely pushed through SOCKS and port
+ * forwards. Neither was on the console: infrastructure was a list of profiles
+ * that were "up", with nothing saying whether anything was flowing through them.
+ */
+export const ReachCard = React.memo(function ReachCard({ edges = [], ports = [], callbacks = [], onOpen }: {
+    edges?: any[];
+    ports?: any[];
+    callbacks?: any[];
+    onOpen?: () => void;
+}) {
+    // `live` used to be computed here, outside the memo that depends on it —
+    // a fresh array identity every render, so `relays` never held. Same
+    // anti-pattern as the `|| []` extractions in Dashboard.tsx, one file over.
+    const live = useMemo(() => edges.filter(e => !e.end_timestamp), [edges]);
+    const relays = useMemo(() => {
+        const byId = new Map<number, string>();
+        callbacks.forEach(c => byId.set(c.display_id, c.host || String(c.display_id)));
+        const freq: Record<string, number> = {};
+        live.forEach(e => {
+            const k = byId.get(e.source_id) || `Callback ${e.source_id}`;
+            freq[k] = (freq[k] || 0) + 1;
+        });
+        return rankBuckets(freq, 5);
+    }, [live, callbacks]);
+
+    const sent = ports.reduce((n, p) => n + (p.bytes_sent || 0), 0);
+    const recv = ports.reduce((n, p) => n + (p.bytes_received || 0), 0);
+    const fmt = (b: number) =>
+        b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB`
+        : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB`
+        : b >= 1e3 ? `${(b / 1e3).toFixed(0)} KB` : `${b} B`;
+
+    return (
+        <InstrumentPanel
+            title="Reach"
+            icon={<Network size={14} strokeWidth={2} />}
+            badgeTone={live.length > 0 ? 'signal' : 'idle'}
+            badge={`${live.length} live ${live.length === 1 ? 'link' : 'links'}`}
+            footerLeft={`${edges.length} edges seen, ${edges.length - live.length} closed`}
+            footerRight={`${ports.length} open ${ports.length === 1 ? 'tunnel' : 'tunnels'}`}
+            onClick={onOpen}
+        >
+            {edges.length === 0 && ports.length === 0 ? <NoData>No relays or tunnels</NoData> : (
+                <div className="flex h-full flex-col gap-4">
+                    <div className="grid grid-cols-3 gap-3">
+                        <Readout value={live.length} label="Live links" size="text-[26px]" />
+                        <Readout value={fmt(sent)} label="Sent" size="text-[26px]" />
+                        <Readout value={fmt(recv)} label="Received" size="text-[26px]" />
+                    </div>
+
+                    {relays.rows.length > 0 && (
+                        <div className="space-y-2.5 border-t border-signal/15 pt-4">
+                            <div className={cn('text-signal opacity-70', LABEL)}>Busiest relays</div>
+                            {relays.rows.map(r => (
+                                <ChannelRow key={r.label} label={r.label} title={r.label} value={r.value}
+                                    pct={relays.max > 0 ? (r.value / relays.max) * 100 : 0} tone="range" />
+                            ))}
+                        </div>
+                    )}
+
+                    {ports.length > 0 && (
+                        <div className="border-t border-signal/15 pt-4">
+                            <div className={cn('mb-2 text-signal opacity-70', LABEL)}>Tunnels</div>
+                            {ports.slice(0, 6).map(p => (
+                                <DataRow
+                                    key={p.id}
+                                    label={`${p.port_type || 'tunnel'} :${p.local_port ?? '—'}`}
+                                    meta={p.remote_ip ? `${p.remote_ip}:${p.remote_port ?? ''}` : undefined}
+                                    state={fmt((p.bytes_sent || 0) + (p.bytes_received || 0))}
+                                    tone="signal"
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRADECRAFT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Which MITRE tactics this operation has actually exercised.
+ *
+ * `attacktask` maps tasks to techniques and had never reached the console, so
+ * the answer to "what does our activity look like to a defender" lived only in
+ * a separate page nobody opens mid-operation.
+ *
+ * Mythic stores `tactic` as a JSON-ish string (`["Execution"]`), sometimes with
+ * several tactics per technique, so it is parsed rather than shown raw.
+ */
+export const TradecraftCard = React.memo(function TradecraftCard({ attackTasks = [], onOpen }: { attackTasks?: any[]; onOpen?: () => void }) {
+    const { rows, max, techniques } = useMemo(() => {
+        const freq: Record<string, number> = {};
+        const seen = new Set<string>();
+        attackTasks.forEach(a => {
+            const at = a?.attack;
+            if (!at) return;
+            if (at.t_num) seen.add(at.t_num);
+            let tactics: string[] = [];
+            try {
+                const parsed = JSON.parse(at.tactic ?? '[]');
+                tactics = Array.isArray(parsed) ? parsed : [String(parsed)];
+            } catch {
+                tactics = at.tactic ? [String(at.tactic)] : [];
+            }
+            (tactics.length ? tactics : ['Unmapped']).forEach(t => {
+                freq[t] = (freq[t] || 0) + 1;
+            });
+        });
+        const r = rankBuckets(freq, 7);
+        return { ...r, techniques: seen.size };
+    }, [attackTasks]);
+
+    return (
+        <InstrumentPanel
+            title="Tradecraft"
+            icon={<Crosshair size={14} strokeWidth={2} />}
+            badgeTone={techniques > 0 ? 'signal' : 'idle'}
+            badge={`${techniques} ${techniques === 1 ? 'technique' : 'techniques'}`}
+            footerLeft="ATT&CK tactics exercised, by task count"
+            footerRight={`${attackTasks.length} mapped tasks`}
+            onClick={onOpen}
+        >
+            {rows.length === 0 ? <NoData>No tasks mapped to ATT&CK yet</NoData> : (
+                <div className="space-y-2.5">
+                    {rows.map(r => (
+                        <ChannelRow key={r.label} label={r.label} title={r.label} value={r.value}
+                            pct={max > 0 ? (r.value / max) * 100 : 0} />
+                    ))}
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATTENTION REQUIRED
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface Issue {
+    id: string;
+    category: string;
+    problem: string;
+    subject?: string;
+    context?: string;
+    tone: Tone;
+    href?: string;
+}
+
+/**
+ * Turn telemetry into a list of things to do.
+ *
+ * This is the difference between a dashboard and a monitor. Everywhere else on
+ * the page reports a quantity; this names a problem, points at the object it
+ * concerns, gives the number that makes it a problem, and links to the screen
+ * that fixes it. If nothing needs doing it says so plainly rather than
+ * inventing severity to look busy.
+ *
+ * Derivation is deliberately conservative — every rule here is something an
+ * operator would act on, not something that merely looks anomalous.
+ */
+export function deriveIssues(input: {
+    callbacks: any[];
+    edges: any[];
+    c2profiles: any[];
+    tasks: any[];
+    opsecTasks: number;
+    openAlerts: number;
+    cleanupPending: number;
+    latency: { p99: number; outstanding: number };
+    payloads: any[];
+}): Issue[] {
+    const issues: Issue[] = [];
+
+    // Callbacks that have stopped checking in on their own schedule. Uses the
+    // project's liveness helper, never the `dead` column — that lags by up to
+    // a minute and is container-dependent, so live nodes read as DEAD.
+    const silent = input.callbacks.filter(c => !isCallbackAlive(c, input.edges));
+    if (silent.length > 0) {
+        issues.push({
+            id: 'cb-silent',
+            category: 'Callback',
+            problem: `${silent.length} ${silent.length === 1 ? 'callback has' : 'callbacks have'} not checked in as expected`,
+            subject: silent.slice(0, 3).map(c => c.host || `#${c.display_id}`).join(', ')
+                + (silent.length > 3 ? ` +${silent.length - 3}` : ''),
+            tone: 'warn',
+            href: '/callbacks',
+        });
+    }
+
+    const down = input.c2profiles.filter(p => !p.running);
+    if (down.length > 0) {
+        issues.push({
+            id: 'c2-down',
+            category: 'Infrastructure',
+            problem: `${down.length} C2 ${down.length === 1 ? 'profile is' : 'profiles are'} not running`,
+            subject: down.map(p => p.name).slice(0, 3).join(', '),
+            tone: 'fail',
+            href: '/c2-profiles',
+        });
+    }
+
+    if (input.opsecTasks > 0) {
+        issues.push({
+            id: 'opsec',
+            category: 'OPSEC',
+            problem: `${input.opsecTasks} ${input.opsecTasks === 1 ? 'task is' : 'tasks are'} blocked awaiting approval`,
+            context: 'Nothing runs on these until someone decides',
+            tone: 'warn',
+            href: '/opsec',
+        });
+    }
+
+    const errored = input.tasks.filter(t => taskState(t).word === 'Error').length;
+    if (errored > 0 && input.tasks.length > 0) {
+        const rate = (errored / input.tasks.length) * 100;
+        if (rate >= 10) {
+            issues.push({
+                id: 'task-errors',
+                category: 'Task execution',
+                problem: `${rate.toFixed(0)}% of tasks in this window failed`,
+                context: `${errored} of ${input.tasks.length}`,
+                tone: rate >= 25 ? 'fail' : 'warn',
+                href: '/events',
+            });
+        }
+    }
+
+    // 30s is generous for a C2 round trip even allowing for agent sleep; past
+    // that the tail is worth a look rather than an alarm.
+    if (input.latency.p99 > 30_000) {
+        issues.push({
+            id: 'latency',
+            category: 'Task execution',
+            problem: 'Execution latency exceeded the normal range',
+            context: `p99 is ${humanMs(input.latency.p99)}`,
+            tone: 'warn',
+            href: '/callbacks',
+        });
+    }
+
+    if (input.openAlerts > 0) {
+        issues.push({
+            id: 'alerts',
+            category: 'Alerts',
+            problem: `${input.openAlerts} unresolved ${input.openAlerts === 1 ? 'warning' : 'warnings'} from Mythic`,
+            tone: 'warn',
+            href: '/events',
+        });
+    }
+
+    if (input.cleanupPending > 0) {
+        issues.push({
+            id: 'cleanup',
+            category: 'Footprint',
+            problem: `${input.cleanupPending} ${input.cleanupPending === 1 ? 'artifact needs' : 'artifacts need'} cleanup`,
+            context: 'Still on target disks',
+            tone: 'warn',
+            href: '/artifacts',
+        });
+    }
+
+    const failedBuilds = input.payloads.filter(p => p.build_phase && p.build_phase !== 'success' && p.build_phase !== 'building');
+    if (failedBuilds.length > 0) {
+        issues.push({
+            id: 'builds',
+            category: 'Payloads',
+            problem: `${failedBuilds.length} payload ${failedBuilds.length === 1 ? 'build' : 'builds'} did not complete`,
+            tone: 'fail',
+            href: '/payloads',
+        });
+    }
+
+    // Worst first — a list that buries a dead C2 under a cleanup reminder is
+    // a list nobody reads to the bottom of.
+    const rank: Record<Tone, number> = { fail: 0, warn: 1, range: 2, signal: 3, live: 4, idle: 5 };
+    return issues.sort((a, b) => rank[a.tone] - rank[b.tone]);
+}
+
+export const AttentionCard = React.memo(function AttentionCard({ issues, onNavigate }: {
+    issues: Issue[];
+    onNavigate?: (href: string) => void;
+}) {
+    const worst: Tone = issues.some(i => i.tone === 'fail') ? 'fail'
+        : issues.length > 0 ? 'warn' : 'live';
+
+    return (
+        <InstrumentPanel
+            title="Attention required"
+            icon={<AlertTriangle size={14} strokeWidth={2} />}
+            badgeTone={worst}
+            badge={issues.length > 0 ? `${issues.length} open` : 'Nothing'}
+            footerLeft={issues.length > 0 ? 'Worst first' : 'No action needed right now'}
+            footerRight={issues.length > 0 ? `${issues.filter(i => i.tone === 'fail').length} critical` : '—'}
+        >
+            {issues.length === 0 ? (
+                <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2">
+                    <CheckCircle size={22} strokeWidth={2} className="text-accent" aria-hidden="true" />
+                    <span className="text-[13px] text-signal">Everything is behaving</span>
+                    <span className="text-[11px] text-signal opacity-55">
+                        Callbacks checking in, C2 up, no blocked tasks
+                    </span>
+                </div>
+            ) : (
+                <div className="cyber-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                    {issues.map(issue => {
+                        const clickable = !!issue.href && !!onNavigate;
+                        return (
+                            <div
+                                key={issue.id}
+                                onClick={clickable ? () => onNavigate!(issue.href!) : undefined}
+                                role={clickable ? 'button' : undefined}
+                                tabIndex={clickable ? 0 : undefined}
+                                onKeyDown={clickable ? (e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate!(issue.href!); }
+                                } : undefined}
+                                className={cn(
+                                    'rounded-sm border border-signal/15 px-3.5 py-3 transition-colors',
+                                    clickable && 'cursor-pointer hover:border-signal/40',
+                                )}
+                            >
+                                <div className="flex items-baseline justify-between gap-3">
+                                    <StatusWord tone={issue.tone}>{issue.category}</StatusWord>
+                                    {clickable && (
+                                        <span className="shrink-0 text-[11px] text-signal opacity-60">Open →</span>
+                                    )}
+                                </div>
+                                <div className="mt-1.5 text-[13px] text-signal">{issue.problem}</div>
+                                {issue.subject && (
+                                    <div className="mt-1 truncate text-[11px] text-signal opacity-70" title={issue.subject}>
+                                        {issue.subject}
+                                    </div>
+                                )}
+                                {issue.context && (
+                                    <div className="mt-1 text-[11px] text-signal opacity-55">{issue.context}</div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </InstrumentPanel>
+    );
+});

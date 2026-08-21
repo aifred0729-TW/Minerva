@@ -34,7 +34,6 @@ import {
 import {
     allocatePortForOperation,
     releasePortForOperation,
-    getPortForOperation,
 } from '../../lib/msfSocksAllocator';
 import {
     upsertTunnel,
@@ -160,10 +159,13 @@ async function findSocksJobByPort(port: number): Promise<string | null> {
             if (typeof name !== 'string') continue;
             if (/socks_proxy/i.test(name) && (name.includes(`:${port}`) || name.includes(`${port}`))) return id;
         }
-        // Second pass: any socks_proxy job at all (best-effort if name omits port).
-        for (const [id, name] of Object.entries(jobs)) {
-            if (typeof name === 'string' && /socks_proxy/i.test(name)) return id;
-        }
+        // NO second pass. There used to be one here that returned *any*
+        // socks_proxy job when the name did not carry the port — which meant an
+        // operator whose own bind had failed silently adopted a teammate's
+        // proxy, and then pushed `route add` for their subnets into the one MSF
+        // route table the teammate's proxychains was consuming. A wrong job id
+        // is worse than none: the caller can start a fresh proxy, but it cannot
+        // detect that it has been handed someone else's.
     } catch { /* ignore */ }
     return null;
 }
@@ -247,7 +249,10 @@ export async function ensureOperationSocks(operationId: number | string): Promis
         } catch { /* fall through and (re)start */ }
     }
 
-    const port = getPortForOperation(opKey) ?? allocatePortForOperation(opKey);
+    // Shared, atomically-claimed ledger — see lib/msfSocksAllocator.ts. The
+    // synchronous cache read alone is not enough to allocate: another operator
+    // may hold the port we think is free.
+    const port = await allocatePortForOperation(opKey);
     if (port == null) {
         throw new Error('MSF SOCKS port range (7100-7131) is exhausted — too many operations.');
     }
@@ -267,6 +272,17 @@ export async function ensureOperationSocks(operationId: number | string): Promis
         jobId = parseJobId(output) || (await findSocksJobByPort(port));
     } finally {
         try { await consoleDestroy(consoleId); } catch { /* ignore */ }
+    }
+
+    if (!jobId) {
+        // We started a proxy but cannot say which job it is. Recording the
+        // tunnel anyway used to leave a record that stopOperationSocks could
+        // never kill, and that the UI reported as healthy. Release the port so
+        // the next attempt starts clean rather than leaking it from the range.
+        await releasePortForOperation(opKey);
+        throw new Error(
+            `MSF SOCKS started on port ${port} but its job id could not be resolved — not recording an untrackable tunnel. Check 'jobs -l' in msfconsole.`,
+        );
     }
 
     const startedAt = existing?.startedAt ?? new Date().toISOString();
@@ -392,7 +408,7 @@ export async function stopOperationSocks(operationId: number | string): Promise<
     const opKey = String(operationId);
     const t = getTunnelForOperation(opKey);
     if (!t) {
-        releasePortForOperation(opKey);
+        await releasePortForOperation(opKey);
         return;
     }
 
@@ -420,7 +436,7 @@ export async function stopOperationSocks(operationId: number | string): Promise<
     }
 
     removeTunnel(opKey);
-    releasePortForOperation(opKey);
+    await releasePortForOperation(opKey);
     ensuredAt.delete(opKey);
 }
 

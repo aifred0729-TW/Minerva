@@ -1,18 +1,31 @@
 # Metasploit Framework — MSF-RPC Daemon
-# Usage: docker compose -f docker-compose.metasploit.yml up -d
+# Usage: bash scripts/minerva_install.sh msf-start
+#        (raw compose needs the credential: docker compose --env-file .env.msf \
+#         -f docker-compose.metasploit.yml up -d)
 #
-# Default RPC credentials (override via .env or environment):
+# RPC credentials (generated per deployment, see below):
 #   MSFRPC_USER=msf
-#   MSFRPC_PASS=minerva_msf
+#   MSFRPC_PASS=<required — no default>
 #   MSFRPC_PORT=55553
+#
+# MSFRPC_PASS is mandatory: there is deliberately no shipped default, because the
+# old one was a repo literal that also ended up inside the served JS bundle.
+# `scripts/minerva_install.sh msf-start` generates a per-deployment password into
+# an untracked .env.msf and passes it with --env-file.
 
 services:
   metasploit:
     image: metasploitframework/metasploit-framework:latest
     container_name: minerva_msf
-    entrypoint: ["./msfrpcd", "-U", "${MSFRPC_USER:-msf}", "-P", "${MSFRPC_PASS:-minerva_msf}", "-p", "${MSFRPC_PORT:-55553}", "-S", "-f", "-a", "0.0.0.0"]
+    entrypoint: ["./msfrpcd", "-U", "${MSFRPC_USER:-msf}", "-P", "${MSFRPC_PASS:?MSFRPC_PASS must be set — see scripts/minerva_install.sh msf-start, which generates .env.msf}", "-p", "${MSFRPC_PORT:-55553}", "-S", "-f", "-a", "0.0.0.0"]
     ports:
-      - "${MSFRPC_PORT:-55553}:${MSFRPC_PORT:-55553}"
+      # RPC is NOT published to the world. nginx reaches msfrpcd over the shared
+      # `minerva_default` docker network as `minerva_msf:55553`, so the only host
+      # binding needed is loopback, for host-side tooling (scripts/msfrpc_verify.py).
+      # Publishing this on 0.0.0.0 with a shipped default password made the RPC API
+      # — console.write, module.execute, session.shell_write — reachable by anyone
+      # who could route to this host.
+      - "127.0.0.1:${MSFRPC_PORT:-55553}:${MSFRPC_PORT:-55553}"
       # SOCKS tunnel range — one host port per active meterpreter
       # session. Minerva's MSF SOCKS feature starts
       # `auxiliary/server/socks_proxy` inside the container with
@@ -23,6 +36,19 @@ services:
       # more are needed). Offset to 7100+ to leave Mythic's own SOCKS
       # range (7000-7010 by default in mythic_server) untouched.
       - "7100-7131:7100-7131"
+    # msfrpcd idles hot. Measured on the reference host: ~110% CPU sustained with
+    # nobody driving it, and 24h of CPU time in a 22h-old container — 6,972 futex
+    # + 1,027 restart_syscall per 10s and essentially no I/O, i.e. MRI's GVL and
+    # timer thread handing off between Metasploit's per-session threads. That is
+    # Metasploit's own behaviour inside a third-party image; there is nothing to
+    # fix on our side of the socket.
+    #
+    # cpu_shares is a WEIGHT, not a cap: while the host is idle msfrpcd still
+    # gets whatever it asks for, but the moment anything else wants the CPU —
+    # the operator's browser, a video, a build — it yields instead of competing
+    # on equal footing. Real MSF work is not slowed on an idle box; idle churn
+    # stops costing the desktop a core.
+    cpu_shares: 512
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

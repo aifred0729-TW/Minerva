@@ -77,7 +77,7 @@ const RenameModal = ({ payload, isOpen, onClose, onRename }: { payload: any, isO
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
-                        className="bg-void border border-signal p-6 rounded-lg w-full max-w-md shadow-[0_0_30px_rgba(34,197,94,0.2)]"
+                        className="bg-void border border-signal p-6 rounded-lg w-full max-w-md shadow-[0_0_30px_rgba(74,222,128,0.2)]"
                     >
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold text-signal flex items-center gap-2">
@@ -133,7 +133,7 @@ const EditDescriptionModal = ({ payload, isOpen, onClose, onSave }: { payload: a
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
-                        className="bg-void border border-signal p-6 rounded-lg w-full max-w-md shadow-[0_0_30px_rgba(34,197,94,0.2)]"
+                        className="bg-void border border-signal p-6 rounded-lg w-full max-w-md shadow-[0_0_30px_rgba(74,222,128,0.2)]"
                     >
                          <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold text-signal flex items-center gap-2">
@@ -174,7 +174,7 @@ const TextInfoModal = ({ title, content, isOpen, onClose, isLoading }: { title: 
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
-                        className="bg-void border border-signal p-0 rounded-lg w-full max-w-4xl shadow-[0_0_30px_rgba(34,197,94,0.2)] h-[80vh] flex flex-col"
+                        className="bg-void border border-signal p-0 rounded-lg w-full max-w-4xl shadow-[0_0_30px_rgba(74,222,128,0.2)] h-[80vh] flex flex-col"
                     >
                          <div className="flex justify-between items-center p-4 border-b border-gray-800">
                             <h3 className="text-xl font-bold text-signal flex items-center gap-2 uppercase">
@@ -625,7 +625,7 @@ export function PayloadsList() {
     }
     .action-item:hover:not(:disabled) {
         background-color: rgba(255, 255, 255, 0.1);
-        color: #22c55e;
+        color: #4ade80;
     }
     .separator {
         height: 1px;

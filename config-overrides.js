@@ -12,13 +12,17 @@ module.exports = function override(config, env) {
         //url: require.resolve('url'),
         fs: false,
         assert: require.resolve('assert'),
-        crypto: require.resolve('crypto-browserify'),
-        path: require.resolve('path-browserify'),
+        // Nothing under src/ imports node's crypto/path/stream — verified by
+        // grep. The only consumer is sql.js, whose browser/wasm build guards
+        // these behind `typeof require`, so polyfilling them shipped ~1.45 MB of
+        // Node shims into the sql.js chunk for nothing (1,534,952 B -> ~80 KB).
+        crypto: false,
+        path: false,
         //http: require.resolve('stream-http'),
         //https: require.resolve('https-browserify'),
         //os: require.resolve('os-browserify/browser'),
         //buffer: require.resolve('buffer'),
-        stream: require.resolve('stream-browserify'),
+        stream: false,
         vm: false,
     };
 

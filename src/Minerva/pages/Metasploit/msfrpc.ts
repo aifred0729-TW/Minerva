@@ -5,8 +5,13 @@
  * All methods return plain JS objects; callers handle UI state.
  */
 
+import { getAuthHeaders } from '../../lib/auth';
+
 // Route through Minerva's Nginx reverse proxy to avoid CORS issues.
-// Nginx proxies /msf-rpc/ → msfrpcd's /api/ on the host.
+// Nginx proxies /msf-rpc/ → msfrpcd's /api/ over the shared docker network,
+// behind an `auth_request` against Mythic's JWT-protected `GET /me`. Every RPC
+// call therefore has to carry the operator's Mythic bearer token or nginx
+// answers 401 before Metasploit is ever reached.
 function rpcUrl(): string {
     return `${window.location.origin}/msf-rpc/`;
 }
@@ -163,10 +168,15 @@ async function rpcCall(method: string, ...args: unknown[]): Promise<Record<strin
     try {
         const resp = await fetch(rpcUrl(), {
             method: 'POST',
-            headers: { 'Content-Type': 'binary/message-pack' },
+            headers: { 'Content-Type': 'binary/message-pack', ...getAuthHeaders() },
             body: body as BodyInit,
             signal: controller.signal,
         });
+        if (resp.status === 401 || resp.status === 403) {
+            // The auth_request gate rejected us, not msfrpcd. Distinguishing the
+            // two matters: one means "log in again", the other means "MSF creds".
+            throw new Error('MSF-RPC refused: Mythic session is not valid (re-login required)');
+        }
         if (!resp.ok) throw new Error(`RPC HTTP ${resp.status}`);
         const raw = new Uint8Array(await resp.arrayBuffer());
         return unpack(raw) as Record<string, unknown>;
@@ -238,9 +248,53 @@ let _token: string | null = null;
 export function getStoredCredentials() {
     return {
         user: sessionStorage.getItem('msf_rpc_user') || 'msf',
-        pass: sessionStorage.getItem('msf_rpc_pass') || 'minerva_msf',
+        pass: sessionStorage.getItem('msf_rpc_pass') || '',
     };
 }
+
+/**
+ * Resolve the msfrpcd credential.
+ *
+ * Precedence: an operator-entered credential in sessionStorage, otherwise the
+ * deployment credential from `/msf-config` — which nginx serves only to a
+ * caller holding a valid Mythic JWT. There is deliberately no baked-in default:
+ * the previous fallback (`minerva_msf`) shipped inside the JS bundle and was
+ * committed to the repo, so it authenticated nobody in particular.
+ */
+let _cfgPromise: Promise<{ user: string; pass: string }> | null = null;
+/** Earliest time a failed /msf-config fetch may be retried. */
+let _cfgRetryAfter = 0;
+const CFG_RETRY_COOLDOWN_MS = 30_000;
+
+async function resolveCredentials(): Promise<{ user: string; pass: string }> {
+    const u = sessionStorage.getItem('msf_rpc_user');
+    const p = sessionStorage.getItem('msf_rpc_pass');
+    if (u && p) return { user: u, pass: p };
+    // Clearing the cached promise on failure meant every caller re-fetched, and
+    // the MSF poll loops call this constantly — observed at ~22 req/min against
+    // an endpoint that was returning 403. Back off instead of hammering.
+    if (!_cfgPromise && Date.now() < _cfgRetryAfter) {
+        throw new Error('MSF credentials unavailable — retrying shortly');
+    }
+    if (!_cfgPromise) {
+        _cfgPromise = (async () => {
+            const r = await fetch(`${window.location.origin}/msf-config`, { headers: getAuthHeaders() });
+            if (!r.ok) {
+                throw new Error(
+                    r.status === 401 || r.status === 403
+                        ? 'MSF credentials unavailable: Mythic session is not valid (re-login required)'
+                        : 'MSF credentials unavailable: run `minerva_install.sh msf-start` to generate them',
+                );
+            }
+            const j = await r.json();
+            return { user: String(j.user || 'msf'), pass: String(j.pass || '') };
+        })().catch((e) => { _cfgPromise = null; _cfgRetryAfter = Date.now() + CFG_RETRY_COOLDOWN_MS; throw e; });
+    }
+    return _cfgPromise;
+}
+
+/** Drop the cached deployment credential (e.g. on logout). */
+export function resetCredentialCache() { _cfgPromise = null; _cfgRetryAfter = 0; _token = null; }
 
 export function saveCredentials(user: string, pass: string) {
     sessionStorage.setItem('msf_rpc_user', user);
@@ -249,7 +303,7 @@ export function saveCredentials(user: string, pass: string) {
 }
 
 export async function login(user?: string, pass?: string): Promise<string> {
-    const creds = getStoredCredentials();
+    const creds = await resolveCredentials();
     const u = user || creds.user;
     const p = pass || creds.pass;
     const res = await rpcCall('auth.login', u, p);

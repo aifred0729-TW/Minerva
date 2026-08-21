@@ -42,7 +42,7 @@ export function PayloadDetailsModal({ payload, onClose, isOpen, initialTab = 'ov
                             exit={{ scale: 0.9, opacity: 0 }}
                             transition={{ type: "spring", stiffness: 300, damping: 25 }}
                             onClick={(e) => e.stopPropagation()}
-                            className="w-full max-w-6xl h-[90vh] bg-void border border-signal/50 shadow-[0_0_50px_rgba(34,197,94,0.2)] flex flex-col relative overflow-hidden rounded-lg"
+                            className="w-full max-w-6xl h-[90vh] bg-void border border-signal/50 shadow-[0_0_50px_rgba(74,222,128,0.2)] flex flex-col relative overflow-hidden rounded-lg"
                         >
                              {/* Decorative Corner Effects */}
                              <div className="absolute top-0 left-0 w-16 h-16 border-t-2 border-l-2 border-signal rounded-tl-lg pointer-events-none" />

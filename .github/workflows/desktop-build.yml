@@ -1,0 +1,164 @@
+name: Desktop build
+
+# Builds and releases the Minerva desktop console for Windows and macOS.
+#
+#   • Push a tag like `v2.1.3`  → both platforms build, upload into one draft
+#                                 Release, then the release job adds checksums
+#                                 and install notes and publishes it.
+#   • Run manually              → both platforms build and upload installers as
+#                                 workflow artifacts. Nothing is published.
+#
+# macOS installers can only be produced on a macOS runner — a .dmg cannot be
+# cross-built. That is the reason this workflow exists rather than a local
+# `npm run dist`.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write        # create the release, upload assets
+  id-token: write        # build provenance attestation
+  attestations: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (universal dmg + zip)
+            args: --mac
+          - os: windows-latest
+            label: Windows (nsis + portable, x64 & arm64)
+            args: --win
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # ── The web bundle ────────────────────────────────────────────────────
+      # The desktop app does not build its own UI; it ships the same bundle the
+      # container serves. Built once here, copied in by extraResources.
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Build web bundle
+        run: npm run build
+
+      # ── The shell ─────────────────────────────────────────────────────────
+      # `npm install`, not `npm ci`: desktop/ has no committed lockfile yet and
+      # `npm ci` hard-fails without one. Run `npm install` in desktop/ once,
+      # commit desktop/package-lock.json, and switch this back to `npm ci` for
+      # reproducible dependency resolution.
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm install
+
+      - name: Package (and upload to the draft release on a tag)
+        working-directory: desktop
+        run: >-
+          npx electron-builder ${{ matrix.args }}
+          --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── Signing ───────────────────────────────────────────────────────
+          # Unset by default: build unsigned rather than picking up whatever
+          # identity happens to be in the runner's keychain. scripts/adhoc-sign.js
+          # then applies an ad-hoc signature so the macOS build at least starts
+          # on Apple Silicon.
+          #
+          # To ship installers people can open without a terminal, add these
+          # repository secrets and delete the CSC_IDENTITY_AUTO_DISCOVERY line:
+          #
+          #   macOS    CSC_LINK                    Developer ID .p12, base64
+          #            CSC_KEY_PASSWORD            its password
+          #            APPLE_ID                    Apple ID for notarization
+          #            APPLE_APP_SPECIFIC_PASSWORD app-specific password
+          #            APPLE_TEAM_ID               10-character team id
+          #
+          #   Windows  CSC_LINK / CSC_KEY_PASSWORD, or configure Azure Trusted
+          #            Signing, which works in CI without a hardware token.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        # Artifact attestations are not available on every private-repository
+        # plan. SHA256SUMS.txt is the integrity check that always works, so a
+        # missing attestation must not fail an otherwise good release.
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.exe
+            desktop/dist/*.zip
+
+      - name: Upload installers as workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: minerva-desktop-${{ matrix.os }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.exe
+
+  # ── Turn the draft into something a stranger can actually install ─────────
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Checksums come from the workflow artifacts, not from the draft release.
+      # A draft's assets are awkward to fetch back reliably, whereas the build
+      # jobs have already uploaded exactly these files as artifacts.
+      - name: Download built installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: minerva-desktop-*
+          merge-multiple: true
+          path: assets
+
+      - name: Checksum and attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd assets
+          if ! compgen -G "*" > /dev/null; then
+            echo "no installers were produced — check the build jobs"
+            exit 1
+          fi
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "${GITHUB_REF_NAME}" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Write install notes and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --title "Minerva ${TAG}" \
+            --notes-file .github/RELEASE_NOTES.md \
+            --draft=false --latest

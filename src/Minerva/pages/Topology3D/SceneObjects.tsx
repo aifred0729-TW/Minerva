@@ -281,13 +281,20 @@ export const NodeSphere = React.memo(({
                 />
             </mesh>
 
-            {/* ── Point light — the node illuminates its surroundings ── */}
-            <pointLight
+            {/* ── Point light — only while selected/hovered ──
+                numPointLights is part of three.js's shader program cache key, so
+                one light PER NODE meant any change in host count forced a full
+                MeshStandardMaterial recompile (a synchronous stall on the 10s
+                poll), and the program stopped linking entirely around 250-340
+                nodes — the topology went black. The node body is already
+                emissive + toneMapped={false}, so the light buys almost nothing
+                when the node is neither selected nor hovered. */}
+            {(isSelected || hovered) && <pointLight
                 color={color}
                 intensity={pickingDim === 'dim' ? 0.1 : isSelected ? 2 : hovered ? 1 : pickingDim === 'brighten' ? 0.6 : 0.4}
                 distance={isSelected ? 5 : 3}
                 decay={2}
-            />
+            />}
 
             {/* ── Label ── */}
             <Billboard position={[0, -r - 0.35, 0]}>
@@ -400,18 +407,39 @@ export const DataBeamEdge = React.memo(({
     const bIdx = bundleIndex ?? 0;
     const bCount = bundleCount ?? 1;
 
+    // Scratch buffer + last-written endpoints, per edge instance. `setPositions`
+    // rebuilds a Line2's InstancedInterleavedBuffer and flags it for re-upload,
+    // so calling it unconditionally meant two gl.bufferData per edge per frame
+    // — 24,000/sec at 200 edges on a frameloop="always" canvas — for endpoints
+    // that only move while a node is actually being dragged. The old code also
+    // allocated four arrays a frame (two toArray + two flat) purely as GC feed.
+    const posScratch = useRef<number[]>([0, 0, 0, 0, 0, 0]);
+    const lastPos = useRef<number[]>([NaN, NaN, NaN, NaN, NaN, NaN]);
+
     // Update geometry + label position every frame so edges follow dragged nodes.
     useFrame(({ clock }) => {
         if (dashRef.current) {
             dashRef.current.dashOffset = -clock.getElapsedTime() * 1.5;
         }
-        const pts = [sourcePos.toArray(), targetPos.toArray()] as [number[], number[]];
-        if (mainLineRef.current?.geometry) {
-            mainLineRef.current.geometry.setPositions(pts.flat());
+        const last = lastPos.current;
+        const moved =
+            last[0] !== sourcePos.x || last[1] !== sourcePos.y || last[2] !== sourcePos.z ||
+            last[3] !== targetPos.x || last[4] !== targetPos.y || last[5] !== targetPos.z;
+        if (moved && mainLineRef.current?.geometry && dashRef.current?.geometry) {
+            // Latched only once both geometries exist, so a frame that runs
+            // before the refs attach doesn't record the move as already applied.
+            const pts = posScratch.current;
+            pts[0] = last[0] = sourcePos.x;
+            pts[1] = last[1] = sourcePos.y;
+            pts[2] = last[2] = sourcePos.z;
+            pts[3] = last[3] = targetPos.x;
+            pts[4] = last[4] = targetPos.y;
+            pts[5] = last[5] = targetPos.z;
+            mainLineRef.current.geometry.setPositions(pts);
+            dashRef.current.geometry.setPositions(pts);
         }
-        if (dashRef.current?.geometry) {
-            dashRef.current.geometry.setPositions(pts.flat());
-        }
+        // Not gated on `moved`: the billboard also tracks bundleIndex/bundleCount,
+        // which change by prop, and position.set costs nothing on the GPU.
         if (billboardRef.current) {
             // Straight line midpoint — labels for all bundle members
             // sit horizontally above the same midpoint, with each one

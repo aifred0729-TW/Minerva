@@ -25,7 +25,10 @@ export default function SingleTaskView() {
     const [selHost, setSelHost]   = useState<string | null>(null);
     const [selTask, setSelTask]   = useState<Record<string, unknown> | null>(null);
 
+    // Explicit limit — see the note in components/CallbackGraph/index.tsx; the
+    // document default of 50 otherwise truncates the MACHINES/SESSIONS counts.
     const { data: cbData, loading: cbLoading, refetch } = useQuery<any>(GET_CALLBACKS, {
+        variables: { limit: 5000 },
         fetchPolicy: 'cache-and-network',
         pollInterval: pageVisible ? 15_000 : 0,
     });

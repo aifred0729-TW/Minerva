@@ -9,6 +9,8 @@ import {
 import { cn } from '../../lib/utils';
 import { toLocalTime } from '../../lib/time';
 import { GET_TASK_RESPONSES } from '../../lib/api/search';
+import { useReactiveVar } from '@apollo/client/react';
+import { meState } from '../../lib/state';
 
 // ── Result Components ─────────────────────────────────────────────────────────
 
@@ -16,11 +18,14 @@ export const TaskResult = ({ task }: { task: any }) => {
     const navigate = useNavigate();
     const [expanded, setExpanded] = useState(false);
     const [fetchResponses, { data: respData, loading: respLoading }] = useLazyQuery<any>(GET_TASK_RESPONSES, { fetchPolicy: 'no-cache' });
+    // `response` is reachable through task.callback.operation_id, whose Hasura
+    // filter is `_in X-Hasura-operations` — scope it to the current operation.
+    const currentOperationId = useReactiveVar(meState)?.user?.current_operation_id as number | undefined;
 
     const handleExpand = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!expanded) {
-            fetchResponses({ variables: { task_id: task.id } });
+            fetchResponses({ variables: { task_id: task.id, operation_id: currentOperationId } });
         }
         setExpanded(prev => !prev);
     };

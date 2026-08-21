@@ -5,10 +5,25 @@
 @layer base {
   :root {
     --color-signal: 255 255 255;
-    --color-accent: 34 197 94;
+    /* green-400, NOT green-500.
+       Every other semantic tone in this console is at the `-400` brightness
+       step — amber-400, red-400, purple-400, and the login HUD's #84D9FF /
+       #FFC92E. The accent sat one step darker than all of them, and on a pure
+       black ground a thin mono glyph at #22C55E antialiases down into the
+       mid-40s of luminance: it reads as ink green, not as a live signal.
+       See DESIGN_LANGUAGE.md §1「綠色鐵則」. */
+    --color-accent: 74 222 128;
     --color-void: 0 0 0;
     --color-ghost: 153 153 153;
     --color-machine: 51 51 51;
+
+    /* Login HUD scheme — red field, yellow routing, pale blue instrumentation.
+       Shared by LoginBackdrop (read via getComputedStyle) and the login panel
+       (via Tailwind tokens), so the two can never drift apart.
+       See DESIGN_LANGUAGE.md §1「登入畫面 HUD 色系」. */
+    --color-hud-field: 255 58 52;
+    --color-hud-route: 255 201 46;
+    --color-hud-trace: 132 217 255;
   }
 
   /* ── Light theme overrides ─────────────────────────────────────────── */
@@ -18,6 +33,13 @@
     --color-machine: 225 225 230;
     --color-signal: 30 30 40;
     --color-accent: 22 163 74;
+
+    /* The login HUD triple must be restated here. It is read by the canvas
+       backdrop as well as by Tailwind, and the light theme flips --color-void
+       to near-white; the dark-theme values land at ~1.4:1 on that ground. */
+    --color-hud-field: 200 28 24;
+    --color-hud-route: 156 106 0;
+    --color-hud-trace: 12 108 158;
   }
 
   body {
@@ -357,14 +379,14 @@
   opacity: 1 !important;
 }
 
-/* ── SUCCESS — green #22c55e ── */
+/* ── SUCCESS — bright green #4ade80 (green-400) ── */
 .Toastify__toast--success.cyber-toast {
-  --ct-rgb:  34, 197, 94;
+  --ct-rgb:  74, 222, 128;
   --ct-glow: 0.10;
 }
 .Toastify__toast--success .Toastify__progress-bar {
-  background: #22c55e !important;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7) !important;
+  background: #4ade80 !important;
+  box-shadow: 0 0 8px rgba(74,222,128,0.7) !important;
 }
 
 /* ── ERROR — red #ef4444 ── */
@@ -395,6 +417,47 @@
 .Toastify__toast--info .Toastify__progress-bar {
   background: #22d3ee !important;
   box-shadow: 0 0 8px rgba(34, 211, 238, 0.7) !important;
+}
+
+/* ═══════════════════════════════════════════════════
+   MINERVA · Dashboard panel entrance
+   ───────────────────────────────────────────────────
+   CSS, not framer-motion, and that is the whole point.
+
+   The dashboard polls every 10 seconds. A framer entrance driven by variants
+   re-evaluates whenever its subtree re-renders, so every arrival of data
+   replayed the staggered entrance and the console flashed. A CSS animation is
+   bound to the ELEMENT, not to a render: it runs once when the node is
+   inserted and cannot be restarted by a parent re-rendering. The only way to
+   replay it is to actually remount the panel, which is exactly the semantics
+   wanted — "animate when the operator arrives on this screen, never again".
+
+   The stagger comes from an inline --mv-panel-index rather than nth-child, so
+   it survives panels being reordered or hidden.
+═══════════════════════════════════════════════════ */
+
+@keyframes mv-panel-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.mv-panel-enter {
+  /* `backwards`, NOT `both`.
+     `forwards` retains the final keyframe at the animation cascade origin,
+     which outranks normal author declarations — so the drag ghost's
+     `opacity-40` silently lost to a finished entrance and the panel being
+     dragged never dimmed. The end state here is the element's natural state
+     (opacity 1, no offset), so nothing needs retaining; `backwards` only holds
+     the *start* state during the stagger delay, which is what stops a panel
+     flashing at full opacity before its turn. */
+  animation: mv-panel-in 400ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--mv-panel-index, 0) * 45ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mv-panel-enter {
+    animation: none;
+  }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -563,4 +626,98 @@
 }
 .minerva-light *:hover {
   scrollbar-color: rgba(100, 100, 120, 0.4) transparent;
+}
+
+/* ═══════════════════════════════════════════════════
+   MINERVA · Breach-protocol motion (NODE DOSSIER only)
+   ---------------------------------------------------
+   Ported from the operator's reference implementation
+   (github.com/yet3/cyberpunk2077-breach-protocol):
+   sections wipe open on one axis, text flickers in
+   rather than sliding, and a secured row keeps a slow
+   glow. Scoped to the dossier — nothing else in the
+   console is allowed this much movement.
+═══════════════════════════════════════════════════ */
+
+@keyframes bp-scale-from-left {
+  0%   { transform: scaleX(0); opacity: 0; }
+  5%   { opacity: 0; }
+  35%  { opacity: 0.6; }
+  100% { transform: scaleX(1); opacity: 1; }
+}
+
+@keyframes bp-scale-from-top {
+  0%   { transform: scaleY(0); }
+  100% { transform: scaleY(1); }
+}
+
+/* Flicker, not fade: the reference blinks a line in twice before it settles. */
+@keyframes bp-blink-in {
+  0%   { opacity: 0; }
+  25%  { opacity: 0.4; }
+  30%  { opacity: 0.4; }
+  55%  { opacity: 0; }
+  60%  { opacity: 0; }
+  85%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+@keyframes bp-code-glow {
+  0%, 100% { box-shadow: 0 0 12px 2px rgb(var(--color-accent) / 0.25); }
+  40%, 60% { box-shadow: 0 0 12px 2px rgb(var(--color-accent) / 0.6); }
+}
+
+.bp-scale-x {
+  transform-origin: left center;
+  animation: bp-scale-from-left 300ms cubic-bezier(0.22, 0.68, 0, 1) backwards;
+  animation-delay: var(--bp-delay, 0ms);
+}
+
+.bp-scale-y {
+  transform-origin: top center;
+  animation: bp-scale-from-top 300ms cubic-bezier(0.22, 0.68, 0, 1) backwards;
+  animation-delay: var(--bp-delay, 0ms);
+}
+
+.bp-blink {
+  animation: bp-blink-in 400ms linear backwards;
+  animation-delay: var(--bp-delay, 0ms);
+}
+
+.bp-glow {
+  animation: bp-code-glow 1.5s ease infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-scale-x,
+  .bp-scale-y,
+  .bp-blink,
+  .bp-glow {
+    animation: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   MINERVA · idle window — stop decorating an empty room
+   ═══════════════════════════════════════════════════
+   `lib/useWindowEngaged.ts` puts `.mv-idle` on <html> whenever this window is
+   hidden OR merely unfocused.
+
+   The second half is the one that matters. Browsers throttle animations for a
+   HIDDEN tab, but a window that is simply not focused — Minerva on a second
+   monitor, or behind the window playing a video — keeps every keyframe running
+   at the full refresh rate, through the same GPU process every other tab
+   composites in. An idle Minerva was making the rest of the machine stutter.
+
+   One rule pauses all of it: every `animate-pulse` status dot, every glow
+   keyframe, every spinner. `animation-play-state` freezes at the current frame
+   and resumes there, so refocusing is instant rather than a restart.
+
+   Only decoration stops. Subscriptions, polling and the websocket are gated on
+   `usePageVisible` (document.hidden), which is unaffected — an unfocused
+   console still receives and renders live agent output. */
+html.mv-idle *,
+html.mv-idle *::before,
+html.mv-idle *::after {
+  animation-play-state: paused !important;
 }

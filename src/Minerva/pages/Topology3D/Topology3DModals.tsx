@@ -2,13 +2,9 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-    Terminal,
-    Info,
     Plus,
     Monitor,
-    Shield,
     Network,
-    Lock,
     Edit,
     GitBranch,
     Link2,
@@ -32,9 +28,9 @@ import { EventTriggerContextSelectDialog } from '../../components/EventTriggerCo
 import { getErrorMessage, parseFirstIP, cn, isCallbackAlive } from '../../lib/utils';
 import { snackActions } from '../../lib/snackbar';
 import {
-    PANEL_CHAMFER, TILE_CHAMFER,
-    CornerTicks, Section, SelectableTile, ChamferedToggle, ActionButton, StatusPill, EmptyTile,
+    Section, SelectableTile, ChamferedToggle, ActionButton, StatusPill, EmptyTile,
 } from '../../components/LinkPanel/linkPanelParts';
+import { PanelStreak, PanelChip } from '../../components/CyberPanel';
 
 export interface Topology3DModalsProps {
     // Edit Description
@@ -57,8 +53,6 @@ export interface Topology3DModalsProps {
     handleCreateCustomNode: () => void;
 
     // Details Modal
-    detailsModal: any;
-    setDetailsModal: (v: any) => void;
 
     // Set Parent / Link
     setParentModal: any;
@@ -122,7 +116,6 @@ export function Topology3DModals(props: Topology3DModalsProps) {
         editDescriptionModal, setEditDescriptionModal, newDescription, setNewDescription, handleSaveDescription,
         editCustomNodeModal, setEditCustomNodeModal, customNodeForm, setCustomNodeForm, handleUpdateCustomNode,
         createCustomNodeModal, setCreateCustomNodeModal, handleCreateCustomNode,
-        detailsModal, setDetailsModal,
         setParentModal, setSetParentModal, setParentScreenPos, filteredCallbacksForParent, callbackEdges, selectedDestination, setSelectedDestination,
         isP2PConnection, setIsP2PConnection, selectedProfile, setSelectedProfile, edgeLabel, setEdgeLabel,
         p2pData, allC2Data, handleSetParent,
@@ -324,74 +317,6 @@ export function Topology3DModals(props: Topology3DModalsProps) {
                 )}
             </AnimatePresence>
 
-            {/* Details Modal */}
-            <AnimatePresence>
-                {detailsModal && (
-                    <CyberModal
-                        title={detailsModal.isCustom ? "CUSTOM_NODE_DETAILS" : "CALLBACK_DETAILS"}
-                        onClose={() => setDetailsModal(null)}
-                        icon={<Info />}
-                    >
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-4 p-3 bg-black/30 border border-gray-800">
-                                <div className={`p-2 border ${
-                                    detailsModal.isCustom
-                                        ? 'border-cyan-500 bg-cyan-500/10'
-                                        : (detailsModal.integrity_level > 2 ? 'border-yellow-500 bg-yellow-500/10' : 'border-cyan-500 bg-cyan-500/10')
-                                }`}>
-                                    <Terminal size={20} className={detailsModal.isCustom ? 'text-cyan-500' : (detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-cyan-500')} />
-                                </div>
-                                <div>
-                                    <div className="text-lg font-bold text-white font-mono">
-                                        {detailsModal.isCustom ? 'CUSTOM_NODE' : 'CALLBACK'} #{detailsModal.display_id}
-                                        {detailsModal.locked && <Lock size={14} className="inline ml-2 text-red-500" />}
-                                    </div>
-                                    <div className="text-xs text-gray-500">{detailsModal.host}</div>
-                                </div>
-                                {!detailsModal.isCustom && detailsModal.integrity_level > 2 && (
-                                    <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-yellow-500/20 border border-yellow-500/50">
-                                        <Shield size={12} className="text-yellow-500" />
-                                        <span className="text-xs font-bold text-yellow-500">ADMIN</span>
-                                    </div>
-                                )}
-                                {detailsModal.isCustom && (
-                                    <div className="ml-auto flex items-center gap-1 px-2 py-1 bg-cyan-500/20 border border-cyan-500/50">
-                                        <span className="text-xs font-bold text-cyan-400">CUSTOM</span>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                                <div className="space-y-1"><div className="text-gray-500">USER</div><div className="text-white">{detailsModal.user}</div></div>
-                                {!detailsModal.isCustom && <div className="space-y-1"><div className="text-gray-500">DOMAIN</div><div className="text-white">{detailsModal.domain || 'N/A'}</div></div>}
-                                <div className="space-y-1"><div className="text-gray-500">IP_ADDRESS</div><div className="text-white">{detailsModal.ip}</div></div>
-                                {!detailsModal.isCustom && <div className="space-y-1"><div className="text-gray-500">PID</div><div className="text-white">{detailsModal.pid}</div></div>}
-                                <div className="space-y-1"><div className="text-gray-500">OS</div><div className="text-white">{detailsModal.os}</div></div>
-                                <div className="space-y-1"><div className="text-gray-500">ARCHITECTURE</div><div className="text-white">{detailsModal.architecture}</div></div>
-                                {!detailsModal.isCustom && (
-                                    <>
-                                        <div className="space-y-1"><div className="text-gray-500">AGENT</div><div className="text-white uppercase">{detailsModal.payloadType}</div></div>
-                                        <div className="space-y-1"><div className="text-gray-500">INTEGRITY</div><div className={detailsModal.integrity_level > 2 ? 'text-yellow-500' : 'text-white'}>Level {detailsModal.integrity_level}</div></div>
-                                    </>
-                                )}
-                            </div>
-                            {!detailsModal.isCustom && detailsModal.sleep_info && (
-                                <div className="p-3 bg-black/30 border border-gray-800">
-                                    <div className="text-xs font-mono text-gray-500 mb-1">SLEEP_INFO</div>
-                                    <div className="text-sm font-mono text-cyan-400">{detailsModal.sleep_info}</div>
-                                </div>
-                            )}
-                            <div className="p-3 bg-black/30 border border-gray-800">
-                                <div className="text-xs font-mono text-gray-500 mb-1">DESCRIPTION</div>
-                                <div className="text-sm text-gray-300 italic">{detailsModal.description || 'No description set'}</div>
-                            </div>
-                            <div className="flex justify-end">
-                                <button onClick={() => setDetailsModal(null)}
-                                    className="px-6 py-2 bg-cyan-500 text-black font-bold font-mono text-sm hover:bg-white transition-colors">CLOSE</button>
-                            </div>
-                        </div>
-                    </CyberModal>
-                )}
-            </AnimatePresence>
 
             {/* LINK_TO_PARENT — same Cyberpunk × Minerva design language as the 2D
                 CallbackGraph version, but rendered as a centered modal because
@@ -704,9 +629,8 @@ const Link3DParentModal: React.FC<Link3DParentModalProps> = ({
                         top: position.top,
                         left: position.left,
                         maxHeight: PANEL_MAX_HEIGHT_3D,
-                        clipPath: PANEL_CHAMFER,
                     }}
-                    className="fixed z-[9999] overflow-hidden bg-black border border-signal/50 shadow-[0_0_40px_rgba(0,0,0,0.85)] backdrop-blur-md font-mono"
+                    className="fixed z-[9999] overflow-hidden rounded-md border border-signal/20 bg-void/80 backdrop-blur-sm font-mono"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Connector line from the projected node centre to the panel
@@ -733,8 +657,6 @@ const Link3DParentModal: React.FC<Link3DParentModalProps> = ({
                         <circle cx="0" cy="1" r="2.5" fill="rgba(34,197,94,0.85)" />
                     </svg>
 
-                    <CornerTicks side="left" />
-                    <CornerTicks side="right" />
 
                     {/* Inner held at fixed width so the parent's animated width
                         clips it from the left — content reveals rightward like
@@ -747,38 +669,26 @@ const Link3DParentModal: React.FC<Link3DParentModalProps> = ({
                         className="flex flex-col"
                         style={{ width: PANEL_WIDTH_3D, maxHeight: PANEL_MAX_HEIGHT_3D }}
                     >
-                        {/* Header — inverted ID tile + title + ARMED indicator + close */}
-                        <div className="flex items-stretch border-b border-signal/40 bg-signal/[0.02]">
-                            <div className="relative flex items-center justify-center bg-signal px-3 min-w-[64px] shadow-[inset_0_0_12px_rgba(255,255,255,0.25)]">
-                                <span className="pointer-events-none absolute top-1 left-1 w-1.5 h-px bg-void" />
-                                <span className="pointer-events-none absolute top-1 left-1 w-px h-1.5 bg-void" />
-                                <span className="pointer-events-none absolute bottom-1 right-1 w-1.5 h-px bg-void" />
-                                <span className="pointer-events-none absolute bottom-1 right-1 w-px h-1.5 bg-void" />
-                                <span className="text-[16px] font-bold tracking-[0.15em] text-void">
-                                    #{source.display_id}
-                                </span>
-                            </div>
-                            <div className="flex flex-col justify-center px-3 py-2 flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                    <GitBranch size={12} strokeWidth={2.5} className="text-accent shrink-0" />
-                                    <span className="text-[11px] uppercase tracking-[0.3em] text-signal font-bold truncate">
-                                        LINK_TO_PARENT
-                                    </span>
-                                    <span className="ml-auto flex items-center gap-1 border border-accent/60 bg-accent/10 px-1.5 py-px text-[8px] uppercase tracking-[0.2em] text-accent shrink-0">
-                                        <span className="h-1 w-1 bg-accent animate-pulse rounded-full shadow-[0_0_4px_currentColor]" />
-                                        ARMED
-                                    </span>
-                                </div>
-                                <div className="text-[10px] uppercase tracking-[0.2em] text-signal truncate mt-0.5">
-                                    {source.isCustom ? 'CUSTOM' : 'CALLBACK'} · {source.host}
+                        {/* Header strip — same grammar as every other floating panel:
+                            what this is on the left, how it is on the right. */}
+                        <div className="relative overflow-hidden flex items-center gap-3 px-4 py-2.5 border-b border-signal/15">
+                            <PanelStreak />
+                            <div className="relative flex items-center gap-2.5 min-w-0 flex-1">
+                                <GitBranch size={13} strokeWidth={2} aria-hidden="true" className="text-accent shrink-0" />
+                                <div className="min-w-0">
+                                    <div className="text-[10px] font-bold tracking-[0.25em] text-signal truncate">LINK_TO_PARENT</div>
+                                    <div className="text-[10px] tracking-[0.15em] text-signal opacity-70 truncate mt-0.5">
+                                        {source.isCustom ? 'CUSTOM' : 'CALLBACK'} · {source.host}
+                                    </div>
                                 </div>
                             </div>
+                            <PanelChip text={`C-${source.display_id}`} tone="default" className="relative" />
                             <button
                                 onClick={onClose}
-                                className="group flex items-center justify-center px-3 text-signal transition-all hover:bg-red-500/10 hover:text-red-400 border-l border-signal/40"
                                 aria-label="Close"
+                                className="relative shrink-0 rounded-sm border border-signal/15 p-1 text-signal/70 transition-colors hover:border-red-400/60 hover:bg-red-400/10 hover:text-red-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400"
                             >
-                                <X size={14} strokeWidth={2.5} className="transition-transform duration-200 group-hover:rotate-90" />
+                                <X size={11} strokeWidth={2} aria-hidden="true" />
                             </button>
                         </div>
 
@@ -837,7 +747,7 @@ const Link3DParentModal: React.FC<Link3DParentModalProps> = ({
                                                         : onlyCustom ? 'custom'
                                                         : 'dead';
                                                     const KindIcon = kind === 'custom' ? Box : kind === 'alive' ? Cpu : Skull;
-                                                    const iconCls  = kind === 'custom' ? 'text-signal' : kind === 'alive' ? 'text-accent' : 'text-red-500';
+                                                    const iconCls  = kind === 'custom' ? 'text-signal/70' : kind === 'alive' ? 'text-accent' : 'text-red-400';
 
                                                     const rep = pickRepresentative(cbs);
                                                     const selected = !!selectedDestination && cbs.some(c => c.id === selectedDestination.id);
@@ -857,29 +767,17 @@ const Link3DParentModal: React.FC<Link3DParentModalProps> = ({
                                                             <div className="flex w-full flex-col gap-0.5">
                                                                 <div className="flex w-full items-center gap-2">
                                                                     <KindIcon size={14} strokeWidth={2.2} className={cn('shrink-0', iconCls)} />
-                                                                    <span className="flex-1 truncate text-[13px] font-bold tracking-wide text-signal">
+                                                                    <span className="flex-1 truncate text-[12px] font-bold tracking-[0.1em] text-signal">
                                                                         {host}
                                                                     </span>
-                                                                    {aliveCount > 0 && (
-                                                                        <span className="shrink-0 border border-accent/60 bg-accent/10 px-1.5 py-px text-[9px] tracking-[0.2em] text-accent font-bold">
-                                                                            {aliveCount} LIVE
-                                                                        </span>
-                                                                    )}
-                                                                    {deadCount > 0 && (
-                                                                        <span className="shrink-0 border border-red-500/60 bg-red-500/10 px-1.5 py-px text-[9px] tracking-[0.2em] text-red-400 font-bold">
-                                                                            {deadCount} DEAD
-                                                                        </span>
-                                                                    )}
-                                                                    {customCount > 0 && (
-                                                                        <span className="shrink-0 border border-signal/50 px-1.5 py-px text-[9px] tracking-[0.2em] text-signal font-bold">
-                                                                            {customCount} CUSTOM
-                                                                        </span>
-                                                                    )}
+                                                                    {aliveCount > 0 && <PanelChip text={`${aliveCount} LIVE`} tone="active" />}
+                                                                    {deadCount > 0 && <PanelChip text={`${deadCount} DEAD`} tone="danger" />}
+                                                                    {customCount > 0 && <PanelChip text={`${customCount} CUSTOM`} tone="default" />}
                                                                 </div>
                                                                 {(primaryIP || os) && (
-                                                                    <div className="flex items-center gap-2 pl-[22px] text-[10px] font-mono text-signal/60">
+                                                                    <div className="flex items-center gap-2 pl-[22px] text-[10px] font-mono text-signal opacity-70">
                                                                         {primaryIP && <span className="truncate">{primaryIP}</span>}
-                                                                        {primaryIP && os && <span className="text-signal/30">·</span>}
+                                                                        {primaryIP && os && <span>·</span>}
                                                                         {os && <span className="truncate">{os}</span>}
                                                                     </div>
                                                                 )}
@@ -954,39 +852,36 @@ const Link3DParentModal: React.FC<Link3DParentModalProps> = ({
                                 icon={<Tag size={11} strokeWidth={2.5} />}
                                 hint="OPTIONAL"
                             >
-                                <div className="relative" style={{ clipPath: TILE_CHAMFER }}>
+                                <div className="relative">
                                     <input
                                         type="text"
                                         value={edgeLabel}
                                         onChange={(e) => setEdgeLabel(e.target.value)}
                                         placeholder="SMB_LINK · INTERNAL_PIVOT"
-                                        className="w-full border-l-2 border-l-signal/40 bg-signal/[0.03] pl-3 pr-5 py-2.5 text-[11px] tracking-wider text-signal placeholder:text-accent focus:border-l-accent focus:bg-signal/5 focus:outline-none transition-colors"
+                                        className="w-full min-h-[32px] rounded-sm border border-signal/15 bg-signal/[0.04] px-2.5 py-1.5 text-[11px] tracking-[0.1em] text-signal transition-colors placeholder:text-signal/40 hover:border-signal/50 focus:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                                     />
                                 </div>
                             </Section>
 
                             {/* LINK_PREVIEW */}
                             {selectedDestination && selectedProfile && (
-                                <div
-                                    style={{ clipPath: TILE_CHAMFER }}
-                                    className="relative border-l-2 border-l-accent bg-signal/[0.05] pl-3 pr-5 py-2.5 text-[11px] text-signal shadow-[0_0_18px_rgba(34,197,94,0.15)]"
-                                >
+                                <div className="relative rounded-sm border border-accent/40 bg-accent/[0.06] px-3 py-2.5 text-[11px] text-signal">
                                     <div className="mb-1.5 flex items-center justify-between">
                                         <div className="flex items-center gap-1.5">
                                             <Send size={11} strokeWidth={2.5} className="text-accent" />
                                             <span className="text-[10px] uppercase tracking-[0.25em] text-signal">LINK_PREVIEW</span>
                                         </div>
-                                        <span className="border border-accent/60 bg-accent/10 px-1.5 py-px text-[9px] tracking-[0.2em] text-accent">
+                                        <span className="rounded-[3px] border border-accent/50 bg-accent/10 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-accent">
                                             {isP2PConnection ? 'P2P' : 'EGRESS'}
                                         </span>
                                     </div>
                                     <div className="flex flex-wrap items-center gap-1.5 text-signal">
-                                        <span className="border border-signal/40 bg-signal/10 px-1.5 py-px font-bold">#{source.display_id}</span>
+                                        <span className="rounded-[3px] border border-signal/25 bg-void/50 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-signal">#{source.display_id}</span>
                                         <span className="text-signal">{source.host}</span>
                                         <ChevronRight size={11} className="text-accent" />
-                                        <span className="border border-accent/60 bg-accent/10 px-1.5 py-px text-accent">{selectedProfile.name}</span>
+                                        <span className="rounded-[3px] border border-accent/50 bg-accent/10 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-accent">{selectedProfile.name}</span>
                                         <ChevronRight size={11} className="text-accent" />
-                                        <span className="border border-signal/40 bg-signal/10 px-1.5 py-px font-bold">#{selectedDestination.display_id}</span>
+                                        <span className="rounded-[3px] border border-signal/25 bg-void/50 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.12em] text-signal">#{selectedDestination.display_id}</span>
                                         <span className="text-signal">{selectedDestination.host}</span>
                                     </div>
                                     {edgeLabel && (
@@ -1000,11 +895,8 @@ const Link3DParentModal: React.FC<Link3DParentModalProps> = ({
                         </div>
 
                         {/* Footer */}
-                        <div className="flex items-center justify-between gap-3 border-t border-signal/40 bg-signal/[0.02] px-4 py-3">
-                            <div className="flex items-center gap-1.5 text-[9px] tracking-[0.3em] text-signal">
-                                <span className="h-1 w-1 bg-accent animate-pulse" />
-                                <span>MINERVA · TOPO · LINK</span>
-                            </div>
+                        <div className="flex items-center justify-between gap-3 border-t border-signal/15 px-4 py-2.5">
+                            <span className="text-[10px] tracking-[0.2em] text-signal opacity-70">MINERVA · TOPO · LINK</span>
                             <div className="flex items-center gap-2">
                                 <ActionButton variant="ghost" onClick={onClose} icon={<X size={12} strokeWidth={2.5} />}>
                                     CANCEL

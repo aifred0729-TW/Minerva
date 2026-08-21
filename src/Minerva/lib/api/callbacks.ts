@@ -64,8 +64,11 @@ query GetCallbacks($limit: Int = 50, $offset: Int = 0) {
 `;
 
 export const SUBSCRIPTION_CALLBACKS = gql`
-subscription SubscribeCallbacks {
-  callback(order_by: {id: desc}) {
+subscription SubscribeCallbacks($limit: Int = 500) {
+  # Bounded: this is a Hasura live query re-evaluated every second, and it was
+  # re-pushing the entire callback table (218,526 B for 205 rows) on every
+  # last_checkin change. 500 is above the stated 500-callback ceiling.
+  callback(order_by: {id: desc}, limit: $limit) {
     id
     display_id
     user

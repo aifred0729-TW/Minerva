@@ -475,9 +475,9 @@ export const CreatePayloadEmbed: React.FC<{
                                                         className={cn(
                                                             "w-full p-4 border text-left transition-all group",
                                                             selectedOS === os
-                                                                ? (isMsfOnly ? "border-accent bg-accent/10" : `${osInfo.border} ${osInfo.bg}`)
+                                                                ? (isMsfOnly ? "border-accent bg-signal/[0.06]" : `${osInfo.border} ${osInfo.bg}`)
                                                                 : (isMsfOnly
-                                                                    ? "border-accent/30 hover:border-accent/60 hover:bg-accent/5"
+                                                                    ? "border-signal/20 hover:border-accent hover:bg-signal/10"
                                                                     : "border-gray-700 hover:border-gray-500 hover:bg-white/5")
                                                         )}
                                                     >
@@ -485,8 +485,8 @@ export const CreatePayloadEmbed: React.FC<{
                                                             <div className={cn(
                                                                 "p-3 border transition-colors",
                                                                 selectedOS === os
-                                                                    ? (isMsfOnly ? "border-accent bg-accent/10 text-accent" : `${osInfo.border} ${osInfo.bg} ${osInfo.color}`)
-                                                                    : (isMsfOnly ? "border-accent/40 text-accent/70 group-hover:text-accent" : "border-gray-600 text-gray-500 group-hover:text-gray-300")
+                                                                    ? (isMsfOnly ? "border-accent bg-signal/[0.06] text-accent" : `${osInfo.border} ${osInfo.bg} ${osInfo.color}`)
+                                                                    : (isMsfOnly ? "border-signal/20 text-accent" : "border-gray-600 text-gray-500 group-hover:text-gray-300")
                                                             )}>
                                                                 {getOSIcon(os)}
                                                             </div>
@@ -499,7 +499,7 @@ export const CreatePayloadEmbed: React.FC<{
                                                                         {os}
                                                                     </span>
                                                                     {isMsfOnly ? (
-                                                                        <span className="text-[10px] font-mono tracking-[0.2em] border border-accent/60 bg-accent/10 px-1.5 py-px text-accent">
+                                                                        <span className="text-[10px] font-mono tracking-[0.2em] border border-accent bg-signal/[0.06] px-1.5 py-px text-accent">
                                                                             MSF ONLY
                                                                         </span>
                                                                     ) : (
@@ -583,7 +583,7 @@ export const CreatePayloadEmbed: React.FC<{
                                                                     {pt.name}
                                                                 </span>
                                                                 {pt.container_running ? (
-                                                                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                                                                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
                                                                 ) : (
                                                                     <span className="w-2 h-2 rounded-full bg-red-400" />
                                                                 )}
@@ -623,13 +623,13 @@ export const CreatePayloadEmbed: React.FC<{
                                                     className={cn(
                                                         'w-full p-4 border text-left transition-all group relative overflow-hidden',
                                                         createSource === 'msf'
-                                                            ? 'border-accent bg-accent/10'
-                                                            : 'border-accent/30 hover:border-accent/60 hover:bg-accent/5',
+                                                            ? 'border-accent bg-signal/[0.06]'
+                                                            : 'border-accent hover:border-accent hover:bg-signal/10',
                                                     )}
                                                 >
                                                     <div className="flex items-center justify-between mb-2">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-[9px] font-mono tracking-[0.25em] border border-accent/60 bg-accent/10 px-1.5 py-px text-accent">
+                                                            <span className="text-[9px] font-mono tracking-[0.25em] border border-accent bg-signal/[0.06] px-1.5 py-px text-accent">
                                                                 EXTERNAL
                                                             </span>
                                                             <span className={cn(
@@ -737,7 +737,7 @@ export const CreatePayloadEmbed: React.FC<{
                                                                     onClick={() => setBuildParams({ ...buildParams, [bp.name]: !buildParams[bp.name] })}
                                                                     className={cn(
                                                                         "w-12 h-6 rounded-full p-1 transition-colors relative border",
-                                                                        buildParams[bp.name] ? "bg-green-900/50 border-green-500" : "bg-gray-900/50 border-gray-700"
+                                                                        buildParams[bp.name] ? "bg-signal/[0.06] border-accent" : "bg-gray-900/50 border-gray-700"
                                                                     )}
                                                                 >
                                                                     <div className={cn(

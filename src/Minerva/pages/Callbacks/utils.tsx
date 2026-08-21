@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useReactiveVar } from "@apollo/client/react";
 import { Skull, Monitor, Link2 } from 'lucide-react';
 import { cn, getCallbackDeadThresholdSecs } from '../../lib/utils';
@@ -65,7 +65,7 @@ export const LastCheckinCell = ({
     );
 
     const calculateStatus = React.useCallback(() => {
-        if (!effectiveCheckin) return { text: 'NEVER', color: 'text-gray-500', title: '', diffSecs: Infinity };
+        if (!effectiveCheckin) return { text: 'NEVER', color: 'text-signal opacity-70', title: '', diffSecs: Infinity };
         try {
             const timeStr = effectiveCheckin.endsWith('Z') ? effectiveCheckin : `${effectiveCheckin}Z`;
             // `server_skew = serverNow - clientNow` (see lib/auth.ts), so we
@@ -75,11 +75,11 @@ export const LastCheckinCell = ({
             // → `secondsToRelative` clamps it to "0s ago" — which is why
             // dead callbacks were appearing as if they'd just checked in.
             const diff = Math.floor((new Date().getTime() + serverSkewMs - new Date(timeStr).getTime()) / 1000);
-            let color = 'text-green-500';
-            if (diff > warningSecs) color = 'text-yellow-500';
-            if (diff > dangerSecs)  color = 'text-red-500';
+            let color = 'text-accent';
+            if (diff > warningSecs) color = 'text-amber-400';
+            if (diff > dangerSecs)  color = 'text-red-400';
             return { text: secondsToRelative(diff), color, title: new Date(timeStr).toLocaleString(), diffSecs: diff };
-        } catch { return { text: 'ERROR', color: 'text-red-500', title: '', diffSecs: Infinity }; }
+        } catch { return { text: 'ERROR', color: 'text-red-400', title: '', diffSecs: Infinity }; }
     }, [effectiveCheckin, serverSkewMs, warningSecs, dangerSecs]);
 
     const [status, setStatus] = useState(calculateStatus);
@@ -90,13 +90,13 @@ export const LastCheckinCell = ({
     }, [calculateStatus]);
 
     // Non-agent payloads (e.g. service workers) show blank
-    if (agentType && agentType !== 'agent') return <span className="text-gray-600">—</span>;
+    if (agentType && agentType !== 'agent') return <span className="text-signal opacity-50">—</span>;
 
     // Streaming / interactive shell — special 1970 timestamp
     if (lastCheckin && (lastCheckin.startsWith('1970') || lastCheckin === '1970-01-01T00:00:00')) {
         return (
-            <span className="flex items-center gap-1 text-blue-400 font-mono text-xs">
-                {dead && <Skull size={10} className="text-red-500 shrink-0" title="Dead" />}
+            <span className="flex items-center gap-1 font-mono text-xs text-accent">
+                {dead && <span title="Dead"><Skull size={10} className="shrink-0 text-red-400" /></span>}
                 STREAMING
             </span>
         );
@@ -108,10 +108,10 @@ export const LastCheckinCell = ({
     if (orphanTcpP2P) {
         return (
             <span
-                className="flex items-center gap-1.5 font-mono text-xs text-red-500"
+                className="flex items-center gap-1.5 font-mono text-xs text-red-400"
                 title="TCP P2P · no peer linked — unreachable"
             >
-                <Skull size={10} className="text-red-500 shrink-0" />
+                <Skull size={10} className="shrink-0 text-red-400" />
                 <span className="tracking-[0.18em] text-[10px] uppercase opacity-80">LINK</span>
                 <span className="tabular-nums">DEAD</span>
             </span>
@@ -134,8 +134,8 @@ export const LastCheckinCell = ({
     // beacon — they're reading two different timers.
     if (isP2P) {
         const p2pTone =
-            !!dead ? 'text-red-500' :
-            status.diffSecs > dangerSecs ? 'text-red-500' :
+            !!dead ? 'text-red-400' :
+            status.diffSecs > dangerSecs ? 'text-red-400' :
             status.diffSecs > warningSecs ? 'text-amber-400' :
             'text-signal';
         const hasInteraction = !!lastTaskProcessedAt;
@@ -151,7 +151,7 @@ export const LastCheckinCell = ({
                         : `P2P relay · linked at ${status.title} · no commands sent yet`
                 }
             >
-                {!!dead && <Skull size={10} className="text-red-500 shrink-0" title="Dead" />}
+                {!!dead && <span title="Dead"><Skull size={10} className="shrink-0 text-red-400" /></span>}
                 <Link2 size={11} className="shrink-0 opacity-90" strokeWidth={2} />
                 <span className="tracking-[0.18em] text-[10px] uppercase opacity-80">LINK</span>
                 <span className="tabular-nums">{idleText}</span>
@@ -165,7 +165,7 @@ export const LastCheckinCell = ({
 
     return (
         <span className={cn(status.color, 'flex items-center gap-1')} title={status.title}>
-            {showRedSkull && <Skull size={10} className="text-red-500 shrink-0" title={dead ? 'Dead' : 'Not responding'} />}
+            {showRedSkull && <span title={dead ? 'Dead' : 'Not responding'}><Skull size={10} className="shrink-0 text-red-400" /></span>}
             {status.text}
         </span>
     );
@@ -248,7 +248,7 @@ export const JsonHighlight = ({ value }: { value: string }) => {
     }, [value]);
     if (!tokens) return null;
     return (
-        <pre className="bg-black/60 border border-white/5 rounded p-2 text-xs font-mono overflow-auto max-h-[160px] cyber-scrollbar leading-relaxed">
+        <pre className="cyber-scrollbar max-h-[160px] overflow-auto rounded-md border border-signal/15 bg-black/40 p-2 font-mono text-xs leading-relaxed">
             {tokens.map((t, i) =>
                 t.type === 'punct' ? t.text : <span key={i} className={TOKEN_COLORS[t.type]}>{t.text}</span>
             )}

@@ -3,7 +3,17 @@ set -e
 
 # Generate self-signed SSL certificate if not mounted
 SSL_DIR="/etc/nginx/ssl"
+# Regenerate when the cert is missing OR already expired / within a week of it.
+# The guard used to test existence only, so a present-but-expired cert was served
+# indefinitely and nothing in the system could notice.
+needs_cert=0
 if [ ! -f "$SSL_DIR/minerva.crt" ] || [ ! -f "$SSL_DIR/minerva.key" ]; then
+    needs_cert=1
+elif ! openssl x509 -checkend 604800 -noout -in "$SSL_DIR/minerva.crt" >/dev/null 2>&1; then
+    echo "[Minerva] TLS certificate has expired or expires within 7 days — regenerating."
+    needs_cert=1
+fi
+if [ "$needs_cert" = "1" ]; then
     echo "[Minerva] Generating self-signed SSL certificate..."
     mkdir -p "$SSL_DIR"
     openssl req -x509 -nodes -days 365 \

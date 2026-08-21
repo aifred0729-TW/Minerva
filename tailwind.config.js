@@ -13,6 +13,10 @@ module.exports = {
         ghost: "rgb(var(--color-ghost) / <alpha-value>)",      // 邊框/次要
         machine: "rgb(var(--color-machine) / <alpha-value>)",  // 卡片背景
         error: "#FFFFFF",     // 錯誤
+        // Login HUD scheme (see index.css) — login screen only.
+        "hud-field": "rgb(var(--color-hud-field) / <alpha-value>)",
+        "hud-route": "rgb(var(--color-hud-route) / <alpha-value>)",
+        "hud-trace": "rgb(var(--color-hud-trace) / <alpha-value>)",
       },
       fontFamily: {
         mono: ['"JetBrains Mono"', 'monospace'], // 數據顯示

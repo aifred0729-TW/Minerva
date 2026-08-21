@@ -1,6 +1,6 @@
 {
   "name": "mythic",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "private": true,
   "homepage": "/new",
   "author": "@its_a_feature_",
@@ -69,12 +69,12 @@
     "zustand": "^5.0.9"
   },
   "scripts": {
-    "react-start": "CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true FAST_REFRESH=true WDS_POLLING=true BROWSER=none PORT=3000 react-app-rewired start",
+    "react-start": "CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true FAST_REFRESH=false WDS_POLLING=true BROWSER=none PORT=3000 react-app-rewired start",
     "react-build": "react-app-rewired build",
     "react-test": "react-app-rewired test",
     "react-eject": "react-scripts eject",
     "build": "npm run react-build",
-    "start": "BROWSER=none CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true FAST_REFRESH=true WDS_POLLING=true PORT=3000 npm run react-start"
+    "start": "BROWSER=none CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true FAST_REFRESH=false WDS_POLLING=true PORT=3000 npm run react-start"
   },
   "eslintConfig": {
     "extends": [

@@ -1,36 +1,84 @@
-import React, { useState, useMemo } from 'react';
-import { CheckCircle, XCircle, Clock, Loader2, Globe2, Tag as TagIcon, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { CheckCircle, XCircle, Clock, Loader2, Globe2, Tag as TagIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import { directDownloadUrl } from '../../lib/urls';
+import { LABEL, type Tone } from '../../components/Instrument';
 import type { PayloadTag, PayloadBuildStep, Payload } from '../../types/payloads';
 import { createPortal } from 'react-dom';
+
+/**
+ * Payload list furniture — badges, chips and the build-step ribbon.
+ *
+ * These are the pieces the PAYLOADS OVERVIEW table is made of, so they follow
+ * the console panel kit (`components/Instrument.tsx`) rather than inventing
+ * their own palette: tones are named for the job (`live` / `warn` / `fail`),
+ * every state ships as a WORD with the colour behind it, and no text on the
+ * void surface is a faded grey. See docs/DESIGN_LANGUAGE.md §1 and §5.
+ */
+
+// ── Chip skin ───────────────────────────────────────────────────────────────
+//
+// One shape for every small state marker on this page. Border + wash + text
+// all move together, so a chip is legible in greyscale and under any
+// colour-vision deficiency — the wash alone would not be.
+
+export const CHIP =
+    'inline-flex w-fit items-center gap-1.5 rounded-sm border px-1.5 py-0.5 ' +
+    'text-[11px] font-bold uppercase tracking-[0.1em] leading-[1.35]';
+
+/* THE TONE IS THE BORDER AND THE TEXT, NEVER THE FILL.
+ *
+ * These used to be `border-accent/40 bg-accent/10` — and 10% of a green over
+ * pure black composites to rgb(7,22,13), while the 40% border lands at
+ * rgb(30,89,51). Sampling the rendered page gave exactly that: a field of ink
+ * green. Neither number is a colour anyone chose; they are what alpha does to
+ * a hue on black.
+ *
+ * So the hue is now carried at FULL strength by the two elements thin enough
+ * to stay bright — a 1px rule and the glyphs — and the chip's body is an
+ * achromatic lift that reads as "raised", not as "green". */
+const CHIP_TONE: Record<Tone, string> = {
+    signal: 'border-signal/30  bg-signal/[0.05] text-signal',
+    live:   'border-accent     bg-signal/[0.05] text-accent',
+    warn:   'border-amber-400  bg-signal/[0.05] text-amber-400',
+    fail:   'border-red-400    bg-signal/[0.05] text-red-400',
+    range:  'border-purple-400 bg-signal/[0.05] text-purple-400',
+    idle:   'border-signal/20  bg-transparent   text-signal',
+};
+
+export const chipTone = (tone: Tone) => CHIP_TONE[tone];
+
+/** Placeholder for a cell with nothing in it. Decoration, not content. */
+export const EmDash = () => (
+    <span aria-hidden="true" className="text-[13px] text-signal opacity-40">—</span>
+);
 
 export const ParseParamValue: React.FC<{
     value: string | null | undefined;
     parameterType: string;
     sensitive?: boolean;
 }> = ({ value, parameterType, sensitive = false }) => {
-    if (!value) return <span className="text-gray-600">—</span>;
+    if (!value) return <EmDash />;
     if (sensitive && value.length > 8) {
-        return <span className="text-gray-600 italic">{value.slice(0, 6)}••••</span>;
+        return <span className="italic text-signal opacity-70">{value.slice(0, 6)}••••</span>;
     }
     const pt = parameterType || '';
     if (pt === 'Boolean') {
         const boolVal = String(value).toLowerCase();
         return (boolVal === 'true' || boolVal === 't')
-            ? <span className="text-matrix font-bold">True</span>
-            : <span className="text-red-400 font-bold">False</span>;
+            ? <span className="font-bold text-accent">True</span>
+            : <span className="font-bold text-red-400">False</span>;
     }
     if (pt === 'Dictionary') {
         try {
             const parsed = typeof value === 'string' ? JSON.parse(value) : value;
             const display = JSON.stringify(parsed, null, 2);
             return (
-                <pre className="text-[10px] font-mono text-gray-300 bg-black/30 rounded p-1 max-h-24 overflow-y-auto whitespace-pre-wrap break-all">{display}</pre>
+                <pre className="cyber-scrollbar max-h-24 overflow-y-auto whitespace-pre-wrap break-all rounded-sm border border-signal/15 bg-black/40 p-1.5 font-mono text-[11px] text-signal">{display}</pre>
             );
         } catch {
-            return <span className="text-gray-300 break-all">{value}</span>;
+            return <span className="break-all text-signal">{value}</span>;
         }
     }
     if (pt === 'Array' || pt === 'ChooseMultiple') {
@@ -40,18 +88,18 @@ export const ParseParamValue: React.FC<{
                 return (
                     <div className="flex flex-wrap gap-1">
                         {parsed.map((item: unknown, i: number) => (
-                            <span key={i} className="px-1.5 py-0.5 bg-signal/10 text-signal border border-signal/20 rounded text-[10px] font-mono">{String(item)}</span>
+                            <span key={i} className={cn(CHIP, CHIP_TONE.signal, 'normal-case tracking-normal')}>{String(item)}</span>
                         ))}
                     </div>
                 );
             }
         } catch { /* fall through */ }
-        return <span className="text-gray-300 break-all">{value}</span>;
+        return <span className="break-all text-signal">{value}</span>;
     }
     if (pt === 'File') {
         return (
             <a href={directDownloadUrl(value)} target="_blank" rel="noopener noreferrer"
-               className="text-signal underline text-xs font-mono hover:text-white">
+               className="font-mono text-[12px] text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent">
                 {value.substring(0, 16)}…
             </a>
         );
@@ -64,7 +112,7 @@ export const ParseParamValue: React.FC<{
                     <div className="space-y-0.5">
                         {parsed.map((fileId: string, i: number) => (
                             <a key={i} href={directDownloadUrl(fileId)} target="_blank" rel="noopener noreferrer"
-                               className="block text-signal underline text-xs font-mono hover:text-white">
+                               className="block font-mono text-[12px] text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent">
                                 {fileId.substring(0, 16)}…
                             </a>
                         ))}
@@ -72,108 +120,104 @@ export const ParseParamValue: React.FC<{
                 );
             }
         } catch { /* fall through */ }
-        return <span className="text-gray-300 break-all">{value}</span>;
+        return <span className="break-all text-signal">{value}</span>;
     }
-    return <span className="text-gray-300 break-all">{value}</span>;
+    return <span className="break-all text-signal">{value}</span>;
 };
 
 // ============================================
-// Helper Components
+// Build state
 // ============================================
 
-// Build Status Badge - Shows colored status with icon
+/**
+ * A build phase is a STATE, and the four Mythic reports are four different
+ * operational facts:
+ *
+ *   success  → there is a file on disk to hand to a target        (`live`)
+ *   building → a container is working on it right now             (`warn`)
+ *   error    → the build failed and there is nothing to ship      (`fail`)
+ *   anything else (submitted / queued) → accepted, not started    (`signal`)
+ *
+ * QUEUED is full-strength `signal` rather than amber: waiting in a queue is
+ * the normal state of a payload someone just clicked BUILD on, and painting
+ * it as a warning would make the one genuinely in-flight build unfindable.
+ */
+export type BuildState = { tone: Tone; label: string; icon: typeof CheckCircle; spin?: boolean };
+
+export function buildState(phase: string): BuildState {
+    switch (phase) {
+        case 'success':  return { tone: 'live', label: 'Success', icon: CheckCircle };
+        case 'building': return { tone: 'warn', label: 'Building', icon: Loader2, spin: true };
+        case 'error':    return { tone: 'fail', label: 'Error', icon: XCircle };
+        default:         return { tone: 'signal', label: phase || 'Pending', icon: Clock };
+    }
+}
+
+/** Build phase as a chip: icon, word, tone. Never the colour on its own. */
 export const BuildStatusBadge = ({ phase }: { phase: string }) => {
-    const getConfig = () => {
-        switch (phase) {
-            case 'success':
-                return { 
-                    icon: CheckCircle, 
-                    color: 'text-green-400', 
-                    bg: 'bg-green-400/10', 
-                    border: 'border-green-400/30',
-                    label: 'SUCCESS' 
-                };
-            case 'building':
-                return { 
-                    icon: Loader2, 
-                    color: 'text-yellow-400', 
-                    bg: 'bg-yellow-400/10', 
-                    border: 'border-yellow-400/30',
-                    label: 'BUILDING',
-                    animate: true 
-                };
-            case 'error':
-                return { 
-                    icon: XCircle, 
-                    color: 'text-red-400', 
-                    bg: 'bg-red-400/10', 
-                    border: 'border-red-400/30',
-                    label: 'ERROR' 
-                };
-            default:
-                return { 
-                    icon: Clock, 
-                    color: 'text-yellow-400', 
-                    bg: 'bg-yellow-400/10', 
-                    border: 'border-yellow-400/30',
-                    label: phase?.toUpperCase() || 'PENDING' 
-                };
-        }
-    };
-
-    const config = getConfig();
-    const Icon = config.icon;
-
+    const state = buildState(phase);
+    const Icon = state.icon;
     return (
-        <span className={cn(
-            "inline-flex items-center gap-2 px-2.5 py-1 rounded text-xs font-mono border",
-            config.color, config.bg, config.border
-        )}>
-            <Icon size={14} className={config.animate ? "animate-spin" : ""} />
-            {config.label}
+        <span className={cn(CHIP, CHIP_TONE[state.tone])}>
+            <Icon
+                size={11}
+                strokeWidth={2}
+                aria-hidden="true"
+                className={cn('shrink-0', state.spin && 'animate-spin')}
+            />
+            {state.label}
         </span>
     );
 };
 
-// C2 Profile Status Indicator
+// ============================================
+// C2 status
+// ============================================
+
+/**
+ * Egress readout for one payload.
+ *
+ * Same two booleans C2 PROFILES reads, same three answers, so a channel that
+ * says DEGRADED over there cannot say "up" here: serving (`live`), container
+ * up but not listening (`warn`), and neither (`fail`). The host:port line
+ * underneath is an inline label-value pair — the host is the guidance, the
+ * port is the fact, so the port is the bold one.
+ */
 export const C2StatusIndicator = ({ c2profiles, c2params }: {
     c2profiles: Payload['payloadc2profiles'];
     c2params?: Payload['c2profileparametersinstances'];
 }) => {
-    if (!c2profiles || c2profiles.length === 0) {
-        return <span className="text-gray-500 text-xs font-mono">—</span>;
-    }
+    if (!c2profiles || c2profiles.length === 0) return <EmDash />;
 
     return (
         <div className="flex flex-col gap-1.5">
             {c2profiles.map((p, idx) => {
                 const isRunning = p.c2profile.running && p.c2profile.container_running;
                 const isWaiting = !p.c2profile.running && p.c2profile.container_running;
+                const tone: Tone = isRunning ? 'live' : isWaiting ? 'warn' : 'fail';
                 const profileParams = c2params?.filter(inst => inst.c2profile.name === p.c2profile.name) || [];
                 const hostInst = profileParams.find(inst => inst.c2profileparameter.name === 'callback_host' || inst.c2profileparameter.name === 'host');
                 const portInst = profileParams.find(inst => inst.c2profileparameter.name === 'callback_port' || inst.c2profileparameter.name === 'port');
                 return (
-                    <div key={idx} className="flex flex-col gap-0.5">
-                        <span className={cn(
-                            "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono border w-fit",
-                            isRunning
-                                ? "text-green-400 bg-green-400/10 border-green-400/30"
-                                : isWaiting
-                                    ? "text-yellow-400 bg-yellow-400/10 border-yellow-400/30"
-                                    : "text-red-400 bg-red-400/10 border-red-400/30",
-                            p.c2profile.is_p2p && "border-dashed"
-                        )}>
-                            <span className={cn("w-1.5 h-1.5 rounded-full", isRunning ? "bg-green-400" : isWaiting ? "bg-yellow-400 animate-pulse" : "bg-red-400")} />
-                            {p.c2profile.name}
-                            {p.c2profile.is_p2p && " (P2P)"}
+                    <div key={idx} className="flex min-w-0 flex-col gap-1">
+                        <span
+                            title={isRunning ? 'Container up, server listening' : isWaiting ? 'Container up, server not listening' : 'Channel not serving'}
+                            className={cn(CHIP, CHIP_TONE[tone], p.c2profile.is_p2p && 'border-dashed')}
+                        >
+                            <span aria-hidden="true" className={cn(
+                                'h-1.5 w-1.5 shrink-0 rounded-full',
+                                tone === 'live' ? 'bg-accent' : tone === 'warn' ? 'bg-amber-400 animate-pulse' : 'bg-red-400',
+                            )} />
+                            <span className="normal-case tracking-normal">{p.c2profile.name}</span>
+                            {p.c2profile.is_p2p && <span className="opacity-70">P2P</span>}
                         </span>
                         {(hostInst?.value || portInst?.value) && (
-                            <div className="flex items-center gap-1 text-[10px] font-mono text-gray-500 pl-1">
-                                <Globe2 size={9} className="text-signal/40" />
-                                {hostInst?.value && <span className="text-signal/70 truncate max-w-[150px]">{hostInst.value}</span>}
-                                {hostInst?.value && portInst?.value && <span>:</span>}
-                                {portInst?.value && <span className="text-yellow-400/80 font-bold">{portInst.value}</span>}
-                            </div>
+                            <span className="flex min-w-0 items-center gap-1.5 pl-0.5 font-mono text-[11px] text-signal">
+                                <Globe2 size={10} strokeWidth={2} aria-hidden="true" className="shrink-0 opacity-60" />
+                                {hostInst?.value && <span className="truncate opacity-70">{hostInst.value}</span>}
+                                {hostInst?.value && portInst?.value && <span className="opacity-40">:</span>}
+                                {portInst?.value && <span className="shrink-0 font-bold tabular-nums">{portInst.value}</span>}
+                            </span>
                         )}
                     </div>
                 );
@@ -182,23 +226,32 @@ export const C2StatusIndicator = ({ c2profiles, c2params }: {
     );
 };
 
-// Tags Display Component
+// ============================================
+// Tags
+// ============================================
+
+/**
+ * Tags keep their operator-chosen colour — that colour IS the tag's identity,
+ * and overriding it with palette tones would make two different tags look the
+ * same. The shape around it is the console's, so a row of tags still reads as
+ * part of this table.
+ */
 export const TagsDisplay = ({ tags }: { tags: PayloadTag[] }) => {
-    if (!tags || tags.length === 0) return <span className="text-gray-500 text-xs font-mono">—</span>;
+    if (!tags || tags.length === 0) return <EmDash />;
 
     return (
         <div className="flex flex-wrap gap-1">
             {tags.map((tag) => (
-                <span 
+                <span
                     key={tag.id}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono"
-                    style={{ 
-                        backgroundColor: `${tag.tagtype.color}20`, 
+                    className="inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-[11px] leading-[1.35]"
+                    style={{
+                        backgroundColor: `${tag.tagtype.color}1f`,
                         color: tag.tagtype.color,
-                        border: `1px solid ${tag.tagtype.color}40`
+                        borderColor: `${tag.tagtype.color}59`,
                     }}
                 >
-                    <TagIcon size={10} />
+                    <TagIcon size={10} strokeWidth={2} aria-hidden="true" />
                     {tag.tagtype.name}
                 </span>
             ))}
@@ -207,7 +260,7 @@ export const TagsDisplay = ({ tags }: { tags: PayloadTag[] }) => {
 };
 
 // ============================================
-// Build Step Detail Modal (Item 1)
+// Build Step Detail Modal
 // ============================================
 const BuildStepDetailModal: React.FC<{
     step: PayloadBuildStep;
@@ -221,74 +274,79 @@ const BuildStepDetailModal: React.FC<{
         return `${Math.floor(s / 60)}m ${s % 60}s`;
     }, [step.start_time, step.end_time]);
 
-    const status = step.step_skip ? 'Skipped'
-        : step.end_time === null && step.start_time ? 'Running…'
-        : step.end_time === null ? 'Waiting…'
-        : step.step_success ? 'Success' : 'Failed';
+    // Escape closes. A dialog that can only be dismissed by hitting its own
+    // backdrop is a keyboard trap for anyone who opened it from the keyboard.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
+    const state: { label: string; tone: Tone } =
+        step.step_skip ? { label: 'Skipped', tone: 'idle' }
+        : step.end_time === null && step.start_time ? { label: 'Running', tone: 'warn' }
+        : step.end_time === null ? { label: 'Waiting', tone: 'signal' }
+        : step.step_success ? { label: 'Success', tone: 'live' } : { label: 'Failed', tone: 'fail' };
 
     return createPortal(
         <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
             onClick={onClose}
         >
             <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
+                initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-void border border-signal/30 rounded-lg shadow-2xl w-full max-w-lg overflow-hidden"
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Build step ${step.step_number + 1}: ${step.step_name}`}
+                className="w-full max-w-lg overflow-hidden rounded-md border border-signal/20 bg-void/95 backdrop-blur-sm"
                 onClick={e => e.stopPropagation()}
             >
-                <div className="bg-signal/10 p-4 border-b border-signal/30 flex items-center justify-between">
-                    <h3 className="font-mono font-bold text-signal text-sm tracking-widest">
-                        STEP {step.step_number + 1} — {step.step_name}
+                {/* Header strip — what this is, and how it is doing. */}
+                <div className="flex items-center justify-between gap-3 border-b border-signal/15 px-4 py-3">
+                    <h3 className={cn('min-w-0 truncate text-signal', LABEL)}>
+                        Step {step.step_number + 1} · <span className="normal-case tracking-normal">{step.step_name}</span>
                     </h3>
-                    <button onClick={onClose} className="text-ghost hover:text-signal transition-colors">
-                        <X size={16} />
-                    </button>
+                    <span className={cn(CHIP, CHIP_TONE[state.tone], 'shrink-0')}>{state.label}</span>
                 </div>
-                <div className="p-4 space-y-3">
-                    <div className="grid grid-cols-2 gap-3 text-xs font-mono">
-                        <div>
-                            <span className="text-ghost block mb-0.5">Status</span>
-                            <span className={cn(
-                                "font-bold",
-                                step.step_success === true ? "text-matrix" :
-                                step.step_success === false ? "text-red-400" :
-                                step.step_skip ? "text-ghost" : "text-yellow-400"
-                            )}>{status}</span>
-                        </div>
+
+                <div className="space-y-3 p-4">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[13px]">
                         {duration && (
-                            <div>
-                                <span className="text-ghost block mb-0.5">Duration</span>
-                                <span className="text-white">{duration}</span>
-                            </div>
+                            <span className="flex items-center gap-2">
+                                <span className="text-signal opacity-70">Duration</span>
+                                <span className="font-bold tabular-nums text-signal">{duration}</span>
+                            </span>
                         )}
                         {step.start_time && (
-                            <div className="col-span-2">
-                                <span className="text-ghost block mb-0.5">Start Time</span>
-                                <span className="text-white/80">{new Date(step.start_time).toLocaleTimeString()}</span>
-                            </div>
+                            <span className="flex items-center gap-2">
+                                <span className="text-signal opacity-70">Started</span>
+                                <span className="font-bold tabular-nums text-signal">{new Date(step.start_time).toLocaleTimeString()}</span>
+                            </span>
                         )}
                     </div>
                     {step.step_description && (
-                        <p className="text-xs text-gray-400 border-l-2 border-ghost/30 pl-2 italic">{step.step_description}</p>
+                        <p className="border-l border-signal/25 pl-3 text-[13px] text-signal">{step.step_description}</p>
                     )}
                     {step.step_stdout && (
                         <div>
-                            <label className="text-xs text-ghost uppercase tracking-wider block mb-1">Stdout</label>
-                            <pre className="text-xs bg-black/50 rounded p-2 text-matrix/90 font-mono overflow-x-auto max-h-40 border border-matrix/20 cyber-scrollbar">{step.step_stdout}</pre>
+                            <div className={cn('mb-1.5 text-signal opacity-70', LABEL)}>Stdout</div>
+                            <pre className="cyber-scrollbar max-h-40 overflow-x-auto rounded-sm border border-signal/15 bg-black/50 p-2 font-mono text-[12px] text-signal">{step.step_stdout}</pre>
                         </div>
                     )}
                     {step.step_stderr && (
                         <div>
-                            <label className="text-xs text-red-400 uppercase tracking-wider block mb-1">Stderr</label>
-                            <pre className="text-xs bg-black/50 rounded p-2 text-red-400/90 font-mono overflow-x-auto max-h-40 border border-red-400/20 cyber-scrollbar">{step.step_stderr}</pre>
+                            <div className={cn('mb-1.5 text-red-400', LABEL)}>Stderr</div>
+                            <pre className="cyber-scrollbar max-h-40 overflow-x-auto rounded-sm border border-red-400/25 bg-black/50 p-2 font-mono text-[12px] text-red-400">{step.step_stderr}</pre>
                         </div>
                     )}
                 </div>
-                <div className="p-3 border-t border-ghost/20 flex justify-end">
+
+                {/* Footer strip. */}
+                <div className="flex items-center justify-end border-t border-signal/15 px-4 py-2.5">
                     <button
                         onClick={onClose}
-                        className="px-4 py-1.5 border border-ghost/30 text-ghost font-mono rounded text-xs hover:text-signal hover:border-signal transition-colors"
+                        className="inline-flex min-h-[32px] items-center rounded-sm border border-signal/25 px-3 text-[12px] font-bold uppercase tracking-[0.1em] text-signal transition-colors hover:bg-signal/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal"
                     >
                         Close
                     </button>
@@ -299,33 +357,66 @@ const BuildStepDetailModal: React.FC<{
     );
 };
 
-// Build Progress Steps — clickable per-step dot icons (Item 1)
+// ============================================
+// Build progress ribbon
+// ============================================
+
+/**
+ * One dot per build step, in order, each one a button onto its own log.
+ *
+ * The dots are a progress ribbon, not decoration, so the state has to survive
+ * greyscale: a finished step is a filled dot, a pending one is an empty ring,
+ * and the running one is the only thing on the row that moves.
+ */
 export const BuildProgressSteps = ({ steps, buildPhase, isCombat = false }: { steps: PayloadBuildStep[]; buildPhase?: string; isCombat?: boolean }) => {
     const [detailStep, setDetailStep] = useState<PayloadBuildStep | null>(null);
     if (!steps || steps.length === 0) return null;
 
-    const getDotClass = (s: PayloadBuildStep) => {
-        if (s.step_skip) return "bg-ghost/20 border-ghost/30 opacity-40";
-        if (s.step_success === true) return "bg-matrix/50 border-matrix/70 hover:bg-matrix/70";
-        if (s.step_success === false) return "bg-red-500/50 border-red-500/70 hover:bg-red-500/70";
-        if (s.start_time && !s.end_time) return cn("bg-signal/40 border-signal/60", !isCombat && "animate-pulse");
-        return "bg-gray-700 border-gray-600 opacity-50";
+    // Filled at full strength or not filled at all — a dot at 60% alpha over
+    // black is the ink version of its own colour, and eight of them in a row
+    // is what made this ribbon read as olive.
+    const dotClass = (s: PayloadBuildStep) => {
+        if (s.step_skip) return 'border-signal/25 bg-transparent opacity-50';
+        if (s.step_success === true) return 'border-accent bg-accent';
+        if (s.step_success === false) return 'border-red-400 bg-red-400';
+        if (s.start_time && !s.end_time) return cn('border-amber-400 bg-amber-400', !isCombat && 'animate-pulse');
+        return 'border-signal/30 bg-transparent hover:border-signal/60';
     };
+
+    const stateWord = (s: PayloadBuildStep) =>
+        s.step_skip ? 'skipped'
+        : s.step_success === true ? 'success'
+        : s.step_success === false ? 'failed'
+        : s.start_time && !s.end_time ? 'running' : 'waiting';
+
+    const done = steps.filter(s => s.step_success === true || s.step_skip).length;
 
     return (
         <>
-            <div className="flex items-center gap-0.5 mt-1.5 flex-wrap">
+            <div
+                className="mt-1.5 flex flex-wrap items-center gap-1"
+                role="group"
+                aria-label={`Build steps: ${done} of ${steps.length} complete`}
+            >
                 {steps.map((s) => (
                     <button
                         key={s.step_number}
-                        title={`Step ${s.step_number + 1}: ${s.step_name}`}
+                        type="button"
+                        title={`Step ${s.step_number + 1}: ${s.step_name} — ${stateWord(s)}`}
+                        aria-label={`Step ${s.step_number + 1}, ${s.step_name}, ${stateWord(s)}`}
                         onClick={() => setDetailStep(s)}
                         className={cn(
-                            "w-2.5 h-2.5 rounded-full border cursor-pointer transition-all hover:scale-150 hover:z-10 relative",
-                            getDotClass(s)
+                            'h-2.5 w-2.5 shrink-0 rounded-full border transition-transform',
+                            'hover:scale-150 focus-visible:scale-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal',
+                            dotClass(s),
                         )}
                     />
                 ))}
+                {buildPhase === 'building' && (
+                    <span className="ml-1 font-mono text-[10px] tabular-nums text-signal opacity-70">
+                        {done}/{steps.length}
+                    </span>
+                )}
             </div>
             {detailStep && (
                 <BuildStepDetailModal step={detailStep} onClose={() => setDetailStep(null)} />

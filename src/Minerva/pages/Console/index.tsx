@@ -119,7 +119,10 @@ export default function Console() {
 
     const { data: allCallbacksData } = useQuery<any>(GET_ALL_CALLBACKS_BY_DOMAIN, {
         pollInterval: pageVisible ? 15000 : 0,
-        skip: isMsf,
+        // Only the 'info' tab renders this. It was polling an unbounded
+        // all-callbacks selection every 15s for a panel the operator usually
+        // is not looking at.
+        skip: isMsf || activeTab !== 'info',
     });
 
     const [hideCallback] = useMutation<any>(HIDE_CALLBACK_MUTATION, {
@@ -378,7 +381,7 @@ export default function Console() {
                                 <MoreHorizontal size={18} />
                             </button>
                             {showCallbackMenu && createPortal(
-                                <div ref={menuContentRef} className="w-56 bg-[#0a0a0a] border border-signal/30 shadow-[0_0_20px_rgba(34,197,94,0.15)] z-[9999] py-1"
+                                <div ref={menuContentRef} className="w-56 bg-[#0a0a0a] border border-signal/30 shadow-[0_0_20px_rgba(74,222,128,0.15)] z-[9999] py-1"
                                     style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, zIndex: 9999, clipPath: 'polygon(0 0, 100% 0, 100% 100%, 10px 100%, 0 calc(100% - 10px))' }}>
                                     <div className="px-3 py-1.5 text-[10px] font-mono text-gray-600 uppercase tracking-widest border-b border-white/10 mb-1">
                                         CALLBACK_{callback.display_id} ACTIONS

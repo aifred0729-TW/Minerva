@@ -1,0 +1,99 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  electron-builder — Windows and macOS targets.
+#
+#  The React bundle is NOT built here. `npm run build` at the repository root
+#  produces ../build, and extraResources copies it in whole; the app serves it
+#  from its loopback gateway exactly as nginx serves it in the container. One
+#  bundle, two deployments, no divergence.
+# ═══════════════════════════════════════════════════════════════════════════
+
+appId: tw.redmeow.minerva
+productName: Minerva
+copyright: Copyright © Minerva — AGPL-3.0 or commercial
+
+directories:
+  buildResources: build
+  output: dist
+
+# Only the Electron layer is packed into the asar; the web bundle rides along
+# as a resource so the gateway can stat and stream real files off disk.
+files:
+  - src/**/*
+  - package.json
+
+extraResources:
+  - from: ../build
+    to: app
+    filter:
+      - "**/*"
+
+asar: true
+npmRebuild: false
+
+# Where `--publish` sends artifacts. Without this electron-builder infers the
+# repository from whatever git remote happens to be configured on the runner —
+# fine until the day it guesses a fork and publishes there.
+publish:
+  provider: github
+  owner: aifred0729-TW
+  repo: Minerva
+
+# Ad-hoc signs the .app when no real identity is configured. Apple Silicon
+# refuses to execute a binary carrying no signature at all, so an unsigned
+# build is not merely warned about — it does not start. See the script.
+afterPack: scripts/adhoc-sign.js
+
+# ── macOS ──────────────────────────────────────────────────────────────────
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.mac.png
+  darkModeSupport: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # `universal` rather than separate arm64/x64 artifacts: the Release page then
+  # has one macOS download instead of two that people pick wrongly. It costs
+  # roughly double the file size, which is the cheaper problem to have.
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+  extendInfo:
+    # No camera, mic, or location. Declared so the absence is deliberate.
+    NSHighResolutionCapable: true
+
+dmg:
+  title: Minerva ${version}
+  artifactName: Minerva-${version}-macOS.${ext}
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+
+# ── Windows ────────────────────────────────────────────────────────────────
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Minerva
+  artifactName: Minerva-${version}-Windows-${arch}-setup.${ext}
+  # An operator's settings hold an MSF credential; uninstalling should not
+  # silently leave it behind, but neither should an upgrade wipe the target.
+  deleteAppDataOnUninstall: false
+
+portable:
+  artifactName: Minerva-${version}-Windows-${arch}-portable.${ext}

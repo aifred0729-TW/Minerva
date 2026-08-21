@@ -49,6 +49,15 @@
 #               close every active P2P edge sourced at this callback via
 #               RemoveEdgeByIds.
 #
+#   Patch 10 — blank email must store NULL, not the empty string
+#     File    : webserver/controllers/user_update_operator_password_webhook.go
+#     Problem : The handler builds a sql.NullString for the email and then binds
+#               the raw string anyway. operator.email is UNIQUE, so the first
+#               password change on an email-less account writes '' and the next
+#               one collides — reported as an error even though the password
+#               UPDATE had already committed.
+#     Fix     : Bind the sql.NullString it already computed.
+#
 #   Patch 8 — don't auto-revive hidden P2P callbacks on relay traffic
 #     File    : rabbitmq/util_agent_message.go (UpdateCallbackEdgesAndCheckinTime)
 #     Problem : When an operator hides a callback, Mythic sets active=false.
@@ -855,6 +864,68 @@ else:
         else:
             print('[!] WARNING: Patch 9b — no changes applied (file shape may differ)')
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch 10 — a blank email must store NULL, not the empty string
+#
+# Problem : user_update_operator_password_webhook.go builds `targetUser.Email`
+#           as a sql.NullString (Valid=false when the submitted email is empty)
+#           and then ignores it, binding the RAW string to the UPDATE:
+#
+#               _, err = database.DB.Exec(`UPDATE operator SET email=$1 ...`,
+#                   input.Input.Email, input.Input.UserID)
+#
+#           `operator.email` carries a UNIQUE constraint (operator_email_key).
+#           Postgres allows many NULLs but only one ''. So the FIRST password
+#           change on an account with no email writes '' and succeeds; the
+#           SECOND one, on any other email-less account, fails with
+#           "duplicate key value violates unique constraint".
+#
+#           Worse, the password UPDATE has already COMMITTED by then, so the
+#           handler returns status:"error" for a password change that actually
+#           landed. The operator sees a failure, retries, and the old password
+#           no longer works.
+#
+#           This cannot be fixed from Minerva: the handler runs the email
+#           UPDATE unconditionally, and omitting the GraphQL argument still
+#           yields Go's zero value "". Hence a Mythic-side patch.
+#
+# Fix     : Bind the sql.NullString the function already computed, so a blank
+#           email stores NULL and any number of accounts may have none.
+# File    : webserver/controllers/user_update_operator_password_webhook.go
+# Idempotent — looks for the patched binding before applying.
+# ─────────────────────────────────────────────────────────────────────────────
+pw_hook = os.path.join(mythic_src, 'webserver/controllers/user_update_operator_password_webhook.go')
+if not os.path.exists(pw_hook):
+    print(f'[!] WARNING: Patch 10 — file not found: {pw_hook}')
+else:
+    with open(pw_hook, 'r') as f:
+        src10 = f.read()
+    if 'Minerva patch 10' in src10:
+        print('[+] Patch 10 (blank email stores NULL) already applied')
+    else:
+        old10 = (
+            '\t_, err = database.DB.Exec(`UPDATE operator SET email=$1 WHERE id=$2`,\n'
+            '\t\tinput.Input.Email, input.Input.UserID)\n'
+        )
+        new10 = (
+            '\t// Minerva patch 10: bind the sql.NullString built just above rather\n'
+            '\t// than the raw input. operator.email is UNIQUE, and Postgres permits\n'
+            '\t// many NULLs but only one empty string — so binding "" made the first\n'
+            '\t// password change on an email-less account write \'\' and the second\n'
+            '\t// one fail on the unique constraint, AFTER the password UPDATE had\n'
+            '\t// already committed.\n'
+            '\t_, err = database.DB.Exec(`UPDATE operator SET email=$1 WHERE id=$2`,\n'
+            '\t\ttargetUser.Email, input.Input.UserID)\n'
+        )
+        if old10 in src10:
+            src10 = src10.replace(old10, new10, 1)
+            with open(pw_hook, 'w') as f:
+                f.write(src10)
+            print('[+] Patch 10 (blank email stores NULL) applied')
+        else:
+            print('[!] WARNING: Patch 10 target block not found; '
+                  'user_update_operator_password_webhook.go may have changed shape')
+
 sys.exit(0)
 PYEOF
 
@@ -927,6 +998,9 @@ echo "             lost the peer locally and silently skipped the EdgeNode remov
 echo "  Patch 8: don't auto-revive hidden P2P callbacks on relay traffic"
 echo "           — operator Hide now sticks for P2P; only explicit Show Callback"
 echo "             brings them back. Direct-C2 callbacks unchanged."
+echo "  Patch 10: blank email must store NULL, not '' (user_update_operator_password_webhook.go)"
+echo "           — operator.email is UNIQUE; '' collided on the second email-less"
+echo "             password change, after the password write had already committed"
 echo "  Patch 9: SOCKS / RPORTFWD throughput collapse + silent drop fix"
 echo "           — utils_proxy_traffic.go + util_agent_message_push_c2.go"
 echo "           — bumps proxy channel buffers 1000→16384 (+ 2000→16384 top-level),"

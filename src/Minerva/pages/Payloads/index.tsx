@@ -1,26 +1,78 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../../store';
 import { cn } from '../../lib/utils';
 import type { TabType } from '../../types/payloads';
-import { PayloadsListView, TabNavigation } from './PayloadsListView';
+import { PayloadsListView, TabNavigation, type PayloadsStats } from './PayloadsListView';
 import { CreatePayloadEmbed, CreateWrapperEmbed } from './CreatePayloadEmbed';
 import { Box, Plus, Package } from 'lucide-react';
+import { LABEL, StatusWord, type Tone } from '../../components/Instrument';
 import { useReactiveVar } from "@apollo/client/react";
 import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
 import { PayloadsQuery } from '../../lib/api';
 import { meState } from '../../lib/state';
 
+/**
+ * PAYLOADS OVERVIEW — the inventory of everything this operation can drop.
+ *
+ * WHY IT LOOKS LIKE THIS
+ *
+ * The page is built out of the same three parts every other console surface is
+ * (`pages/C2Profiles.tsx`, `pages/Dashboard.tsx`, and the login screen they
+ * both descend from): a top instrument rail that says what this is and how it
+ * is doing, a body of panels, and a bottom rail that keeps the totals in view.
+ * The arrangement is unchanged from the version before it — identity and
+ * primary action on the header row, the three tabs, the filter/action bar, the
+ * table, pagination at the foot — what changed is that each of those is now
+ * made of the shared panel kit instead of its own one-off styling.
+ *
+ * What that fixes, concretely (DESIGN_LANGUAGE.md §10 anti-patterns):
+ *   - `text-gray-400/500/600` on black, which reads as disabled, is gone; text
+ *     is `text-signal` or a semantic tone.
+ *   - saturated `-400`/`-500` hues used as status are now `accent` / `amber` /
+ *     `red-400` tones, and every state ships as a WORD, not a bare dot.
+ *   - the page chrome no longer scrolls away: rails are fixed and the table
+ *     scrolls inside its own panel.
+ *
+ * @see docs/DESIGN_LANGUAGE.md §4 (layout), §5 (panel kit), §6 (screen frame)
+ */
+
+const TAB_META: Record<TabType, { title: string; blurb: string; icon: typeof Box }> = {
+    list:    { title: 'PAYLOADS OVERVIEW', blurb: 'Built payload inventory', icon: Box },
+    create:  { title: 'CREATE PAYLOAD',    blurb: 'Generate a new payload',  icon: Plus },
+    wrapper: { title: 'CREATE WRAPPER',    blurb: 'Wrap an existing payload', icon: Package },
+};
+
+const EMPTY_STATS: PayloadsStats = { visible: 0, total: 0, msf: 0, building: 0, failed: 0, ready: 0 };
+
+/**
+ * Inventory posture: a state with its evidence, not a score.
+ *
+ * Order is triage order — a failed build is what an operator has to act on, a
+ * running one is what they are waiting for, and "Ready" is the quiet case.
+ */
+function posture(stats: PayloadsStats): { label: string; tone: Tone } {
+    if (stats.total === 0 && stats.msf === 0) return { label: 'Empty', tone: 'idle' };
+    if (stats.failed > 0) return { label: `${stats.failed} failed`, tone: 'fail' };
+    if (stats.building > 0) return { label: `Building ${stats.building}`, tone: 'warn' };
+    return { label: 'Ready', tone: 'live' };
+}
+
 const Payloads = () => {
     const isSidebarCollapsed = useAppStore(s => s.isSidebarCollapsed);
     const [searchParams, setSearchParams] = useSearchParams();
     const me = useReactiveVar(meState);
-    
+
     // Get initial tab from URL or default to 'list'
     const initialTab = (searchParams.get('tab') as TabType) || 'list';
     const [activeTab, setActiveTab] = useState<TabType>(initialTab);
     const [totalPayloads, setTotalPayloads] = useState(0);
+
+    // Live posture, reported up by the list so the rail can state it without
+    // running a second copy of the same subscription.
+    const [stats, setStats] = useState<PayloadsStats>(EMPTY_STATS);
+    const handleStats = useCallback((s: PayloadsStats) => setStats(s), []);
 
     // Query just for count
     useQuery<any>(PayloadsQuery, {
@@ -40,118 +92,126 @@ const Payloads = () => {
 
     if (noOperation) {
         return (
-            <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-                <div className={cn("transition-all duration-300 p-6 lg:p-12 min-h-screen flex items-center justify-center", isSidebarCollapsed ? "ml-16" : "ml-64")}>
-                    <div className="text-center">
-                        <Box size={48} className="mx-auto mb-4 text-gray-500" />
-                        <h1 className="text-xl font-bold text-gray-400 mb-2">No Operation Selected</h1>
-                        <p className="text-gray-500">Please select an operation to view payloads</p>
+            <div className="min-h-screen bg-void font-mono text-signal selection:bg-signal selection:text-void">
+                <div className={cn("flex min-h-screen items-center justify-center p-6 transition-all duration-300 lg:p-12", isSidebarCollapsed ? "ml-16" : "ml-64")}>
+                    <div className="flex max-w-sm flex-col items-center gap-3 rounded-md border border-signal/20 bg-void/80 px-8 py-10 text-center backdrop-blur-sm">
+                        <Box size={28} strokeWidth={1.5} className="text-signal opacity-70" aria-hidden="true" />
+                        <h1 className={cn('text-signal', LABEL)}>No operation selected</h1>
+                        <p className="text-[13px] text-signal opacity-70">
+                            Payloads are scoped to an operation. Pick one from the nav rail to see this operation&apos;s inventory.
+                        </p>
                     </div>
                 </div>
             </div>
         );
     }
 
+    const meta = TAB_META[activeTab];
+    const TabIcon = meta.icon;
+    const health = posture(stats);
+    const inventory = stats.total || totalPayloads;
+
     return (
-        <div className="min-h-screen bg-void text-signal font-sans selection:bg-signal selection:text-void">
-            <div className={cn("transition-all duration-300 p-6 lg:p-12 min-h-screen flex flex-col", isSidebarCollapsed ? "ml-16" : "ml-64")}>
-                {/* Header - Changes based on active tab */}
-                <header className="flex justify-between items-center mb-8 border-b border-ghost/30 pb-6">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 border border-white/50 bg-white/10 rounded">
-                            {activeTab === 'list' ? (
-                                <Box size={24} className="text-white" />
-                            ) : activeTab === 'create' ? (
-                                <Plus size={24} className="text-white" />
-                            ) : (
-                                <Package size={24} className="text-white" />
-                            )}
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-bold tracking-widest text-white uppercase">
-                                {activeTab === 'list'
-                                    ? 'PAYLOADS OVERVIEW'
-                                    : activeTab === 'create'
-                                        ? 'CREATE PAYLOAD'
-                                        : 'CREATE WRAPPER'}
-                            </h1>
-                            <p className="text-xs text-gray-300 font-mono flex items-center gap-2 uppercase tracking-[0.2em]">
-                                <span className="w-2 h-2 bg-signal rounded-full animate-pulse" />
-                                {activeTab === 'list'
-                                    ? 'PAYLOAD LIST'
-                                    : activeTab === 'create'
-                                        ? 'GENERATE PAYLOAD'
-                                        : 'PAYLOAD WRAPPER'}
-                            </p>
-                        </div>
+        <div className="min-h-screen overflow-x-hidden bg-void text-signal selection:bg-signal selection:text-void">
+            <div className={cn(
+                "flex h-screen flex-col overflow-hidden px-6 pb-5 pt-0 font-sans transition-all duration-300 lg:px-10",
+                isSidebarCollapsed ? "ml-16" : "ml-64",
+            )}>
+                {/* ── Top instrument rail ──────────────────────────────────────
+                    Identity and the primary action on the left-to-right axis,
+                    exactly where the previous header put them — but at rail
+                    density, so the table below it starts eight rows higher. */}
+                <header className="-mx-6 flex shrink-0 items-center justify-between gap-4 border-b border-signal/20 bg-void/90 px-6 py-2.5 font-mono backdrop-blur-sm lg:-mx-10 lg:px-10">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-signal/25 bg-signal/[0.05]">
+                            <TabIcon size={15} strokeWidth={2} className="text-signal" aria-hidden="true" />
+                        </span>
+                        <h1 className="shrink-0 text-[16px] font-bold tracking-[0.14em] text-signal">{meta.title}</h1>
+                        <span className="hidden text-[13px] text-signal opacity-60 sm:inline">{meta.blurb}</span>
+                        {activeTab === 'list' && (
+                            <>
+                                <span aria-hidden="true" className="hidden h-3 w-px bg-signal/20 md:inline-block" />
+                                <span className="hidden min-w-0 truncate text-[13px] text-signal md:inline">
+                                    <span className="opacity-60">Inventory</span>{' '}
+                                    <span className="font-bold tabular-nums">{inventory}</span>
+                                    {stats.msf > 0 && (
+                                        <span className="opacity-60"> · {stats.msf} msf</span>
+                                    )}
+                                </span>
+                            </>
+                        )}
                     </div>
 
-                    {/* Stats Summary - Only show on list tab */}
-                    {activeTab === 'list' && (
-                        <div className="flex gap-6 text-xs font-mono items-center">
-                            <div className="text-right border-l border-ghost/20 pl-6">
-                                <div className="text-gray-400">TOTAL_PAYLOADS</div>
-                                <div className="text-xl text-signal">{totalPayloads}</div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Generate Payload Button - Show on list tab */}
-                    {activeTab === 'list' && (
-                        <button
-                            onClick={() => handleTabChange('create')}
-                            className="flex items-center gap-2 px-4 py-2 border border-signal text-signal hover:bg-signal hover:text-void font-mono text-sm transition-colors rounded"
-                        >
-                            <Plus size={16} />
-                            GENERATE PAYLOAD
-                        </button>
-                    )}
+                    <div className="flex shrink-0 items-center gap-4">
+                        {activeTab === 'list' && (
+                            <StatusWord tone={health.tone} dot className="hidden md:inline-flex">
+                                <span role="status" aria-atomic="true">{health.label}</span>
+                            </StatusWord>
+                        )}
+                        {activeTab === 'list' && (
+                            <button
+                                onClick={() => handleTabChange('create')}
+                                className={cn(
+                                    'inline-flex min-h-[34px] shrink-0 items-center gap-2 rounded-sm border border-signal/25 px-3',
+                                    'text-[12px] font-bold uppercase tracking-[0.1em] text-signal transition-colors',
+                                    'hover:border-signal/50 hover:bg-signal/10',
+                                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-signal',
+                                )}
+                            >
+                                <Plus size={13} strokeWidth={2} aria-hidden="true" />
+                                Generate
+                            </button>
+                        )}
+                    </div>
                 </header>
 
                 {/* Tab Navigation */}
-                <TabNavigation 
-                    activeTab={activeTab} 
-                    onTabChange={handleTabChange}
-                    totalPayloads={totalPayloads}
-                />
+                <div className="mv-panel-enter mt-4 shrink-0 font-mono" style={{ '--mv-panel-index': 0 } as React.CSSProperties}>
+                    <TabNavigation
+                        activeTab={activeTab}
+                        onTabChange={handleTabChange}
+                        totalPayloads={totalPayloads}
+                    />
+                </div>
 
                 {/* Tab Content */}
                 <AnimatePresence mode="wait">
                     {activeTab === 'list' && (
-                        <motion.div
+                        <motion.main
                             key="list"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="flex-1 flex flex-col overflow-hidden mt-6"
+                            className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col font-mono"
                         >
-                            <PayloadsListView 
+                            <PayloadsListView
                                 onSwitchToCreate={() => handleTabChange('create')}
                                 onSwitchToWrapper={() => handleTabChange('wrapper')}
+                                onStats={handleStats}
                             />
-                        </motion.div>
+                        </motion.main>
                     )}
                     {activeTab === 'create' && (
-                        <motion.div
+                        <motion.main
                             key="create"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="flex-1 flex flex-col overflow-hidden mt-6"
+                            className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden"
                         >
                             <CreatePayloadEmbed onComplete={() => handleTabChange('list')} />
-                        </motion.div>
+                        </motion.main>
                     )}
                     {activeTab === 'wrapper' && (
-                        <motion.div
+                        <motion.main
                             key="wrapper"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="flex-1 flex flex-col overflow-hidden mt-6"
+                            className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden"
                         >
                             <CreateWrapperEmbed onComplete={() => handleTabChange('list')} />
-                        </motion.div>
+                        </motion.main>
                     )}
                 </AnimatePresence>
             </div>

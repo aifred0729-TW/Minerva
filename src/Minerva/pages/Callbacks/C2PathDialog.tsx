@@ -129,7 +129,7 @@ const C2PathEdge = ({ id, sourceX, sourceY, targetX, targetY, style, data, label
         <>
             <BaseEdge id={id} path={edgePath} style={{
                 ...style,
-                stroke: isActive ? (isP2P ? '#a78bfa' : '#22c55e') : '#ef4444',
+                stroke: isActive ? (isP2P ? '#a78bfa' : '#4ade80') : '#ef4444',
                 strokeWidth: 1.5,
                 strokeDasharray: isActive ? undefined : '6 3',
             }} />
@@ -294,7 +294,7 @@ const C2PathGraphInner = ({
                 id: `c2group-${gv}`, type: 'c2group',
                 position: { x: b.mnX - PAD, y: b.mnY - PAD },
                 style: { width: b.mxX - b.mnX + PAD * 2, height: b.mxY - b.mnY + PAD * 2, zIndex: -10, pointerEvents: 'none',
-                    border: '1px dashed #22c55e33', borderRadius: 4, backgroundColor: '#22c55e05' },
+                    border: '1px dashed #4ade80', borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.03)' },
                 data: { label: gv },
                 selectable: false, draggable: false,
             });

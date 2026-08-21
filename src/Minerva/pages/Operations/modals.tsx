@@ -456,7 +456,7 @@ export function MembersOperationModal({ operation, allOperators, onClose, onSucc
                     {sorted.map(m => (
                         <div key={m.id} className={cn(
                             "grid grid-cols-[2rem_1fr_8rem] gap-2 items-center px-2 py-2 transition-colors rounded",
-                            m.checked ? "bg-white/5 hover:bg-white/8" : "opacity-50 hover:opacity-80 hover:bg-white/5"
+                            m.checked ? "bg-white/5 hover:bg-white/10" : "opacity-50 hover:opacity-80 hover:bg-white/5"
                         )}>
                             <button type="button" onClick={() => toggle(m.id)}
                                 className={cn("w-4 h-4 border flex items-center justify-center transition-colors",

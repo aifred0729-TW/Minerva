@@ -1,0 +1,25 @@
+{
+  "name": "minerva-desktop",
+  "productName": "Minerva",
+  "version": "2.2.0",
+  "private": true,
+  "description": "Minerva C2 Interface \u2014 desktop console for Mythic (Windows / macOS)",
+  "license": "AGPL-3.0",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node scripts/require-bundle.js && electron .",
+    "dist": "node scripts/require-bundle.js && electron-builder",
+    "dist:win": "node scripts/require-bundle.js && electron-builder --win",
+    "dist:mac": "node scripts/require-bundle.js && electron-builder --mac",
+    "dist:all": "node scripts/require-bundle.js && electron-builder --win --mac",
+    "icons": "python3 build/make-icons.py"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aifred0729-TW/Minerva.git"
+  }
+}

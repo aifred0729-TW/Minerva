@@ -13,7 +13,10 @@ EXPOSE 3000
 
 ENV CHOKIDAR_USEPOLLING=true
 ENV WATCHPACK_POLLING=true
-ENV FAST_REFRESH=true
+# Fast Refresh injects react-refresh + its webpack plugin into the bundle that
+# real operators download. This deployment serves the dev server as production,
+# so that instrumentation is pure cost here.
+ENV FAST_REFRESH=false
 ENV WDS_POLLING=true
 ENV WDS_SOCKET_PATH=ws
 ENV WDS_SOCKET_PORT=443

@@ -27,6 +27,23 @@ http {
         ssl_protocols       TLSv1.2 TLSv1.3;
 
         # Root redirect to Minerva login
+        # Machine name of the host running Minerva, readable WITHOUT auth so the
+        # login screen can show which server it is pointed at.
+        #
+        # Served from a mounted file rather than substituted into this config.
+        # envsubst runs in the entrypoint, which is baked into the image, so a
+        # new variable here would need a rebuild to take effect — and silently
+        # crash-loop nginx until someone did one. A mounted file needs neither.
+        #
+        # nginx's own $hostname is not usable: inside a container it is the
+        # container ID, which would be actively misleading rather than merely
+        # unknown. A missing file 404s and the client falls back to the URL host.
+        location = /server-info {
+            default_type application/json;
+            add_header Cache-Control "no-store" always;
+            alias /usr/share/nginx/runtime/server-info.json;
+        }
+
         location = / {
             return 302 /new/login;
         }
@@ -125,9 +142,47 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # MSF-RPC proxy — forward to msfrpcd on host
+
+        # ── Authorization gate for /msf-rpc/ ────────────────────────────────
+        # Mythic's `GET /me` sits behind JwtAuthMiddleware(), so it answers 200
+        # for a valid operator JWT and 401 otherwise. nginx forwards the client's
+        # request headers (including Authorization) into this subrequest, which
+        # turns it into a general-purpose "is this caller a logged-in operator?"
+        # check. Body is dropped: /me is a GET and auth_request must not consume
+        # the msgpack payload destined for msfrpcd.
+        # Deployment-generated msfrpcd credential, readable only by an
+        # authenticated operator. Replaces the password that used to be a literal
+        # in docker-compose.metasploit.yml AND compiled into the served JS bundle.
+        location = /msf-config {
+            auth_request /_msf_authz;
+            default_type application/json;
+            add_header Cache-Control "no-store" always;
+            alias /usr/share/nginx/runtime/msf-config.json;
+        }
+
+        location = /_msf_authz {
+            internal;
+            proxy_pass ${MYTHIC_ADDRESS}/me;
+            proxy_ssl_verify off;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Original-URI $request_uri;
+        }
+
+        # MSF-RPC proxy — msgpack RPC to msfrpcd, for authenticated operators only.
+        #
+        # This used to be an unauthenticated passthrough on the same public 443 as
+        # the login page, in front of an msfrpcd that shipped a default password.
+        # Anyone who could route to this host could call module.execute and
+        # session.shell_write. auth_request now requires a valid Mythic operator
+        # JWT before the request ever reaches Metasploit.
         location /msf-rpc/ {
-            proxy_pass http://host.docker.internal:55553/api/;
+            auth_request /_msf_authz;
+
+            # Container-network hop: msfrpcd no longer listens on the host
+            # gateway address, only on loopback + this docker network.
+            proxy_pass http://minerva_msf:55553/api/;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;

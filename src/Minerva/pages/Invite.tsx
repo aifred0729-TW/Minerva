@@ -77,9 +77,6 @@ export default function InvitePage() {
     const [errorMsg, setErrorMsg]               = useState<string | null>(null);
     const [redirectIn, setRedirectIn]           = useState(5);
 
-    // already logged in → bounce to dashboard
-    if (me.loggedIn) return <Navigate replace to="/dashboard" />;
-
     const pwStrength = passwordStrength(password);
     const pwMatches  = password.length > 0 && password === confirmPassword;
     const pwValid    = password.length >= PASSWORD_MIN;
@@ -131,6 +128,15 @@ export default function InvitePage() {
         const id = setTimeout(() => setRedirectIn(redirectIn - 1), 1000);
         return () => clearTimeout(id);
     }, [stage, redirectIn, navigate]);
+
+    // Already logged in → bounce to the dashboard.
+    //
+    // This guard has to sit below every hook, not next to the state it reads.
+    // Returning early from the middle of the component skipped the effect
+    // above, so the render where `me.loggedIn` flips true ran fewer hooks than
+    // the one before it — React's "rendered fewer hooks than expected" crash,
+    // and the rules-of-hooks error that failed `npm run build` outright.
+    if (me.loggedIn) return <Navigate replace to="/dashboard" />;
 
     return (
         <div className="min-h-screen w-full bg-void relative overflow-hidden text-signal font-mono">

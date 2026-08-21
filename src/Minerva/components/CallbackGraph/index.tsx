@@ -6,6 +6,7 @@ import {
     getConnectedEdges, Node, Edge,
     Position,
 } from '@xyflow/react';
+import type { ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useMutation, useLazyQuery, useReactiveVar } from "@apollo/client/react";
 import { useQueryCompat as useQuery } from "../../lib/useQueryCompat";
@@ -29,7 +30,7 @@ import {
     prepareUpdateNodeData, generateNextId, generateUniqueId,
     parseEdgeStorageResults, serializeEdgeData, generateEdgeUniqueId,
 } from '../../lib/customGraphNodeService';
-import { dbg, getErrorMessage, downloadDataUrl } from '../../lib/utils';
+import { cn, dbg, getErrorMessage, downloadDataUrl } from '../../lib/utils';
 import { usePageVisible } from '../../lib/usePageVisible';
 import { useLocalStorageState, typedStringSerializer, boolSerializer, boolInverseSerializer } from '../../lib/hooks';
 import {
@@ -43,6 +44,7 @@ import {
     Crosshair,
 }from 'lucide-react';
 import { snackActions } from '../../lib/snackbar';
+import { TOOL_BTN, TOOL_IDLE, TOOL_ON, ToolChip } from '../Instrument';
 import { useMsfSyntheticCallbacks, consolePathFor } from '../../pages/Callbacks/msfSyntheticCallbacks';
 import { GraphModals } from './GraphModals';
 import { GraphConfigPanel } from './GraphConfigPanel';
@@ -88,12 +90,42 @@ interface GraphNodeData {
 // stable across renders (fresh literals would make ReactFlow re-reconcile
 // every pan/zoom frame).
 const RF_PRO_OPTIONS = { hideAttribution: true } as const;
+/**
+ * Shallow value comparison for ReactFlow node `data`.
+ *
+ * graphData is rebuilt on every poll, so object identity always differs even
+ * when nothing changed. Comparing the fields keeps a quiet poll from churning
+ * node identity and re-rendering the whole graph.
+ */
+const shallowEqualData = (a: unknown, b: unknown): boolean => {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) {
+        if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
+    }
+    return true;
+};
+
 const RF_DEFAULT_EDGE_OPTIONS = {
     type: 'straight',
     style: { stroke: '#ffffff', strokeWidth: 2, opacity: 0.95, zIndex: 200 },
     animated: false,
 } as const;
-const RF_FIT_VIEW_OPTIONS = { padding: 0.5, minZoom: 0.1, maxZoom: 1 } as const;
+/**
+ * How the camera frames the tree.
+ *
+ * `padding` is a FRACTION OF THE VIEWPORT, not a pixel margin — at the old 0.5
+ * half the panel was reserved as empty border, which is why a five-node
+ * topology sat as a small clump in a large black field. 0.15 leaves room for
+ * the node badges that overhang their boxes and nothing more.
+ *
+ * `maxZoom: 1` stays: a two-node operation scaled to fill an 1800px panel would
+ * render the callback cards at cartoon size.
+ */
+const RF_FIT_VIEW_OPTIONS = { padding: 0.15, minZoom: 0.1, maxZoom: 1 } as const;
 
 export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackIds }: CallbackGraphProps = {}) {
     const pageVisible = usePageVisible();
@@ -103,7 +135,11 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
     // current op on first edit.
     const me = useReactiveVar(meState);
     const currentOpId: number = (me?.user?.current_operation_id as number) ?? 0;
-    const { data: callbacksData_raw, loading: callbacksLoading, refetch } = useQuery<any>(GET_CALLBACKS, { pollInterval: pageVisible ? 10000 : 0 });
+    // `limit` is explicit on purpose: GET_CALLBACKS declares `$limit: Int = 50`
+    // ON THE DOCUMENT, so a call site that passes no variables silently renders
+    // the newest 50 rows while the node badge above reports the true total —
+    // 148 of 197 active callbacks were being hidden with no indication.
+    const { data: callbacksData_raw, loading: callbacksLoading, refetch } = useQuery<any>(GET_CALLBACKS, { variables: { limit: 5000 }, pollInterval: pageVisible ? 10000 : 0 });
     // Inject Metasploit sessions as synthetic Callback rows so they appear
     // as graph nodes alongside Mythic callbacks (grouped by host like any
     // other callback).
@@ -211,6 +247,16 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
     const [graphViewMode, setGraphViewMode] = useState<'CALLBACKS' | 'BROWSERSCRIPTS'>('CALLBACKS');
     // ── Download refs ──
     const graphContainerRef = useRef<HTMLDivElement>(null);
+    /** The graph's box, excluding the control strip above it. Everything that
+     *  asks "how big is the graph" — the camera fit, the PNG/SVG export — means
+     *  this, not the whole component. */
+    const graphCanvasRef = useRef<HTMLDivElement>(null);
+    /** That box's shape, in quarter steps. Bucketed because it exists to trigger
+     *  a relayout, and a relayout per pixel of a window drag would be a storm of
+     *  ELK calls for a tree that comes out the same. Declared up here with the
+     *  other layout inputs: the ELK effect below lists it as a dependency, so a
+     *  declaration further down is a temporal dead zone, not a style choice. */
+    const [canvasAspectBucket, setCanvasAspectBucket] = useState<number | null>(null);
 
     // All-edges query (non-active edges, skip when not needed) — must come AFTER showAllEdges state declaration
     const { data: allEdgesData } = useQuery<any>(GET_CALLBACK_GRAPH_EDGES_ALL, {
@@ -1090,7 +1136,7 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
                         ...((e.data as GraphEdgeData)?.origStyle || e.style),
                         strokeWidth: 3,
                         opacity: 1,
-                        filter: 'drop-shadow(0 0 4px #22c55e)',
+                        filter: 'drop-shadow(0 0 4px #4ade80)',
                     },
                 };
             }
@@ -1208,16 +1254,29 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
     React.useEffect(() => {
         if (graphData.nodes.length === 0) return;
 
-        // Structural hash: skip ELK if node IDs, edge connections, and direction haven't changed
+        // The shape of the box the tree will be framed in. ELK uses it to
+        // spread its layers to match — see stretchLayersToAspect — so a wide,
+        // short panel gets a wide, short tree instead of a clump with 400px of
+        // black either side.
+        const canvas = graphCanvasRef.current;
+        const targetAspect = canvas && canvas.clientHeight > 0
+            ? canvas.clientWidth / canvas.clientHeight
+            : undefined;
+
+        // Structural hash: skip ELK if node IDs, edge connections, and direction haven't changed.
+        // The aspect is in the hash too, BUCKETED to quarter steps — a relayout
+        // on every pixel of a window drag would be a storm of ELK calls, but a
+        // panel that has genuinely changed shape does need new spacing.
         const nodeIds = graphData.nodes.map(n => n.id).sort().join(',');
         const edgeIds = graphData.edges.map(e => `${e.source}->${e.target}`).sort().join(',');
-        const structuralHash = `${nodeIds}|${edgeIds}|${layoutDir}|${groupBy}`;
+        const aspectBucket = targetAspect ? Math.round(targetAspect * 4) / 4 : 'n/a';
+        const structuralHash = `${nodeIds}|${edgeIds}|${layoutDir}|${groupBy}|${aspectBucket}`;
         if (structuralHash === prevStructuralHashRef.current) return;
         prevStructuralHashRef.current = structuralHash;
 
         let cancelled = false;
 
-        getElkLayoutedElements(graphData.nodes, graphData.edges, layoutDir).catch((err) => {
+        getElkLayoutedElements(graphData.nodes, graphData.edges, layoutDir, targetAspect).catch((err) => {
             if (!cancelled) console.error('[Minerva] ELK layout failed:', err);
         }).then((result) => {
             if (!result) return;
@@ -1279,7 +1338,133 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
             setEdges((_prev: Edge[]) => layoutedEdges);
         });
         return () => { cancelled = true; };
-    }, [graphData, layoutDir, groupBy, setNodes, setEdges]);
+        // `canvasAspectBucket` is not read in here — the effect measures the box
+        // itself — but it IS what re-runs this when the panel changes shape.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [graphData, layoutDir, groupBy, setNodes, setEdges, canvasAspectBucket]);
+
+    /** Push fresh callback data into the existing nodes, without re-laying out.
+     *
+     *  The ELK effect above is the ONLY path that carries `graphData` into
+     *  ReactFlow state, and it early-returns whenever the structural hash is
+     *  unchanged. In steady state — same node ids, same edges, which is most of a
+     *  long engagement — that means each 10s poll computes a fresh `last_checkin`
+     *  and then throws it away. CyberNode's own ticker keeps re-running
+     *  `isCallbackAlive` against the frozen value, so every callback eventually
+     *  crosses its liveness threshold and the whole graph goes red and stays red
+     *  while the Callbacks table two clicks away shows the same hosts alive.
+     *
+     *  So: merge `data` by id on every graphData change. Positions are never
+     *  touched, so ELK's tree and any operator drag both survive; ELK itself
+     *  still runs only when the structure actually changed.
+     */
+    React.useEffect(() => {
+        if (graphData.nodes.length === 0) return;
+        const fresh = new Map(graphData.nodes.map(n => [n.id, n.data]));
+        setNodes((prev: Node[]) => {
+            let changed = false;
+            const next = prev.map(n => {
+                const d = fresh.get(n.id);
+                if (d === undefined) return n;               // group overlays etc.
+                if (shallowEqualData(n.data, d)) return n;
+                changed = true;
+                return { ...n, data: d };
+            });
+            // Returning `prev` on a no-op poll keeps node identity stable, so the
+            // memoised node components do not re-render when nothing moved.
+            return changed ? next : prev;
+        });
+    }, [graphData, setNodes]);
+
+    // ── Camera ──────────────────────────────────────────────────────────────
+    //
+    // `fitView` as a ReactFlow PROP fits exactly once, at mount, against
+    // whatever nodes exist at that moment — and at mount there are none. The
+    // callbacks are still in flight and ELK has not run, so the one fit that was
+    // meant to frame the graph fired over an empty canvas. The tree then landed
+    // wherever ELK put it (ELK lays out from the origin, and a wide right-
+    // directed tree runs a long way off it) while the camera stayed parked at
+    // 0,0 zoom 1. That is the off-centre first paint: not a layout bug, a
+    // camera that was aimed before there was anything to aim at.
+    //
+    // So: fit when there IS something to fit, and stop the moment the operator
+    // takes the camera. An auto-fit that kept firing would yank the view back
+    // every ten-second poll, mid-inspection.
+    const rfRef = useRef<ReactFlowInstance | null>(null);
+    const cameraHeldByOperator = useRef(false);
+    const hasFramedRef = useRef(false);
+
+    const frameGraph = useCallback((duration: number) => {
+        if (!rfRef.current || cameraHeldByOperator.current) return;
+        // Two frames, not one: React commits the nodes on the first and
+        // ReactFlow measures their real boxes on the second. Fitting before the
+        // measure pass uses fallback dimensions and lands consistently short.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (!rfRef.current || cameraHeldByOperator.current) return;
+            void rfRef.current.fitView({ ...RF_FIT_VIEW_OPTIONS, duration });
+        }));
+    }, []);
+
+    /** Re-frame on the node SET, never on the node array.
+     *
+     *  `nodes` gets a new identity constantly — the dim effect, the link-focus
+     *  highlight and every ELK pass rewrite it — and re-framing on those would
+     *  move the camera while the operator is reading. What should move the
+     *  camera is a callback arriving, a callback going away, or a filter
+     *  changing which of them are on screen. That is exactly the id set. */
+    const nodeIdKey = useMemo(
+        () => nodes.map(n => n.id).sort().join(','),
+        [nodes],
+    );
+    useEffect(() => {
+        if (!nodeIdKey) return;
+        // First frame is instant — animating in from the origin reads as the
+        // graph sliding away from the operator. Later ones animate, because
+        // then the movement is the message: something joined or left.
+        frameGraph(hasFramedRef.current ? 400 : 0);
+        hasFramedRef.current = true;
+    }, [nodeIdKey, frameGraph]);
+
+    /** The panel is a percentage of the window, so this canvas resizes whenever
+     *  the window does — and a fit computed for the old box is wrong for the
+     *  new one. Collapsing the sidebar counts too: that is a width change.
+     *
+     *  A TIMEOUT, not a frame. ReactFlow keeps the viewport size in its own
+     *  store, updated by its own ResizeObserver, and `fitView` divides by
+     *  whatever is in there. Fitting on the next frame beat that update and
+     *  re-fitted against the OLD box — which computes the transform it already
+     *  had, so the graph sat unmoved while the panel shrank around it. Landing
+     *  after ReactFlow's own observer is what makes the re-fit real, and it
+     *  coalesces the storm of events from a window drag into one fit. */
+    useEffect(() => {
+        const el = graphCanvasRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const ro = new ResizeObserver(() => {
+            if (timer !== null) clearTimeout(timer);
+            timer = setTimeout(() => {
+                timer = null;
+                // Re-frame first — that is instant and always correct. Then let
+                // the layout know the box changed shape, which may spread the
+                // layers differently and re-frame again off the back of it.
+                frameGraph(0);
+                const box = graphCanvasRef.current;
+                if (box && box.clientHeight > 0) {
+                    setCanvasAspectBucket(Math.round((box.clientWidth / box.clientHeight) * 4) / 4);
+                }
+            }, 160);
+        });
+        ro.observe(el);
+        return () => { if (timer !== null) clearTimeout(timer); ro.disconnect(); };
+    }, [frameGraph]);
+
+    /** Hand the camera back to the graph. Without this the operator has no way
+     *  out of a pan — one stray scroll and the view is theirs to fix by hand
+     *  forever. */
+    const recentreGraph = useCallback(() => {
+        cameraHeldByOperator.current = false;
+        frameGraph(400);
+    }, [frameGraph]);
 
     // Get filtered callbacks for set parent modal - show ALL active callbacks and custom nodes
     const filteredCallbacksForParent = useMemo(() => {
@@ -1376,7 +1561,7 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
 
     // ── Download graph as SVG ──
     const handleDownloadSVG = useCallback(async () => {
-        const el = graphContainerRef.current;
+        const el = graphCanvasRef.current;
         if (!el) return;
         try {
             snackActions.info('Generating SVG...');
@@ -1389,7 +1574,7 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
 
     // ── Download graph as PNG ──
     const handleDownloadPNG = useCallback(async () => {
-        const el = graphContainerRef.current;
+        const el = graphCanvasRef.current;
         if (!el) return;
         try {
             snackActions.info('Generating image...');
@@ -1401,109 +1586,146 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
     }, []);
 
     return (
-        <div ref={graphContainerRef} className="w-full h-full bg-[#050505] border border-ghost/30 relative overflow-hidden rounded-lg">
-             {/* Control Buttons */}
-             <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2">
-                <div className="flex items-center gap-2">
+        <div ref={graphContainerRef} className="relative flex h-full w-full flex-col overflow-hidden bg-[#050505]">
+            {/* ── Control strip ──────────────────────────────────────────────
+                These controls used to float ON the canvas — status chips in the
+                top-left corner, the button row in the top-right. That is the
+                whole reason the graph read as pushed up and to the right: the
+                brightest, densest object in the panel sat in the corner the
+                tree was being centred into, and `fitView` could not see it, so
+                the topmost node row came to rest level with the toolbar.
+                Reserving a band for it instead would have cost the same pixels
+                AND shrunk the graph.
+                Docked, the chrome costs the same height but reads as chrome,
+                and everything below it belongs to the graph — which is the only
+                arrangement in which "centred" actually looks centred. Same
+                strip as the AGENT LIST panel: state left, controls right. */}
+            <div className="relative z-20 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-signal/15 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <ToolChip tone="live">
+                        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" />
+                        {graphViewMode === 'BROWSERSCRIPTS' ? 'Browserscript view' : 'Topology live'}
+                    </ToolChip>
+                    {customNodes.length > 0 && graphViewMode === 'CALLBACKS' && (
+                        <ToolChip>
+                            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-signal" />
+                            {customNodes.length} custom node{customNodes.length > 1 ? 's' : ''}
+                        </ToolChip>
+                    )}
+                    {linkFocusNodeId && (
+                        <ToolChip tone="warn">
+                            <Crosshair size={10} strokeWidth={2} aria-hidden="true" />
+                            <span className="max-w-[18ch] truncate" title={linkFocusNodeLabel}>Focus {linkFocusNodeLabel}</span>
+                            <button
+                                onClick={() => handleClearLinkFocus()}
+                                className="ml-0.5 transition-opacity hover:opacity-70"
+                                title="Clear Link Focus"
+                                aria-label="Clear link focus"
+                            >
+                                <X size={11} strokeWidth={2} />
+                            </button>
+                        </ToolChip>
+                    )}
+                </div>
 
-                {/* Link Focus Indicator */}
-                {linkFocusNodeId && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/40 rounded text-xs font-mono text-amber-400 animate-pulse">
-                        <Crosshair size={12} className="shrink-0" />
-                        <span className="max-w-[90px] truncate" title={linkFocusNodeLabel}>FOCUS: {linkFocusNodeLabel}</span>
-                        <button
-                            onClick={() => handleClearLinkFocus()}
-                            className="ml-1 text-amber-500/60 hover:text-amber-300 transition-colors"
-                            title="Clear Link Focus"
-                        >
-                            <X size={11} />
-                        </button>
-                    </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
 
                 {/* View Mode Toggle */}
-                <div className="flex border border-signal/30 rounded overflow-hidden">
+                <div role="group" aria-label="Graph view" className="inline-flex h-8 shrink-0 overflow-hidden rounded-sm border border-signal/20 bg-void/80 backdrop-blur-sm">
                     <button
                         onClick={() => setGraphViewMode('CALLBACKS')}
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-mono transition-colors ${
-                            graphViewMode === 'CALLBACKS'
-                                ? 'bg-signal/20 text-signal border-r border-signal/30'
-                                : 'bg-black/60 text-gray-500 hover:text-signal/70 border-r border-signal/10'
-                        }`}
+                        aria-pressed={graphViewMode === 'CALLBACKS'}
+                        className={cn(
+                            'inline-flex items-center gap-1.5 px-2.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal',
+                            graphViewMode === 'CALLBACKS' ? 'bg-signal text-void' : 'text-signal hover:bg-signal/10',
+                        )}
                         title="Callback Graph View"
                     >
-                        <Network size={13} /> CALLBACKS
+                        <Network size={12} strokeWidth={2} aria-hidden="true" /> Callbacks
                     </button>
+                    <span aria-hidden="true" className="w-px bg-signal/20" />
                     <button
                         onClick={() => setGraphViewMode('BROWSERSCRIPTS')}
-                        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-mono transition-colors ${
-                            graphViewMode === 'BROWSERSCRIPTS'
-                                ? 'bg-signal/20 text-signal'
-                                : 'bg-black/60 text-gray-500 hover:text-signal/70'
-                        }`}
+                        aria-pressed={graphViewMode === 'BROWSERSCRIPTS'}
+                        className={cn(
+                            'inline-flex items-center gap-1.5 px-2.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal',
+                            graphViewMode === 'BROWSERSCRIPTS' ? 'bg-signal text-void' : 'text-signal hover:bg-signal/10',
+                        )}
                         title="Browserscript Graph View"
                     >
-                        <Code size={13} /> SCRIPTS
+                        <Code size={12} strokeWidth={2} aria-hidden="true" /> Scripts
                     </button>
                 </div>
                 <button
                     onClick={() => setShowHiddenNodes(!showHiddenNodes)}
-                    className={`flex items-center gap-2 px-3 py-2 border rounded transition-colors text-xs font-mono ${
-                        showHiddenNodes 
-                            ? 'bg-yellow-500/20 hover:bg-yellow-500/30 border-yellow-500/50 text-yellow-500'
-                            : 'bg-gray-500/20 hover:bg-gray-500/30 border-gray-500/50 text-gray-400'
-                    }`}
+                    aria-pressed={showHiddenNodes}
+                    className={cn(TOOL_BTN, 'h-8 bg-void/80 backdrop-blur-sm', showHiddenNodes ? TOOL_ON.warn : TOOL_IDLE)}
                     title={showHiddenNodes ? "Hide Hidden Nodes" : "Show Hidden Nodes"}
                 >
-                    <EyeOff size={14} />
-                    {showHiddenNodes ? 'HIDE' : 'SHOW'} HIDDEN
+                    <EyeOff size={12} strokeWidth={2} aria-hidden="true" />
+                    Show hidden
                 </button>
                 {customNodes.length > 0 && (
                     <button
                         onClick={handleExportCustomNodes}
-                        className="flex items-center gap-2 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-400 rounded transition-colors text-xs font-mono"
+                        className={cn(TOOL_BTN, 'h-8 bg-void/80 backdrop-blur-sm', TOOL_IDLE)}
                         title="Export/Import Custom Nodes"
                     >
-                        <Share2 size={14} />
-                        SHARE
+                        <Share2 size={12} strokeWidth={2} aria-hidden="true" />
+                        Share
                     </button>
                 )}
                 <button
                     onClick={() => setShowCustomNodeModal(true)}
-                    className="flex items-center gap-2 px-3 py-2 bg-signal/20 hover:bg-signal/30 border border-signal/50 text-signal rounded transition-colors text-xs font-mono"
+                    className={cn(TOOL_BTN, 'h-8 bg-void/80 backdrop-blur-sm', TOOL_IDLE)}
                     title="Add Custom Node"
                 >
-                    <Plus size={14} />
-                    ADD NODE
+                    <Plus size={12} strokeWidth={2} aria-hidden="true" />
+                    Add node
+                </button>
+                <button
+                    onClick={recentreGraph}
+                    className={cn(TOOL_BTN, 'h-8 bg-void/80 backdrop-blur-sm', TOOL_IDLE)}
+                    title="Re-centre the topology and resume auto-framing"
+                >
+                    <Crosshair size={12} strokeWidth={2} aria-hidden="true" />
+                    Recentre
                 </button>
                 <button
                     onClick={() => setShowConfigPanel(p => !p)}
-                    className={`flex items-center gap-2 px-3 py-2 border rounded transition-colors text-xs font-mono ${
-                        showConfigPanel
-                            ? 'bg-signal/20 border-signal/60 text-signal'
-                            : 'bg-black/60 border-signal/30 text-signal/70 hover:bg-signal/10 hover:border-signal/50'
-                    }`}
+                    aria-pressed={showConfigPanel}
+                    className={cn(TOOL_BTN, 'h-8 bg-void/80 backdrop-blur-sm', showConfigPanel ? TOOL_ON.signal : TOOL_IDLE)}
                     title="Graph Configuration"
                 >
-                    <SlidersHorizontal size={14} />
-                    CONFIG
+                    <SlidersHorizontal size={12} strokeWidth={2} aria-hidden="true" />
+                    Config
                 </button>
                 </div>
 
-                {/* Config Panel */}
+                {/* Config Panel — hangs off the strip's right edge, over the
+                    canvas, so opening it never reflows the graph. */}
                 {showConfigPanel && (
-                    <GraphConfigPanel
-                        layoutDir={layoutDir} setLayoutDir={setLayoutDir}
-                        showAllEdges={showAllEdges} setShowAllEdges={setShowAllEdges}
-                        packetFlowView={packetFlowView} setPacketFlowView={setPacketFlowView}
-                        mergeByHost={mergeByHost} setMergeByHost={setMergeByHost}
-                        groupBy={groupBy} setGroupBy={setGroupBy}
-                        nodeLabels={nodeLabels} setNodeLabels={setNodeLabels}
-                        onDownloadPNG={handleDownloadPNG} onDownloadSVG={handleDownloadSVG}
-                    />
+                    <div className="absolute right-3 top-full z-30 mt-2">
+                        <GraphConfigPanel
+                            layoutDir={layoutDir} setLayoutDir={setLayoutDir}
+                            showAllEdges={showAllEdges} setShowAllEdges={setShowAllEdges}
+                            packetFlowView={packetFlowView} setPacketFlowView={setPacketFlowView}
+                            mergeByHost={mergeByHost} setMergeByHost={setMergeByHost}
+                            groupBy={groupBy} setGroupBy={setGroupBy}
+                            nodeLabels={nodeLabels} setNodeLabels={setNodeLabels}
+                            onDownloadPNG={handleDownloadPNG} onDownloadSVG={handleDownloadSVG}
+                        />
+                    </div>
                 )}
             </div>
-            
+
+            {/* ── Canvas ─────────────────────────────────────────────────────
+                The graph's own box, with nothing floating over it. This is what
+                the camera frames and what an export captures — the strip above
+                is chrome and belongs in neither. */}
+            <div ref={graphCanvasRef} className="relative min-h-0 flex-1">
              {/* Loading/Error Indicators */}
              {(callbacksLoading && !callbacksData) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-20 text-signal font-mono text-xs">
@@ -1515,8 +1737,8 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
             <div className="absolute inset-0 opacity-[0.1] pointer-events-none" 
                  style={{ 
                      backgroundImage: `
-                        linear-gradient(rgba(34, 197, 94, 0.1) 1px, transparent 1px),
-                        linear-gradient(90deg, rgba(34, 197, 94, 0.1) 1px, transparent 1px)
+                        linear-gradient(rgba(74,222,128, 0.1) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(74,222,128, 0.1) 1px, transparent 1px)
                      `,
                      backgroundSize: '40px 40px'
                  }}>
@@ -1546,9 +1768,16 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
                 proOptions={RF_PRO_OPTIONS}
                 defaultEdgeOptions={RF_DEFAULT_EDGE_OPTIONS}
                 defaultViewport={viewportRef.current}
-                onMove={(_, viewport) => {
+                onInit={(instance) => { rfRef.current = instance; }}
+                onMove={(event, viewport) => {
                     // Always keep the ref current (camera-restoration reads it).
                     viewportRef.current = viewport;
+                    // `event` is null when the move came from our own fitView
+                    // and a real pointer/wheel event when it came from the
+                    // operator — so this is the one place that can tell "the
+                    // graph re-framed itself" apart from "the operator panned",
+                    // and only the latter takes the camera away from us.
+                    if (event) cameraHeldByOperator.current = true;
                     // Only push to state while the flow-anchored LINK_TO_PARENT
                     // panel is open — otherwise this would re-render the whole
                     // graph ~60×/sec during a pan for a value nothing consumes.
@@ -1590,19 +1819,6 @@ export const CallbackGraph = React.memo(function CallbackGraph({ filterCallbackI
                 }}
             />
             
-            {/* Status Overlay */}
-            <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-xs font-mono text-signal bg-black/60 px-3 py-1 border border-signal/20 backdrop-blur-sm shadow-[0_0_10px_rgba(34,197,94,0.2)]">
-                    <div className="w-2 h-2 bg-signal rounded-full animate-pulse shadow-[0_0_5px_#22c55e]"></div>
-                    {graphViewMode === 'BROWSERSCRIPTS' ? 'BROWSERSCRIPT_VIEW_ACTIVE' : 'NETWORK_TOPOLOGY_ACTIVE'}
-                </div>
-                {customNodes.length > 0 && graphViewMode === 'CALLBACKS' && (
-
-                    <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 bg-black/60 px-3 py-1 border border-cyan-500/20 backdrop-blur-sm">
-                        <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
-                        {customNodes.length} CUSTOM_NODE{customNodes.length > 1 ? 'S' : ''}
-                    </div>
-                )}
             </div>
 
             <GraphContextMenus

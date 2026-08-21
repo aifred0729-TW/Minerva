@@ -1,8 +1,27 @@
 import { gql } from '@apollo/client';
 
+/*
+ * Every root selection below is scoped with `operation_id: {_eq: $operation_id}`.
+ *
+ * Mythic's Hasura permission for operator AND spectator on task / filemeta /
+ * credential / payload / keylog / tag / callbackport / taskartifact / token /
+ * response is `operation_id: _in: X-Hasura-operations` — every operation the
+ * operator is a MEMBER of, not the one they are currently working. Only
+ * `callback` is scoped to `_eq: X-Hasura-current-operation-id`, which is why the
+ * callback searches need no predicate.
+ *
+ * Without the predicate, searching credentials on a consultancy team server
+ * returned every engagement the operator belongs to — measured at 853 rows
+ * across 11 operations against 14 in the current one.
+ *
+ * NOT scoped: SEARCH_BROWSERS_* (mythictree). That table is not present in this
+ * Mythic's tracked Hasura metadata, so its row filter could not be verified;
+ * scoping it blind risked breaking file-browser search. Verify and scope it.
+ */
+
 export const SEARCH_TASKS_TAG = gql`
-  query SearchTasksByTag($search: String!, $offset: Int!, $limit: Int!){
-    tag(where: {tagtype: {name: {_ilike: $search}}, task_id: {_is_null: false}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
+  query SearchTasksByTag($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!){
+    tag(where: {operation_id:{_eq:$operation_id}, tagtype: {name: {_ilike: $search}}, task_id: {_is_null: false}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
       id
       task_id
       data
@@ -14,35 +33,35 @@ export const SEARCH_TASKS_TAG = gql`
         callback { id display_id host }
       }
     }
-    tag_aggregate(where: {tagtype: {name: {_ilike: $search}}, task_id: {_is_null: false}}) {
+    tag_aggregate(where: {operation_id:{_eq:$operation_id}, tagtype: {name: {_ilike: $search}}, task_id: {_is_null: false}}) {
       aggregate { count }
     }
   }
 `;
 
 export const SEARCH_TASKS_CALLBACK_ID = gql`
-  query SearchTasksByCallbackID($search: Int!, $offset: Int!, $limit: Int!){
-    task(where: {callback: {display_id: {_eq: $search}}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
+  query SearchTasksByCallbackID($search: Int!, $offset: Int!, $limit: Int!, $operation_id: Int!){
+    task(where: {operation_id:{_eq:$operation_id}, callback: {display_id: {_eq: $search}}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
       id display_id command_name display_params original_params status comment
       timestamp
       operator { username }
       callback { id display_id host }
     }
-    task_aggregate(where: {callback: {display_id: {_eq: $search}}}) {
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, callback: {display_id: {_eq: $search}}}) {
       aggregate { count }
     }
   }
 `;
 
 export const SEARCH_TASKS_CALLBACK_GROUP = gql`
-  query SearchTasksByCallbackGroup($search: String!, $offset: Int!, $limit: Int!){
-    task(where: {callback: {mythictree_groups: {_contains: [$search]}}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
+  query SearchTasksByCallbackGroup($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!){
+    task(where: {operation_id:{_eq:$operation_id}, callback: {mythictree_groups: {_contains: [$search]}}}, order_by: {id: desc}, offset: $offset, limit: $limit) {
       id display_id command_name display_params original_params status comment
       timestamp
       operator { username }
       callback { id display_id host }
     }
-    task_aggregate(where: {callback: {mythictree_groups: {_contains: [$search]}}}) {
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, callback: {mythictree_groups: {_contains: [$search]}}}) {
       aggregate { count }
     }
   }
@@ -93,67 +112,67 @@ export const SEARCH_CALLBACKS_ARCH = gql`
 
 // Tasks
 export const SEARCH_TASKS_PARAMS = gql`
-query SearchTasksParams($search: String!, $offset: Int!, $limit: Int!) {
-    task(distinct_on: id, where: {_or: [{original_params:{_ilike:$search}},{display_params:{_ilike:$search}},{params:{_ilike:$search}}]}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTasksParams($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(distinct_on: id, where: {operation_id:{_eq:$operation_id}, _or: [{original_params:{_ilike:$search}},{display_params:{_ilike:$search}},{params:{_ilike:$search}}]}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id display_params original_params command_name comment status timestamp
         callback { id display_id host }
         operator { username }
     }
-    task_aggregate(distinct_on: id, where: {_or: [{original_params:{_ilike:$search}},{display_params:{_ilike:$search}},{params:{_ilike:$search}}]}) { aggregate { count } }
+    task_aggregate(distinct_on: id, where: {operation_id:{_eq:$operation_id}, _or: [{original_params:{_ilike:$search}},{display_params:{_ilike:$search}},{params:{_ilike:$search}}]}) { aggregate { count } }
 }`;
 export const SEARCH_TASKS_RESPONSE = gql`
-query SearchTasksResponse($search: String!, $offset: Int!, $limit: Int!) {
-    task(distinct_on: id, where: {responses:{response_escape:{_ilike:$search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTasksResponse($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(distinct_on: id, where: {operation_id:{_eq:$operation_id}, responses:{response_escape:{_ilike:$search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id display_params original_params command_name comment status timestamp
         callback { id display_id host }
         operator { username }
     }
-    task_aggregate(distinct_on: id, where: {responses:{response_escape:{_ilike:$search}}}) { aggregate { count } }
+    task_aggregate(distinct_on: id, where: {operation_id:{_eq:$operation_id}, responses:{response_escape:{_ilike:$search}}}) { aggregate { count } }
 }`;
 export const SEARCH_TASKS_COMMAND = gql`
-query SearchTasksCommand($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {command_name:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTasksCommand($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, command_name:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id display_params original_params command_name comment status timestamp
         callback { id display_id host }
         operator { username }
     }
-    task_aggregate(where: {command_name:{_ilike:$search}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, command_name:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_TASKS_COMMENT = gql`
-query SearchTasksComment($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {comment:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTasksComment($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, comment:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id display_params original_params command_name comment status timestamp
         callback { id display_id host }
         operator { username }
     }
-    task_aggregate(where: {comment:{_ilike:$search}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, comment:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_TASKS_HOST = gql`
-query SearchTasksHost($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {callback: {host: {_ilike: $search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTasksHost($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, callback: {host: {_ilike: $search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id display_params original_params command_name comment status timestamp
         callback { id display_id host }
         operator { username }
     }
-    task_aggregate(where: {callback: {host: {_ilike: $search}}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, callback: {host: {_ilike: $search}}}) { aggregate { count } }
 }`;
 export const SEARCH_TASKS_STATUS = gql`
-query SearchTasksStatus($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {status: {_ilike: $search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTasksStatus($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, status: {_ilike: $search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id display_params original_params command_name comment status timestamp
         callback { id display_id host }
         operator { username }
     }
-    task_aggregate(where: {status: {_ilike: $search}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, status: {_ilike: $search}}) { aggregate { count } }
 }`;
 export const SEARCH_TASKS_OPERATOR = gql`
-query SearchTasksOperator($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {operator: {username: {_ilike: $search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTasksOperator($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, operator: {username: {_ilike: $search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id display_params original_params command_name comment status timestamp
         callback { id display_id host }
         operator { username }
     }
-    task_aggregate(where: {operator: {username: {_ilike: $search}}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, operator: {username: {_ilike: $search}}}) { aggregate { count } }
 }`;
 
 // Callbacks
@@ -229,68 +248,68 @@ export const FILE_FIELDS_FRAGMENT = `
     task { id callback { display_id } }
 `;
 export const SEARCH_FILES_DOWNLOADS = gql`
-query SearchFilesDownloads($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{_or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:true}, is_screenshot:{_eq:false}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesDownloads($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, _or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:true}, is_screenshot:{_eq:false}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{_or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:true}, is_screenshot:{_eq:false}, deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, _or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:true}, is_screenshot:{_eq:false}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_UPLOADS = gql`
-query SearchFilesUploads($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{_or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:false}, is_screenshot:{_eq:false}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesUploads($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, _or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:false}, is_screenshot:{_eq:false}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{_or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:false}, is_screenshot:{_eq:false}, deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, _or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_download_from_agent:{_eq:false}, is_screenshot:{_eq:false}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_SCREENSHOTS = gql`
-query SearchFilesScreenshots($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{_or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_screenshot:{_eq:true}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesScreenshots($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, _or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_screenshot:{_eq:true}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{_or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_screenshot:{_eq:true}, deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, _or:[{filename_text:{_ilike:$search}},{full_remote_path_text:{_ilike:$search}},{comment:{_ilike:$search}}], is_screenshot:{_eq:true}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_FILENAME = gql`
-query SearchFilesFilename($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{filename_text:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesFilename($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, filename_text:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host md5 sha1
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{filename_text:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, filename_text:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_HASH = gql`
-query SearchFilesHash($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{_or:[{md5:{_ilike:$search}},{sha1:{_ilike:$search}}], deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesHash($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, _or:[{md5:{_ilike:$search}},{sha1:{_ilike:$search}}], deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host md5 sha1
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{_or:[{md5:{_ilike:$search}},{sha1:{_ilike:$search}}], deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, _or:[{md5:{_ilike:$search}},{sha1:{_ilike:$search}}], deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_COMMENT = gql`
-query SearchFilesComment($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{comment:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesComment($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, comment:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{comment:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, comment:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_TAG = gql`
-query SearchFilesTag($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesTag($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_UUID = gql`
-query SearchFilesUUID($search: String!, $offset: Int!, $limit: Int!) {
-    filemeta(where:{agent_file_id:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchFilesUUID($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    filemeta(where:{operation_id:{_eq:$operation_id}, agent_file_id:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id agent_file_id filename_text full_remote_path_text comment is_download_from_agent is_screenshot complete chunks_received total_chunks timestamp host
         task { id callback { display_id } }
     }
-    filemeta_aggregate(where:{agent_file_id:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    filemeta_aggregate(where:{operation_id:{_eq:$operation_id}, agent_file_id:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_FILES_FILEBROWSER = gql`
 query SearchFilesFileBrowser($search: String!, $offset: Int!, $limit: Int!) {
@@ -312,136 +331,136 @@ query SearchFilesEventing($search: String!, $offset: Int!, $limit: Int!) {
 
 // Credentials
 export const SEARCH_CREDS_ACCOUNT = gql`
-query SearchCredsAccount($search: String!, $offset: Int!, $limit: Int!) {
-    credential(where:{account:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchCredsAccount($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    credential(where:{operation_id:{_eq:$operation_id}, account:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id account realm type credential_text comment timestamp task_id
         operator { username }
     }
-    credential_aggregate(where:{account:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    credential_aggregate(where:{operation_id:{_eq:$operation_id}, account:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_CREDS_REALM = gql`
-query SearchCredsRealm($search: String!, $offset: Int!, $limit: Int!) {
-    credential(where:{realm:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchCredsRealm($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    credential(where:{operation_id:{_eq:$operation_id}, realm:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id account realm type credential_text comment timestamp task_id
         operator { username }
     }
-    credential_aggregate(where:{realm:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    credential_aggregate(where:{operation_id:{_eq:$operation_id}, realm:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_CREDS_CREDENTIAL = gql`
-query SearchCredsCredential($search: String!, $offset: Int!, $limit: Int!) {
-    credential(where:{credential_text:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchCredsCredential($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    credential(where:{operation_id:{_eq:$operation_id}, credential_text:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id account realm type credential_text comment timestamp task_id
         operator { username }
     }
-    credential_aggregate(where:{credential_text:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    credential_aggregate(where:{operation_id:{_eq:$operation_id}, credential_text:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_CREDS_COMMENT = gql`
-query SearchCredsComment($search: String!, $offset: Int!, $limit: Int!) {
-    credential(where:{comment:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchCredsComment($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    credential(where:{operation_id:{_eq:$operation_id}, comment:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id account realm type credential_text comment timestamp task_id
         operator { username }
     }
-    credential_aggregate(where:{comment:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    credential_aggregate(where:{operation_id:{_eq:$operation_id}, comment:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_CREDS_TAG = gql`
-query SearchCredsTag($search: String!, $offset: Int!, $limit: Int!) {
-    credential(where:{tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchCredsTag($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    credential(where:{operation_id:{_eq:$operation_id}, tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id account realm type credential_text comment timestamp task_id
         operator { username }
     }
-    credential_aggregate(where:{tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}) { aggregate { count } }
+    credential_aggregate(where:{operation_id:{_eq:$operation_id}, tags:{tagtype:{name:{_ilike:$search}}}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 
 // Artifacts
 export const SEARCH_ARTIFACTS_ARTIFACT = gql`
-query SearchArtifactsArtifact($search: String!, $offset: Int!, $limit: Int!) {
-    taskartifact(where:{artifact_text:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchArtifactsArtifact($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    taskartifact(where:{operation_id:{_eq:$operation_id}, artifact_text:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id artifact_text host timestamp base_artifact
         task { id command_name callback { display_id } }
     }
-    taskartifact_aggregate(where:{artifact_text:{_ilike:$search}}) { aggregate { count } }
+    taskartifact_aggregate(where:{operation_id:{_eq:$operation_id}, artifact_text:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_ARTIFACTS_HOST = gql`
-query SearchArtifactsHost($search: String!, $offset: Int!, $limit: Int!) {
-    taskartifact(where:{host:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchArtifactsHost($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    taskartifact(where:{operation_id:{_eq:$operation_id}, host:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id artifact_text host timestamp base_artifact
         task { id command_name callback { display_id } }
     }
-    taskartifact_aggregate(where:{host:{_ilike:$search}}) { aggregate { count } }
+    taskartifact_aggregate(where:{operation_id:{_eq:$operation_id}, host:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_ARTIFACTS_TYPE = gql`
-query SearchArtifactsType($search: String!, $offset: Int!, $limit: Int!) {
-    taskartifact(where:{base_artifact:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchArtifactsType($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    taskartifact(where:{operation_id:{_eq:$operation_id}, base_artifact:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id artifact_text host timestamp base_artifact
         task { id command_name callback { display_id } }
     }
-    taskartifact_aggregate(where:{base_artifact:{_ilike:$search}}) { aggregate { count } }
+    taskartifact_aggregate(where:{operation_id:{_eq:$operation_id}, base_artifact:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_ARTIFACTS_COMMAND = gql`
-query SearchArtifactsCommand($search: String!, $offset: Int!, $limit: Int!) {
-    taskartifact(where:{task:{command_name:{_ilike:$search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchArtifactsCommand($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    taskartifact(where:{operation_id:{_eq:$operation_id}, task:{command_name:{_ilike:$search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id artifact_text host timestamp base_artifact
         task { id command_name callback { display_id } operator { username } }
     }
-    taskartifact_aggregate(where:{task:{command_name:{_ilike:$search}}}) { aggregate { count } }
+    taskartifact_aggregate(where:{operation_id:{_eq:$operation_id}, task:{command_name:{_ilike:$search}}}) { aggregate { count } }
 }`;
 export const SEARCH_ARTIFACTS_TASK = gql`
-query SearchArtifactsTask($search: Int!, $offset: Int!, $limit: Int!) {
-    taskartifact(where:{task_id:{_eq:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchArtifactsTask($search: Int!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    taskartifact(where:{operation_id:{_eq:$operation_id}, task_id:{_eq:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id artifact_text host timestamp base_artifact
         task { id command_name callback { display_id } operator { username } }
     }
-    taskartifact_aggregate(where:{task_id:{_eq:$search}}) { aggregate { count } }
+    taskartifact_aggregate(where:{operation_id:{_eq:$operation_id}, task_id:{_eq:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_ARTIFACTS_CALLBACK = gql`
-query SearchArtifactsCallback($search: Int!, $offset: Int!, $limit: Int!) {
-    taskartifact(where:{task:{callback:{display_id:{_eq:$search}}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchArtifactsCallback($search: Int!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    taskartifact(where:{operation_id:{_eq:$operation_id}, task:{callback:{display_id:{_eq:$search}}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id artifact_text host timestamp base_artifact
         task { id command_name callback { display_id } operator { username } }
     }
-    taskartifact_aggregate(where:{task:{callback:{display_id:{_eq:$search}}}}) { aggregate { count } }
+    taskartifact_aggregate(where:{operation_id:{_eq:$operation_id}, task:{callback:{display_id:{_eq:$search}}}}) { aggregate { count } }
 }`;
 export const SEARCH_ARTIFACTS_OPERATOR = gql`
-query SearchArtifactsOperator($search: String!, $offset: Int!, $limit: Int!) {
-    taskartifact(where:{task:{operator:{username:{_ilike:$search}}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchArtifactsOperator($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    taskartifact(where:{operation_id:{_eq:$operation_id}, task:{operator:{username:{_ilike:$search}}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id artifact_text host timestamp base_artifact
         task { id command_name callback { display_id } operator { username } }
     }
-    taskartifact_aggregate(where:{task:{operator:{username:{_ilike:$search}}}}) { aggregate { count } }
+    taskartifact_aggregate(where:{operation_id:{_eq:$operation_id}, task:{operator:{username:{_ilike:$search}}}}) { aggregate { count } }
 }`;
 
 // Keylogs
 export const SEARCH_KEYLOGS_KEYSTROKE = gql`
-query SearchKeylogsKeystroke($search: String!, $offset: Int!, $limit: Int!) {
-    keylog(where:{keystrokes_text:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchKeylogsKeystroke($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    keylog(where:{operation_id:{_eq:$operation_id}, keystrokes_text:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id keystrokes_text window user timestamp
         task { callback { display_id host } }
     }
-    keylog_aggregate(where:{keystrokes_text:{_ilike:$search}}) { aggregate { count } }
+    keylog_aggregate(where:{operation_id:{_eq:$operation_id}, keystrokes_text:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_KEYLOGS_USER = gql`
-query SearchKeylogsUser($search: String!, $offset: Int!, $limit: Int!) {
-    keylog(where:{user:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchKeylogsUser($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    keylog(where:{operation_id:{_eq:$operation_id}, user:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id keystrokes_text window user timestamp
         task { callback { display_id host } }
     }
-    keylog_aggregate(where:{user:{_ilike:$search}}) { aggregate { count } }
+    keylog_aggregate(where:{operation_id:{_eq:$operation_id}, user:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_KEYLOGS_PROGRAM = gql`
-query SearchKeylogsProgram($search: String!, $offset: Int!, $limit: Int!) {
-    keylog(where:{window:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchKeylogsProgram($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    keylog(where:{operation_id:{_eq:$operation_id}, window:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id keystrokes_text window user timestamp
         task { callback { display_id host } }
     }
-    keylog_aggregate(where:{window:{_ilike:$search}}) { aggregate { count } }
+    keylog_aggregate(where:{operation_id:{_eq:$operation_id}, window:{_ilike:$search}}) { aggregate { count } }
 }`;
 export const SEARCH_KEYLOGS_HOST = gql`
-query SearchKeylogsHost($search: String!, $offset: Int!, $limit: Int!) {
-    keylog(where:{task:{callback:{host:{_ilike:$search}}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchKeylogsHost($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    keylog(where:{operation_id:{_eq:$operation_id}, task:{callback:{host:{_ilike:$search}}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id keystrokes_text window user timestamp
         task { callback { display_id host } }
     }
-    keylog_aggregate(where:{task:{callback:{host:{_ilike:$search}}}}) { aggregate { count } }
+    keylog_aggregate(where:{operation_id:{_eq:$operation_id}, task:{callback:{host:{_ilike:$search}}}}) { aggregate { count } }
 }`;
 export const SEARCH_KEYLOGS_UNIQUE_USER = gql`
 query SearchKeylogsUniqueUser($offset: Int!, $limit: Int!) {
@@ -462,77 +481,77 @@ query SearchKeylogsUniqueProgram($offset: Int!, $limit: Int!) {
 
 // Payloads
 export const SEARCH_PAYLOADS_FILENAME = gql`
-query SearchPayloadsFilename($search: String!, $offset: Int!, $limit: Int!) {
-    payload(where:{filemetum:{filename_text:{_ilike:$search}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchPayloadsFilename($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    payload(where:{operation_id:{_eq:$operation_id}, filemetum:{filename_text:{_ilike:$search}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id uuid description build_phase timestamp
         payloadtype { name }
         filemetum { filename_text }
     }
-    payload_aggregate(where:{filemetum:{filename_text:{_ilike:$search}}, deleted:{_eq:false}}) { aggregate { count } }
+    payload_aggregate(where:{operation_id:{_eq:$operation_id}, filemetum:{filename_text:{_ilike:$search}}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_PAYLOADS_DESC = gql`
-query SearchPayloadsDesc($search: String!, $offset: Int!, $limit: Int!) {
-    payload(where:{description:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchPayloadsDesc($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    payload(where:{operation_id:{_eq:$operation_id}, description:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id uuid description build_phase timestamp
         payloadtype { name }
         filemetum { filename_text }
     }
-    payload_aggregate(where:{description:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    payload_aggregate(where:{operation_id:{_eq:$operation_id}, description:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_PAYLOADS_UUID = gql`
-query SearchPayloadsUUID($search: String!, $offset: Int!, $limit: Int!) {
-    payload(where:{uuid:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchPayloadsUUID($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    payload(where:{operation_id:{_eq:$operation_id}, uuid:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id uuid description build_phase timestamp
         payloadtype { name }
         filemetum { filename_text }
     }
-    payload_aggregate(where:{uuid:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    payload_aggregate(where:{operation_id:{_eq:$operation_id}, uuid:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_PAYLOADS_C2PARAM = gql`
-query SearchPayloadsC2Param($search: String!, $offset: Int!, $limit: Int!) {
-    payload(where:{payloadc2profiles:{c2profileparametersinstances:{value:{_ilike:$search}}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchPayloadsC2Param($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    payload(where:{operation_id:{_eq:$operation_id}, payloadc2profiles:{c2profileparametersinstances:{value:{_ilike:$search}}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id uuid description build_phase timestamp
         payloadtype { name }
         filemetum { filename_text }
         payloadc2profiles { c2profile { name } c2profileparametersinstances { value } }
     }
-    payload_aggregate(where:{payloadc2profiles:{c2profileparametersinstances:{value:{_ilike:$search}}}, deleted:{_eq:false}}) { aggregate { count } }
+    payload_aggregate(where:{operation_id:{_eq:$operation_id}, payloadc2profiles:{c2profileparametersinstances:{value:{_ilike:$search}}}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_PAYLOADS_BUILDPARAM = gql`
-query SearchPayloadsBuildParam($search: String!, $offset: Int!, $limit: Int!) {
-    payload(where:{buildparameterinstances:{value:{_ilike:$search}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchPayloadsBuildParam($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    payload(where:{operation_id:{_eq:$operation_id}, buildparameterinstances:{value:{_ilike:$search}}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id uuid description build_phase timestamp
         payloadtype { name }
         filemetum { filename_text }
         buildparameterinstances { value buildparameter { name } }
     }
-    payload_aggregate(where:{buildparameterinstances:{value:{_ilike:$search}}, deleted:{_eq:false}}) { aggregate { count } }
+    payload_aggregate(where:{operation_id:{_eq:$operation_id}, buildparameterinstances:{value:{_ilike:$search}}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 
 // Tokens
 export const SEARCH_TOKENS_USER = gql`
-query SearchTokensUser($search: String!, $offset: Int!, $limit: Int!) {
-    token(where:{_or:[{user:{_ilike:$search}},{groups:{_ilike:$search}}], deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTokensUser($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    token(where:{task:{callback:{operation_id:{_eq:$operation_id}}}, _or:[{user:{_ilike:$search}},{groups:{_ilike:$search}}], deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id token_id user timestamp
         task { callback { display_id host } }
     }
-    token_aggregate(where:{_or:[{user:{_ilike:$search}},{groups:{_ilike:$search}}], deleted:{_eq:false}}) { aggregate { count } }
+    token_aggregate(where:{task:{callback:{operation_id:{_eq:$operation_id}}}, _or:[{user:{_ilike:$search}},{groups:{_ilike:$search}}], deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_TOKENS_HOST = gql`
-query SearchTokensHost($search: String!, $offset: Int!, $limit: Int!) {
-    token(where:{host:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTokensHost($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    token(where:{task:{callback:{operation_id:{_eq:$operation_id}}}, host:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id token_id user timestamp
         task { callback { display_id host } }
     }
-    token_aggregate(where:{host:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    token_aggregate(where:{task:{callback:{operation_id:{_eq:$operation_id}}}, host:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 export const SEARCH_TOKENS_SID = gql`
-query SearchTokensSID($search: String!, $offset: Int!, $limit: Int!) {
-    token(where:{token_id:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTokensSID($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    token(where:{task:{callback:{operation_id:{_eq:$operation_id}}}, token_id:{_ilike:$search}, deleted:{_eq:false}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id token_id user timestamp
         task { callback { display_id host } }
     }
-    token_aggregate(where:{token_id:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
+    token_aggregate(where:{task:{callback:{operation_id:{_eq:$operation_id}}}, token_id:{_ilike:$search}, deleted:{_eq:false}}) { aggregate { count } }
 }`;
 
 // Processes
@@ -555,24 +574,24 @@ query SearchProcessesPID($search: String!, $offset: Int!, $limit: Int!) {
 
 // SOCKS / Proxies
 export const SEARCH_SOCKS_IP = gql`
-query SearchSocksIP($search: String!, $offset: Int!, $limit: Int!) {
-    callbackport(where:{_or:[{local_port:{_eq:0}},{local_port:{_gt:0}}], callback:{ip:{_ilike:$search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchSocksIP($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    callbackport(where:{operation_id:{_eq:$operation_id}, _or:[{local_port:{_eq:0}},{local_port:{_gt:0}}], callback:{ip:{_ilike:$search}}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id local_port port_type bytes_sent bytes_received
         callback { id display_id host ip user }
     }
-    callbackport_aggregate(where:{_or:[{local_port:{_eq:0}},{local_port:{_gt:0}}], callback:{ip:{_ilike:$search}}}) { aggregate { count } }
+    callbackport_aggregate(where:{operation_id:{_eq:$operation_id}, _or:[{local_port:{_eq:0}},{local_port:{_gt:0}}], callback:{ip:{_ilike:$search}}}) { aggregate { count } }
 }`;
 export const SEARCH_SOCKS_PORT = gql`
-query SearchSocksPort($search: String!, $offset: Int!, $limit: Int!) {
-    callbackport(where:{local_port:{_eq:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchSocksPort($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    callbackport(where:{operation_id:{_eq:$operation_id}, local_port:{_eq:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id local_port port_type bytes_sent bytes_received
         callback { id display_id host ip user }
     }
-    callbackport_aggregate(where:{local_port:{_eq:$search}}) { aggregate { count } }
+    callbackport_aggregate(where:{operation_id:{_eq:$operation_id}, local_port:{_eq:$search}}) { aggregate { count } }
 }`;
 export const SUBSCRIBE_SOCKS = gql`
-subscription SubscribeSocks {
-    callbackport(where: {deleted: {_eq: false}}, order_by: {id: desc}, limit: 100) {
+subscription SubscribeSocks($operation_id: Int!) {
+    callbackport(where: {operation_id:{_eq:$operation_id}, deleted: {_eq: false}}, order_by: {id: desc}, limit: 100) {
         id local_port port_type bytes_sent bytes_received
         callback { id display_id host ip user }
     }
@@ -580,20 +599,20 @@ subscription SubscribeSocks {
 
 // Tags
 export const SEARCH_TAGS_TAG = gql`
-query SearchTagsTag($search: String!, $offset: Int!, $limit: Int!) {
-    tag(where:{_or:[{data:{_ilike:$search}},{tagtype:{name:{_ilike:$search}}}]}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTagsTag($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    tag(where:{operation_id:{_eq:$operation_id}, _or:[{data:{_ilike:$search}},{tagtype:{name:{_ilike:$search}}}]}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id data url source
         tagtype { id name color }
     }
-    tag_aggregate(where:{_or:[{data:{_ilike:$search}},{tagtype:{name:{_ilike:$search}}}]}) { aggregate { count } }
+    tag_aggregate(where:{operation_id:{_eq:$operation_id}, _or:[{data:{_ilike:$search}},{tagtype:{name:{_ilike:$search}}}]}) { aggregate { count } }
 }`;
 export const SEARCH_TAGS_SOURCE = gql`
-query SearchTagsSource($search: String!, $offset: Int!, $limit: Int!) {
-    tag(where:{source:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
+query SearchTagsSource($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    tag(where:{operation_id:{_eq:$operation_id}, source:{_ilike:$search}}, order_by:{id:desc}, limit:$limit, offset:$offset) {
         id data url source
         tagtype { id name color }
     }
-    tag_aggregate(where:{source:{_ilike:$search}}) { aggregate { count } }
+    tag_aggregate(where:{operation_id:{_eq:$operation_id}, source:{_ilike:$search}}) { aggregate { count } }
 }`;
 
 // Browsers
@@ -632,8 +651,8 @@ query SearchBrowsersComment($search: String!, $offset: Int!, $limit: Int!) {
 
 // Task responses
 export const GET_TASK_RESPONSES = gql`
-query GetTaskResponses($task_id: Int!) {
-    response(where: {task_id: {_eq: $task_id}}, order_by: {id: asc}, limit: 50) {
+query GetTaskResponses($task_id: Int!, $operation_id: Int!) {
+    response(where: {task:{callback:{operation_id:{_eq:$operation_id}}}, task_id: {_eq: $task_id}}, order_by: {id: asc}, limit: 50) {
         id response_escape timestamp
     }
 }`;
@@ -646,37 +665,37 @@ const INTERACTIVE_TASK_FIELDS = `
     callback { id display_id host }
 `;
 export const SEARCH_INTERACTIVE_PARAMS = gql`
-query SearchInteractiveParams($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {is_interactive_task: {_eq: true}, _or: [{original_params: {_ilike: $search}}, {display_params: {_ilike: $search}}]}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+query SearchInteractiveParams($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, _or: [{original_params: {_ilike: $search}}, {display_params: {_ilike: $search}}]}, order_by: {id: desc}, limit: $limit, offset: $offset) {
         ${INTERACTIVE_TASK_FIELDS}
     }
-    task_aggregate(where: {is_interactive_task: {_eq: true}, _or: [{original_params: {_ilike: $search}}, {display_params: {_ilike: $search}}]}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, _or: [{original_params: {_ilike: $search}}, {display_params: {_ilike: $search}}]}) { aggregate { count } }
 }`;
 export const SEARCH_INTERACTIVE_COMMAND = gql`
-query SearchInteractiveCommand($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {is_interactive_task: {_eq: true}, command_name: {_ilike: $search}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+query SearchInteractiveCommand($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, command_name: {_ilike: $search}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
         ${INTERACTIVE_TASK_FIELDS}
     }
-    task_aggregate(where: {is_interactive_task: {_eq: true}, command_name: {_ilike: $search}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, command_name: {_ilike: $search}}) { aggregate { count } }
 }`;
 export const SEARCH_INTERACTIVE_HOST = gql`
-query SearchInteractiveHost($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {is_interactive_task: {_eq: true}, callback: {host: {_ilike: $search}}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+query SearchInteractiveHost($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, callback: {host: {_ilike: $search}}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
         ${INTERACTIVE_TASK_FIELDS}
     }
-    task_aggregate(where: {is_interactive_task: {_eq: true}, callback: {host: {_ilike: $search}}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, callback: {host: {_ilike: $search}}}) { aggregate { count } }
 }`;
 export const SEARCH_INTERACTIVE_OPERATOR = gql`
-query SearchInteractiveOperator($search: String!, $offset: Int!, $limit: Int!) {
-    task(where: {is_interactive_task: {_eq: true}, operator: {username: {_ilike: $search}}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+query SearchInteractiveOperator($search: String!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, operator: {username: {_ilike: $search}}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
         ${INTERACTIVE_TASK_FIELDS}
     }
-    task_aggregate(where: {is_interactive_task: {_eq: true}, operator: {username: {_ilike: $search}}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, operator: {username: {_ilike: $search}}}) { aggregate { count } }
 }`;
 export const SEARCH_INTERACTIVE_TYPE = gql`
-query SearchInteractiveType($search: Int!, $offset: Int!, $limit: Int!) {
-    task(where: {is_interactive_task: {_eq: true}, interactive_task_type: {_eq: $search}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
+query SearchInteractiveType($search: Int!, $offset: Int!, $limit: Int!, $operation_id: Int!) {
+    task(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, interactive_task_type: {_eq: $search}}, order_by: {id: desc}, limit: $limit, offset: $offset) {
         ${INTERACTIVE_TASK_FIELDS}
     }
-    task_aggregate(where: {is_interactive_task: {_eq: true}, interactive_task_type: {_eq: $search}}) { aggregate { count } }
+    task_aggregate(where: {operation_id:{_eq:$operation_id}, is_interactive_task: {_eq: true}, interactive_task_type: {_eq: $search}}) { aggregate { count } }
 }`;

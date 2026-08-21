@@ -4,7 +4,8 @@
 //  Consolidates logic that was split between index.js (JWT helpers)
 //  and cache.js (login / refresh / logout actions).
 //
-//  Dependency chain:  state → time → websocket → auth  (no cycles)
+//  Dependency chain:  state → time → websocket → mythicKVStore → auth
+//                     (no cycles)
 // ═══════════════════════════════════════════════════════════════════
 import { jwtDecode } from 'jwt-decode';
 import { meState, mePreferences, operatorSettingDefaults, type MythicUser } from './state';
@@ -12,6 +13,8 @@ import { getSkewedNow } from './time';
 import { restartWebsockets } from './websocket';
 import { snackActions } from './snackbar';
 import { dbg } from './utils';
+// mythicKVStore imports only ./state, so this adds no cycle.
+import { flushNow, resetKV } from './mythicKVStore';
 
 // ── Version tag ────────────────────────────────────────────────────
 export const mythicUIVersion = "0.3.106";
@@ -238,4 +241,29 @@ export const FailedRefresh = (restart_websockets?: boolean): void => {
     if (restart_websockets) {
         restartWebsockets();
     }
+};
+
+/**
+ * Terminate the session for real.
+ *
+ * The sidebar's logout was `navigate('/login')` plus a zustand flag: no token
+ * clear, no cache clear, no module-state clear. Since the SPA never reloads,
+ * the next operator to log in on this browser inherited the previous one's
+ * Apollo cache (their callbacks, graph edges and payloads paint on first frame)
+ * and the previous one's MSF KV singletons.
+ *
+ * Pass the Apollo client to also drop the normalized cache; `clearStore` is used
+ * rather than `resetStore` because there is nothing worth refetching once the
+ * credentials are gone.
+ */
+export const performLogout = async (
+    client?: { clearStore: () => Promise<unknown> },
+): Promise<void> => {
+    // Push pending MSF state up first — after resetKV it is gone locally.
+    try { await flushNow(); } catch { /* offline: local teardown still must run */ }
+    resetKV();
+    if (client) {
+        try { await client.clearStore(); } catch { /* in-flight queries may reject */ }
+    }
+    FailedRefresh(true);
 };

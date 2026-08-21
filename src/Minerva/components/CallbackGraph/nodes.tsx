@@ -5,6 +5,7 @@ import { Terminal, Cpu, User, Shield, Network, Skull, Info } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion';
 import { isCallbackAlive } from '../../lib/utils';
 import { timeAgo } from '../../lib/time';
+import { useWindowEngaged } from '../../lib/useWindowEngaged';
 import { getOSIcon } from '../OSIcons';
 
 // ── Node data type definitions ──────────────────────────────────────────────
@@ -175,7 +176,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
     const isDead = deadCheck && showDeadState;
 
     // Determine colors
-    let mainColor = "#22c55e"; // Green default
+    let mainColor = "#4ade80"; // Green default
     // borderColor Tailwind class (reserved for future skinning)
     let glowColor = "bg-signal/20";
 
@@ -269,7 +270,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
                 onContextMenu={handleContextMenu}
                 style={
                     data.isHighlighted
-                        ? { boxShadow: '0 0 18px 4px rgba(34,197,94,0.55)', outline: '1.5px solid rgba(34,197,94,0.7)', transition: 'opacity 0.3s, filter 0.3s, box-shadow 0.3s, outline 0.3s' }
+                        ? { boxShadow: '0 0 18px 4px rgba(74,222,128,0.55)', outline: '1.5px solid rgba(74,222,128,0.7)', transition: 'opacity 0.3s, filter 0.3s, box-shadow 0.3s, outline 0.3s' }
                         : data.isDimmed
                             ? { opacity: 0.15, filter: 'grayscale(1)', transition: 'opacity 0.3s, filter 0.3s, box-shadow 0.3s, outline 0.3s' }
                             : { transition: 'opacity 0.3s, filter 0.3s, box-shadow 0.3s, outline 0.3s' }
@@ -286,7 +287,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
                         initial={{ backgroundColor: "#050505", borderColor: "#ffffff", opacity: 0, scale: 0.8, filter: "blur(5px)", clipPath: "inset(0 100% 0 0)" }}
                         animate={{
                             backgroundColor: isDead ? "#dc2626" : "#050505", // red-600 hex
-                            borderColor: isDead ? "#ef4444" : (isHighIntegrity ? "#eab308" : "rgba(34, 197, 94, 0.5)"),
+                            borderColor: isDead ? "#ef4444" : (isHighIntegrity ? "#eab308" : "rgba(74,222,128, 0.5)"),
                             opacity: 1,
                             scale: 1,
                             filter: "blur(0px)",
@@ -395,7 +396,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
                         className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2"
                         initial={{ borderColor: "#ffffff", opacity: 0 }}
                         animate={{ 
-                            borderColor: isDead ? "#000000" : (isHighIntegrity ? "#eab308" : "#22c55e"), 
+                            borderColor: isDead ? "#000000" : (isHighIntegrity ? "#eab308" : "#4ade80"), 
                             opacity: 1 
                         }}
                         transition={{ 
@@ -407,7 +408,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
                         className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2"
                         initial={{ borderColor: "#ffffff", opacity: 0 }}
                         animate={{ 
-                            borderColor: isDead ? "#000000" : (isHighIntegrity ? "#eab308" : "#22c55e"), 
+                            borderColor: isDead ? "#000000" : (isHighIntegrity ? "#eab308" : "#4ade80"), 
                             opacity: 1 
                         }}
                         transition={{ 
@@ -436,7 +437,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
                     >
                         <div className={`bg-black/90 backdrop-blur-xl border ${finalBorderColor} p-4 rounded shadow-[0_0_30px_rgba(0,0,0,0.8)] relative overflow-hidden`}>
                             {/* Animated scanning line background */}
-                            <div className={`absolute inset-0 opacity-10 bg-[linear-gradient(transparent_0%,${isHighIntegrity ? '#eab308' : '#22c55e'}_50%,transparent_100%)] bg-[length:100%_200%] animate-[scan_3s_linear_infinite] pointer-events-none`}></div>
+                            <div className={`absolute inset-0 opacity-10 bg-[linear-gradient(transparent_0%,${isHighIntegrity ? '#eab308' : '#4ade80'}_50%,transparent_100%)] bg-[length:100%_200%] animate-[scan_3s_linear_infinite] pointer-events-none`}></div>
                             
                             {/* Connector Line Indicator */}
                             {tooltipPos.align === 'right' ? (
@@ -567,7 +568,21 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
     );
 };
 
+/**
+ * Framer drives `repeat: Infinity` from its own rAF loop, writing inline styles
+ * on the main thread every frame — CSS `animation-play-state` cannot touch it,
+ * so the idle-window rule in index.css does not apply here. RootNode is mounted
+ * for as long as the Callbacks page is open and animates two `blur-2xl`/`blur-xl`
+ * filters under a changing scale, plus a box-shadow — the two most expensive
+ * things there are to animate. Unfocused, that ran forever for nobody.
+ *
+ * IDLE_TRANSITION has duration 0, so blurring the window snaps each element to
+ * its rest pose instead of spending one last cycle getting there.
+ */
+const IDLE_TRANSITION = { duration: 0 } as const;
+
 export const RootNode = ({ data }: { data: RootNodeData }) => {
+    const engaged = useWindowEngaged();
     return (
         <motion.div 
             className="relative group"
@@ -584,29 +599,22 @@ export const RootNode = ({ data }: { data: RootNodeData }) => {
             <motion.div 
                 className="absolute -inset-8 bg-signal/5 blur-2xl rounded-full"
                 initial={{ scale: 0, opacity: 0 }}
-                animate={{ 
-                    scale: [1, 1.2, 1],
-                    opacity: [0.3, 0.1, 0.3]
-                }}
-                transition={{ 
-                    duration: 3, 
-                    repeat: Infinity, 
-                    ease: "easeInOut" 
-                }}
+                animate={engaged
+                    ? { scale: [1, 1.2, 1], opacity: [0.3, 0.1, 0.3] }
+                    : { scale: 1, opacity: 0.3 }}
+                transition={engaged
+                    ? { duration: 3, repeat: Infinity, ease: "easeInOut" }
+                    : IDLE_TRANSITION}
             />
             <motion.div 
                 className="absolute -inset-4 bg-signal/10 blur-xl rounded-full"
                 initial={{ scale: 0, opacity: 0 }}
-                animate={{ 
-                    scale: [1, 1.1, 1],
-                    opacity: [0.5, 0.2, 0.5]
-                }}
-                transition={{ 
-                    duration: 2, 
-                    repeat: Infinity, 
-                    ease: "easeInOut",
-                    delay: 0.5
-                }}
+                animate={engaged
+                    ? { scale: [1, 1.1, 1], opacity: [0.5, 0.2, 0.5] }
+                    : { scale: 1, opacity: 0.5 }}
+                transition={engaged
+                    ? { duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.5 }
+                    : IDLE_TRANSITION}
             />
             
             {/* Ripple effect rings */}
@@ -618,36 +626,32 @@ export const RootNode = ({ data }: { data: RootNodeData }) => {
                         clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
                     }}
                     initial={{ scale: 1, opacity: 0.5 }}
-                    animate={{ 
-                        scale: [1, 1.5 + i * 0.3],
-                        opacity: [0.5, 0]
-                    }}
-                    transition={{
-                        duration: 2,
-                        repeat: Infinity,
-                        delay: i * 0.6,
-                        ease: "easeOut"
-                    }}
+                    animate={engaged
+                        ? { scale: [1, 1.5 + i * 0.3], opacity: [0.5, 0] }
+                        : { scale: 1, opacity: 0 }}
+                    transition={engaged
+                        ? { duration: 2, repeat: Infinity, delay: i * 0.6, ease: "easeOut" }
+                        : IDLE_TRANSITION}
                 />
             ))}
             
             <motion.div 
-                className="relative w-32 h-32 flex flex-col items-center justify-center bg-black border-2 border-signal shadow-[0_0_30px_rgba(34,197,94,0.3)]"
+                className="relative w-32 h-32 flex flex-col items-center justify-center bg-black border-2 border-signal shadow-[0_0_30px_rgba(74,222,128,0.3)]"
                 style={{
                     clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
                 }}
-                animate={{
-                    boxShadow: [
-                        "0 0 30px rgba(34,197,94,0.3)",
-                        "0 0 50px rgba(34,197,94,0.5)",
-                        "0 0 30px rgba(34,197,94,0.3)"
-                    ]
-                }}
-                transition={{
-                    duration: 2,
-                    repeat: Infinity,
-                    ease: "easeInOut"
-                }}
+                animate={engaged
+                    ? {
+                        boxShadow: [
+                            "0 0 30px rgba(74,222,128,0.3)",
+                            "0 0 50px rgba(74,222,128,0.5)",
+                            "0 0 30px rgba(74,222,128,0.3)"
+                        ]
+                    }
+                    : { boxShadow: "0 0 30px rgba(74,222,128,0.3)" }}
+                transition={engaged
+                    ? { duration: 2, repeat: Infinity, ease: "easeInOut" }
+                    : IDLE_TRANSITION}
             >
                 {/* 隱藏的連接點 - 水平佈局：source 在右側，target 在左側 */}
                 <Handle
@@ -762,7 +766,7 @@ export const BsCallbackNode = ({ data }: { data: BsCallbackNodeData }) => {
             style={{
                 minWidth: 110,
                 ...(anySelected && !isSelected ? { opacity: 0.2, filter: 'grayscale(1)', transition: 'opacity 0.2s, filter 0.2s' } : {}),
-                ...(isSelected ? { boxShadow: '0 0 12px 2px rgba(34,197,94,0.5)', outline: '1.5px solid rgba(34,197,94,0.7)', transition: 'box-shadow 0.2s' } : {}),
+                ...(isSelected ? { boxShadow: '0 0 12px 2px rgba(74,222,128,0.5)', outline: '1.5px solid rgba(74,222,128,0.7)', transition: 'box-shadow 0.2s' } : {}),
             }}
             className="flex flex-col items-center gap-1 px-3 py-2 border rounded font-mono text-xs bg-[#0a1a0a] border-signal/40 text-signal"
         >

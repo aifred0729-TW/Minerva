@@ -190,10 +190,10 @@ const PayloadTypeCard = ({ pt }: { pt: any }) => {
         <div className={cn(
             'relative border transition-all',
             pt.deleted
-                ? 'border-red-500/30 bg-red-500/3 opacity-60'
+                ? 'border-red-500/30 bg-red-500/[0.03] opacity-60'
                 : pt.container_running
-                    ? 'border-signal/25 bg-signal/3 hover:border-signal/50'
-                    : 'border-red-500/20 bg-red-500/3 hover:border-red-400/40'
+                    ? 'border-signal/25 bg-signal/[0.03] hover:border-signal/50'
+                    : 'border-red-500/20 bg-red-500/[0.03] hover:border-red-400/40'
         )}>
             {/* Header row */}
             <div className="flex items-center gap-2 px-4 py-3">
@@ -353,7 +353,7 @@ const TranslationRow = ({ tc }: { tc: any }) => {
         <>
         <div className={cn(
             "relative border transition-all",
-            tc.deleted ? "border-red-500/30 bg-red-500/3 opacity-60" : "border-purple-400/20 bg-purple-400/3 hover:border-purple-400/40"
+            tc.deleted ? "border-red-500/30 bg-red-500/[0.03] opacity-60" : "border-purple-400/20 bg-purple-400/[0.03] hover:border-purple-400/40"
         )}>
             <div className="flex items-center gap-2 px-4 py-3">
                 <StatusDot running={tc.container_running} />
@@ -457,7 +457,7 @@ const CustomBrowserRow = ({ cb }: { cb: any }) => {
         <>
         <div className={cn(
             "relative border transition-all",
-            cb.deleted ? "border-red-500/30 bg-red-500/3 opacity-60" : "border-amber-400/20 bg-amber-400/3 hover:border-amber-400/40"
+            cb.deleted ? "border-red-500/30 bg-red-500/[0.03] opacity-60" : "border-amber-400/20 bg-amber-400/[0.03] hover:border-amber-400/40"
         )}>
             <div className="flex items-center gap-2 px-4 py-3">
                 <StatusDot running={cb.container_running} />
@@ -659,7 +659,7 @@ const ConsumingRow = ({ cc }: { cc: any }) => {
         <>
         <div className={cn(
             "relative border transition-all",
-            cc.deleted ? "border-red-500/20 bg-red-500/3 opacity-60" : "border-blue-400/20 bg-blue-400/3 hover:border-blue-400/40"
+            cc.deleted ? "border-red-500/20 bg-red-500/[0.03] opacity-60" : "border-blue-400/20 bg-blue-400/[0.03] hover:border-blue-400/40"
         )}>
             <div className="flex items-center gap-2 px-4 py-3">
                 <StatusDot running={cc.container_running} />
@@ -1005,7 +1005,7 @@ export default function PayloadTypes() {
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
                 {/* ── Header ── */}
-                <div className="shrink-0 border-b border-white/8 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+                <div className="shrink-0 border-b border-white/10 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
                     <div className="flex items-center gap-3 min-w-0">
                         <Layers size={22} className="text-signal" />
                         <div className="min-w-0">
@@ -1075,7 +1075,7 @@ export default function PayloadTypes() {
                 </div>
 
                 {/* ── Tabs (scrollable) ── */}
-                <div className="shrink-0 flex gap-0 border-b border-white/8 px-4 pt-2 overflow-x-auto cyber-scrollbar">
+                <div className="shrink-0 flex gap-0 border-b border-white/10 px-4 pt-2 overflow-x-auto cyber-scrollbar">
                     {tabs.map(t => {
                         const online = t.items.filter((i: any) => i.container_running).length;
                         const total = t.items.length;

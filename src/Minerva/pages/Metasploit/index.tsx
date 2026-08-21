@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import {
     RefreshCw, Wifi, WifiOff, Server, Bug, Shield, Terminal,
@@ -15,10 +15,11 @@ import {
 } from './msfrpc';
 import { useReactiveVar } from '@apollo/client/react';
 import { meState } from '../../lib/state';
+import { lazyRetry } from '../../lib/lazyRetry';
 
-const LaunchAttack = lazy(() => import('./LaunchAttack'));
-const Operations = lazy(() => import('./Operations'));
-const TaskBrowser = lazy(() => import('./TaskBrowser'));
+const LaunchAttack = lazyRetry(() => import('./LaunchAttack'), 'MsfLaunchAttack');
+const Operations = lazyRetry(() => import('./Operations'), 'MsfOperations');
+const TaskBrowser = lazyRetry(() => import('./TaskBrowser'), 'MsfTaskBrowser');
 
 type MsfTab = 'dashboard' | 'attack' | 'operations' | 'history';
 
@@ -396,7 +397,7 @@ export default function Metasploit() {
                     </header>
 
                     {/* Tab Navigation */}
-                    <div className="flex items-center gap-0 mb-6 border-b border-white/8">
+                    <div className="flex items-center gap-0 mb-6 border-b border-white/10">
                         {([
                             { key: 'dashboard' as MsfTab, label: 'DASHBOARD', icon: <LayoutDashboard size={14} /> },
                             { key: 'attack' as MsfTab, label: 'LAUNCH ATTACK', icon: <Rocket size={14} /> },
