@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Handle, Position, BaseEdge, EdgeLabelRenderer, EdgeProps, getStraightPath } from '@xyflow/react'
 import { Terminal, Cpu, User, Shield, Network, Skull, Info } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion';
-import { isCallbackAlive } from '../../lib/utils';
+import { isCallbackAlive, isStreamingCallbackTimestamp } from '../../lib/utils';
 import { timeAgo } from '../../lib/time';
 import { useWindowEngaged } from '../../lib/useWindowEngaged';
 import { getOSIcon } from '../OSIcons';
@@ -97,9 +97,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
     const os = data.os || '';
     const animationDelay = data.animationDelay || 0;
     const shouldAnimate = data.isNewNode;
-    const isStreaming = !data.isCustom &&
-        Boolean(data.last_checkin) &&
-        (data.last_checkin.startsWith('1970') || data.last_checkin === '1970-01-01T00:00:00');
+    const isStreaming = !data.isCustom && isStreamingCallbackTimestamp(data.last_checkin);
     
     const [isHovered, setIsHovered] = useState(false);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0, align: 'right' });

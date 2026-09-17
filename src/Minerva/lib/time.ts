@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════
 import React, { useEffect, useRef } from 'react';
 import { meState } from './state';
+import { isStreamingCallbackTimestamp } from './utils';
 
 /**
  * Convert a UTC date string to the operator's local time representation.
@@ -140,6 +141,7 @@ const MS_PER_DAY = 86_400_000;
  */
 export function timeAgo(isoStr: string | null | undefined): string {
     if (!isoStr) return 'Never';
+    if (isStreamingCallbackTimestamp(isoStr)) return 'Streaming';
     try {
         const normalized = isoStr.endsWith('Z') ? isoStr : `${isoStr}Z`;
         const diffMs = Date.now() - new Date(normalized).getTime();
