@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Handle, Position, BaseEdge, EdgeLabelRenderer, EdgeProps, getStraightPath } from '@xyflow/react'
 import { Terminal, Cpu, User, Shield, Network, Skull, Info } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion';
-import { isCallbackAlive } from '../../lib/utils';
+import { isCallbackAlive, isStreamingCallbackTimestamp } from '../../lib/utils';
 import { timeAgo } from '../../lib/time';
 import { useWindowEngaged } from '../../lib/useWindowEngaged';
 import { getOSIcon } from '../OSIcons';
@@ -38,6 +38,7 @@ export interface CyberNodeData {
     nodeLabels: string[];
     hostSessions?: Array<Record<string, unknown>> | null;
     active?: boolean;
+    dead?: boolean;
     isHighlighted?: boolean;
     isDimmed?: boolean;
     [key: string]: unknown;
@@ -96,6 +97,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
     const os = data.os || '';
     const animationDelay = data.animationDelay || 0;
     const shouldAnimate = data.isNewNode;
+    const isStreaming = !data.isCustom && isStreamingCallbackTimestamp(data.last_checkin);
     
     const [isHovered, setIsHovered] = useState(false);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0, align: 'right' });
@@ -137,9 +139,10 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
     // Calculate last checkin with live update
     const calculateTimeAgo = useCallback(() => {
         if (data.isCustom) return "N/A";
+        if (isStreaming) return "STREAMING";
         if (!data.last_checkin) return "NEVER";
         return timeAgo(data.last_checkin);
-    }, [data.last_checkin, data.isCustom]);
+    }, [data.last_checkin, data.isCustom, isStreaming]);
 
     const [lastCheckinText, setLastCheckinText] = useState(calculateTimeAgo());
 
@@ -155,12 +158,11 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
     
     // Parse time to determining status — uses sleep_info interval×3 as threshold
     const deadCheck = useMemo(() => {
-        // Custom nodes are never "dead"
         if (data.isCustom) return false;
-        // isCallbackAlive uses sleep_info for a proper threshold
+        if (isStreaming) return Boolean(data.dead);
         return !isCallbackAlive({ active: data.active, last_checkin: data.last_checkin, sleep_info: data.sleep_info });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [lastCheckinText, data.last_checkin, data.isCustom, data.active, data.sleep_info]);
+    }, [lastCheckinText, data.last_checkin, data.isCustom, data.active, data.dead, data.sleep_info, isStreaming]);
 
     // Delay the "Dead" appearance to allow entry animations to complete first
     useEffect(() => {
@@ -174,6 +176,7 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
     }, [data.animationDelay]);
 
     const isDead = deadCheck && showDeadState;
+    const checkinHealthy = isStreaming || lastCheckinText.includes('s');
 
     // Determine colors
     let mainColor = "#4ade80"; // Green default
@@ -498,8 +501,8 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-[10px] font-mono text-gray-500 uppercase">Last Checkin</span>
                                         <span className={`text-[11px] font-mono font-bold ${
-                                            data.isCustom ? 'text-cyan-400' : 
-                                            (lastCheckinText.includes('s') ? 'text-green-500' : 'text-red-400')
+                                            data.isCustom ? 'text-cyan-400' :
+                                            (checkinHealthy ? 'text-green-500' : 'text-red-400')
                                         }`}>
                                             {lastCheckinText}
                                         </span>
@@ -507,9 +510,9 @@ export const CyberNode = ({ data, dragging }: { data: CyberNodeData; dragging?: 
                                     {!data.isCustom && (
                                         <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
                                             <motion.div 
-                                                className={`h-full ${lastCheckinText.includes('s') ? 'bg-green-500' : 'bg-red-500'}`}
+                                                className={`h-full ${checkinHealthy ? 'bg-green-500' : 'bg-red-500'}`}
                                                 initial={{ width: 0 }}
-                                                animate={{ width: lastCheckinText.includes('s') ? '100%' : '30%' }}
+                                                animate={{ width: checkinHealthy ? '100%' : '30%' }}
                                                 transition={{ duration: 1 }}
                                             />
                                         </div>

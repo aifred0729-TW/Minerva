@@ -1,7 +1,7 @@
 import type { Callback } from '../../types/callbacks';
 import type { Node, Edge } from '@xyflow/react';
 import { Position } from '@xyflow/react';
-import { isCallbackAlive, parseFirstIP } from '../../lib/utils';
+import { isCallbackAlive, isStreamingCallbackTimestamp, parseFirstIP } from '../../lib/utils';
 
 export interface BuildGraphDataParams {
     callbacksData: any;
@@ -123,6 +123,7 @@ export function buildGraphData(params: BuildGraphDataParams): { nodes: Node[]; e
                 payloadType: c.payloadType || c.payload?.payloadtype?.name || '',
                 os: c.os,
                 last_checkin: c.last_checkin,
+                dead: c.dead,
                 pid: c.pid,
                 architecture: c.architecture,
                 domain: c.domain,
@@ -243,12 +244,13 @@ export function buildGraphData(params: BuildGraphDataParams): { nodes: Node[]; e
             if (n.data?.last_checkin) {
                 try {
                     const lastCheckin = String(n.data.last_checkin);
+                    const isStreaming = isStreamingCallbackTimestamp(lastCheckin);
                     const timeStr = lastCheckin.endsWith('Z') ? lastCheckin : `${lastCheckin}Z`;
                     timestamp = timeStr;
                     const last = new Date(timeStr).getTime();
                     const now = new Date().getTime();
                     const diff = (now - last) / 1000;
-                    if (diff < 5) isRecent = true;
+                    if (isStreaming || diff < 5) isRecent = true;
                 } catch {}
             }
 

@@ -289,6 +289,11 @@ export function isOrphanedTcpP2P(
         (e?.source?.id === id || e?.destination?.id === id));
 }
 
+/** Mythic Push C2 uses the Unix epoch as an active-stream sentinel. */
+export function isStreamingCallbackTimestamp(value: string | null | undefined): boolean {
+    return Boolean(value) && value!.startsWith('1970-01-01T00:00:00');
+}
+
 /**
  * Determine if a callback is alive from its last_checkin and sleep_info.
  * Uses a dynamic threshold so long-sleep beacons aren't flagged dead mid-interval.
@@ -303,6 +308,7 @@ export function isCallbackAlive(
 ): boolean {
     if (edges !== undefined && isOrphanedTcpP2P(callback, edges)) return false;
     if (!callback.last_checkin) return false;
+    if (isStreamingCallbackTimestamp(callback.last_checkin)) return true;
     const thresholdMs = getCallbackDeadThresholdSecs(callback.sleep_info) * 1_000;
     const timeStr = callback.last_checkin.endsWith('Z') ? callback.last_checkin : `${callback.last_checkin}Z`;
     return (Date.now() - new Date(timeStr).getTime()) < thresholdMs;
